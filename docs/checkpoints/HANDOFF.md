@@ -1,7 +1,8 @@
 # Handoff (resume here)
 
-Branch `ccr-c70423ba-3alf1w`. PR #1 was merged into `main` at checkpoint 52 (merge commit b081922); everything
-since (checkpoints 53-64, skills, memory, loop tooling, APK CI) is in a second PR. Do not merge without the owner. License GPL-2.0-or-later (ADR-0010). Python is the oracle; Kotlin must
+Branch `ccr-c70423ba-3alf1w`. PR #1 (merge b081922) and PR #2 (merge fa70b8a, checkpoints 53-64, skills, memory, loop tooling, APK CI)
+are merged into `main`. Work since (Graphify index and later) continues on this branch, based on `main`. Open a
+new PR for it; do not merge without the owner. License GPL-2.0-or-later (ADR-0010). Python is the oracle; Kotlin must
 reproduce its hashes (ADR-0004, ADR-0007). Read `docs/memory/MEMORY.md` first, then this file.
 
 Verify the state:
