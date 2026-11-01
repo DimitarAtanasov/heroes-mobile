@@ -3,6 +3,7 @@ name: test
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   unittest:
@@ -16,3 +17,16 @@ jobs:
 
       - name: Run h3re tests
         run: python3 -m unittest discover -s tools/h3re/tests
+
+  real-files:
+    # Optional: runs only when dispatched manually, on a self-hosted runner
+    # that has the game data. The runner variable H3_DATA_DIR gives its path.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    env:
+      H3_DATA_DIR: ${{ vars.H3_DATA_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run h3re tests against real game files
+        run: python3 -m unittest discover -s tools/h3re/tests -v
