@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from h3re.h3m import H3mError, parse_h3m, parse_h3m_bytes, ROE, AB, SOD
+from h3re.h3m import H3mError, Tile, parse_h3m, parse_h3m_bytes, ROE, AB, SOD
 
 
 def s(t):
@@ -59,15 +59,28 @@ def extra(ver, rumors=(("Tavern", "Dragons!"),), disposed=True, predefined=None)
     return b
 
 
+def tiles_for(size, levels):
+    out = b""
+    for z in range(levels):
+        for y in range(size):
+            for x in range(size):
+                out += bytes([x % 256, y % 256, z, 1, 2, 3, 4])
+    return out
+
+
 def build(ver, victory=b"\xff", loss=b"\xff", teams=b"\x00", inactive_from=2,
-          tail=None):
-    b = struct.pack("<I", ver) + b"\x01" + struct.pack("<I", 36) + b"\x00"
+          tail=None, size=36, two=False, tiles=None):
+    b = (struct.pack("<I", ver) + b"\x01" + struct.pack("<I", size)
+         + (b"\x01" if two else b"\x00"))
     b += s("Test Map") + s("A description") + b"\x02"
     if ver != ROE:
         b += b"\x00"
     for i in range(8):
         b += player(ver, active=i < inactive_from, hero=(i == 0))
-    return b + victory + loss + teams + (extra(ver) if tail is None else tail)
+    if tiles is None:
+        tiles = tiles_for(size, 2 if two else 1)
+    return (b + victory + loss + teams + (extra(ver) if tail is None else tail)
+            + tiles)
 
 
 class H3mTests(unittest.TestCase):
@@ -143,7 +156,7 @@ class H3mTests(unittest.TestCase):
     def test_extra_errors(self):
         for ver in (ROE, AB, SOD):
             good = build(ver)
-            start = len(build(ver, tail=b""))
+            start = len(build(ver, tail=b"", tiles=b""))
             for cut in range(start, len(good), 7):
                 with self.assertRaises(H3mError, msg=f"{ver} {cut}"):
                     parse_h3m_bytes(good[:cut])
@@ -220,14 +233,49 @@ class H3mTests(unittest.TestCase):
         self.assertEqual(parse_h3m(gz).name, "Test Map")
 
     def test_map_size_bounds(self):
-        good = build(SOD)
+        good = build(SOD, tiles=b"")
         for size, ok in ((0, False), (1, True), (1024, True), (1025, False)):
-            raw = good[:5] + struct.pack("<I", size) + good[9:]
+            raw = good[:5] + struct.pack("<I", size) + good[9:] + tiles_for(1, 1) * (size * size if ok else 0)
             if ok:
                 self.assertEqual(parse_h3m_bytes(raw).size, size)
             else:
                 with self.assertRaises(H3mError):
                     parse_h3m_bytes(raw)
+
+    def test_tiles_one_level(self):
+        for ver in (ROE, AB, SOD):
+            h = parse_h3m_bytes(build(ver, size=3))
+            self.assertEqual(h.levels, 1)
+            self.assertEqual(len(h.tiles_raw), 3 * 3 * 7)
+            self.assertEqual(h.tile(2, 1), Tile(2, 1, 0, 1, 2, 3, 4))
+            self.assertEqual(len(list(h.tiles)), 9)
+            with self.assertRaises(IndexError):
+                h.tile(0, 0, 1)
+            with self.assertRaises(IndexError):
+                h.tile(3, 0)
+
+    def test_tiles_two_levels(self):
+        h = parse_h3m_bytes(build(SOD, size=4, two=True))
+        self.assertEqual(h.levels, 2)
+        self.assertEqual(len(h.tiles_raw), 4 * 4 * 2 * 7)
+        self.assertEqual(h.tile(3, 2, 1), Tile(3, 2, 1, 1, 2, 3, 4))
+        self.assertEqual(list(h.tiles)[16], h.tile(0, 0, 1))
+
+    def test_tiles_truncated_and_trailing(self):
+        good = build(SOD, size=3, two=True)
+        for cut in (1, 7, 3 * 3 * 2 * 7 - 1, 3 * 3 * 7):
+            with self.assertRaises(H3mError, msg=str(cut)):
+                parse_h3m_bytes(good[:len(good) - cut])
+        # one-level tiles but header says two levels
+        with self.assertRaises(H3mError):
+            parse_h3m_bytes(build(SOD, size=3, two=True, tiles=tiles_for(3, 1)))
+        # bytes after the tiles (objects) are ignored, not parsed
+        h = parse_h3m_bytes(good + b"objects...")
+        self.assertEqual(len(h.tiles_raw), 3 * 3 * 2 * 7)
+
+    def test_tiles_huge_size_no_data(self):
+        with self.assertRaises(H3mError):
+            parse_h3m_bytes(build(SOD, size=1024, two=True, tiles=b""))
 
     def test_uncompressed_accepted(self):
         self.assertEqual(parse_h3m(build(AB)).name, "Test Map")

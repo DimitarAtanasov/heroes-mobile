@@ -36,7 +36,7 @@ u8 castle), 4-7 pos, 8-9 none, 10 transport artifact (u8).
 Loss: u8 type (0xFF none); 0/1 pos; 2 u16 days.
 Teams: u8 count; if nonzero, 8 u8 team ids.
 
-## After teams (parsed; stops before terrain/objects)
+## After teams (parsed; then terrain tiles; stops before objects)
 In order. "Mask" = little-endian bit order (bit i = byte i//8, bit i%8).
 1. Allowed heroes mask: 16 bytes (RoE), 20 bytes (AB+). Set bit = allowed.
    Exposed as `allowed_heroes_mask` / `allowed_heroes` (ids < 128 RoE, < 156).
@@ -56,6 +56,13 @@ In order. "Mask" = little-endian bit order (bit i = byte i//8, bit i%8).
    (19 x u16 slots: 16 worn, catapult, spellbook, misc5; 0xFFFF empty; then
    u16 backpack count + u16 ids); u8 has-bio (string); u8 gender (0xFF
    default); u8 has-spells (9-byte mask); u8 has-primary (4 x u8 A/D/P/K).
+9. Terrain tiles (all versions): size x size x (1 + two_levels) tiles, 7 bytes
+   each, level 0 first, then rows, then columns: u8 terrain, u8 view, u8 river
+   type, u8 river direction, u8 road type, u8 road direction, u8 flags.
+   Exposed as `levels`, `tiles_raw` (bytes), `tile(x, y, level)` and a lazy
+   `tiles` iterator of `Tile` tuples. Truncated tile data raises `H3mError`
+   (the length is checked before any copy; size is capped at 1024, so at most
+   14 MiB). Parsing stops here: bytes after the tiles (objects) are ignored.
 New `H3mHeader` fields default to empty/None, so older construction still works.
 
 ## Unverified against real files
@@ -66,7 +73,9 @@ synthetic fixtures only. Especially uncertain:
 - Exact mask byte lengths and id limits per version (AB artifacts 17 bytes).
 - Predefined hero record layout, 19 artifact slots, u16 artifact ids.
 - WoG (0x33) is parsed with the SoD layout; its extras are unknown.
+- Tile layout (7 bytes/tile, field order, level-major then row-major order) is
+  UNVERIFIED against real files; the flags byte meaning is not interpreted.
 - RoE/AB hero-count details (RoE 16-byte mask assumed).
 
 ## Not implemented
-Terrain, objects, events. Errors raise `H3mError`.
+Objects (object templates, object instances), events. Errors raise `H3mError`.

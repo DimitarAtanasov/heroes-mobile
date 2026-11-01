@@ -91,6 +91,7 @@ def h3m_bytes(name: str = "Test Map", desc: str = "A description\nline two") -> 
     out += bytes(9) + bytes(4)  # allowed spells mask, allowed skills mask
     out += struct.pack("<I", 0)  # rumor count
     out += bytes(156)  # predefined hero flags (all absent)
+    out += bytes(36 * 36 * 7)  # terrain tiles, one level
     return out
 
 

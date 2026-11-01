@@ -3,7 +3,7 @@
 Parses: format version, size, name, description, difficulty, player slots,
 victory/loss conditions, teams, then (per version) allowed heroes,
 placeholder heroes, disposed heroes, allowed artifacts/spells/skills, rumors
-and predefined hero data.  Parsing stops before terrain/objects.
+and predefined hero data, then terrain tiles.  Parsing stops before objects.
 See docs/specs/h3m.md.  Malformed data raises H3mError.
 """
 from __future__ import annotations
@@ -12,8 +12,9 @@ import gzip
 import struct
 import zlib
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
-__all__ = ["H3mError", "H3mHeader", "PlayerInfo", "parse_h3m", "parse_h3m_bytes",
+__all__ = ["H3mError", "H3mHeader", "Tile", "PlayerInfo", "parse_h3m", "parse_h3m_bytes",
            "ROE", "AB", "SOD", "WOG"]
 
 ROE, AB, SOD, WOG = 0x0E, 0x15, 0x1C, 0x33
@@ -21,6 +22,19 @@ VERSION_NAMES = {ROE: "RoE", AB: "AB", SOD: "SoD", WOG: "WoG"}
 MAX_DECOMPRESSED = 64 * 1024 * 1024
 MAX_STRING = 1 << 20
 NO_CONDITION = 0xFF
+
+
+TILE_BYTES = 7
+
+
+class Tile(NamedTuple):
+    terrain: int
+    view: int
+    river_type: int
+    river_dir: int
+    road_type: int
+    road_dir: int
+    flags: int
 
 
 class H3mError(ValueError):
@@ -113,6 +127,23 @@ class H3mHeader:
     banned_skills: list | None = None
     rumors: list = field(default_factory=list)  # (name, text)
     predefined_heroes: dict = field(default_factory=dict)  # SoD: hero id -> dict
+    levels: int = 1  # 1 + underground level
+    tiles_raw: bytes = b""  # levels * size * size * 7 bytes, level-major, row-major
+
+    def tile(self, x: int, y: int, level: int = 0) -> Tile:
+        """Tile at (x, y) on `level`; IndexError when out of bounds."""
+        if not (0 <= x < self.size and 0 <= y < self.size
+                and 0 <= level < self.levels):
+            raise IndexError(f"tile ({x}, {y}, {level}) out of bounds")
+        o = ((level * self.size + y) * self.size + x) * TILE_BYTES
+        return Tile(*self.tiles_raw[o:o + TILE_BYTES])
+
+    @property
+    def tiles(self):
+        """Lazy iterator of Tile over all tiles (level, then row, then column)."""
+        raw = self.tiles_raw
+        return (Tile(*raw[o:o + TILE_BYTES])
+                for o in range(0, len(raw), TILE_BYTES))
 
 
 def _read_victory(r: _Reader, ver: int):
@@ -285,6 +316,15 @@ def _read_predefined(r: _Reader):
     return d
 
 
+def _read_tiles(r: _Reader, h: H3mHeader) -> None:
+    h.levels = 2 if h.two_levels else 1
+    # size <= 1024 bounds this at 14 MiB; _take checks the data really is
+    # there before anything is copied, so a lying header cannot over-allocate.
+    n = h.size * h.size * h.levels * TILE_BYTES
+    p = r._take(n, "terrain tiles")
+    h.tiles_raw = bytes(r.data[p:p + n])
+
+
 def parse_h3m_bytes(raw: bytes) -> H3mHeader:
     """Parse an .H3M given its *decompressed* contents."""
     r = _Reader(raw)
@@ -313,6 +353,7 @@ def parse_h3m_bytes(raw: bytes) -> H3mHeader:
     h = H3mHeader(fmt, VERSION_NAMES[fmt], has_hero, size, two, name, desc,
                   diff, mhl, players, victory, loss, teams)
     _read_extra(r, h, fmt)
+    _read_tiles(r, h)
     return h
 
 
