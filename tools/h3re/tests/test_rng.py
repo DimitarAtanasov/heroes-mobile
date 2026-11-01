@@ -64,6 +64,70 @@ class TestPcg32(unittest.TestCase):
             self.assertTrue(g.chance(3, 10))   # 12%10=2 < 3
             self.assertFalse(g.chance(3, 10))  # 13%10=3 !< 3
 
+    # (num, den, expected result, draws consumed): the boundary table shared with
+    # android/sim/src/test/kotlin/h3/sim/RngEdgeTest.kt
+    CHANCE_EDGES = (
+        (0, 1, False, 0), (0, 5, False, 0), (-1, 5, False, 0), (-5, 1, False, 0),
+        (-(2 ** 62), 7, False, 0), (1, 1, True, 0), (5, 5, True, 0), (2, 1, True, 0),
+        (6, 5, True, 0), (2 ** 62, 7, True, 0), (-1, 1, False, 0),
+        (1, 2, None, 1), (1, 5, None, 1), (4, 5, None, 1), (3, 10, None, 1),
+    )
+
+    def test_chance_boundaries_consume_no_draw(self):
+        for num, den, want, draws in self.CHANCE_EDGES:
+            with self.subTest(num=num, den=den):
+                g, ref = Pcg32(11, 3), Pcg32(11, 3)
+                before = (g.state, g.inc)
+                got = g.chance(num, den)
+                if want is not None:
+                    self.assertIs(got, want)
+                self.assertIsInstance(got, bool)
+                for _ in range(draws):
+                    ref.next_u32()
+                if draws == 0:
+                    self.assertEqual((g.state, g.inc), before)
+                # the next real draw is the same as an untouched stream's
+                self.assertEqual(g.next_u32(), ref.next_u32())
+
+    def test_chance_boundaries_never_call_next_u32(self):
+        for num, den, want, draws in self.CHANCE_EDGES:
+            if draws:
+                continue
+            with self.subTest(num=num, den=den):
+                with mock.patch.object(Pcg32, "next_u32",
+                                       side_effect=AssertionError("drew")) as m:
+                    self.assertIs(Pcg32(1, 1).chance(num, den), want)
+                m.assert_not_called()
+
+    def test_chance_interior_draws_exactly_once(self):
+        for num, den, want, draws in self.CHANCE_EDGES:
+            if not draws:
+                continue
+            with self.subTest(num=num, den=den):
+                with mock.patch.object(Pcg32, "next_u32", return_value=den * 1000) as m:
+                    self.assertTrue(Pcg32(1, 1).chance(num, den))   # r%den == 0 < num
+                self.assertEqual(m.call_count, 1)
+
+    def test_chance_bad_den_raises_before_draw(self):
+        for den in (0, -1, -7):
+            for num in (-1, 0, 1, 10):
+                with self.subTest(num=num, den=den):
+                    g = Pcg32(5, 5)
+                    before = g.state
+                    with self.assertRaises(ValueError):
+                        g.chance(num, den)
+                    self.assertEqual(g.state, before)
+
+    def test_zero_probability_mutant_is_equivalent(self):
+        # `num > 0` vs `num >= 0` guards: a chance(0, d) that DID draw would move the
+        # stream and return False anyway; the observable difference is the stream.
+        # So the equivalence holds only for results, and consuming nothing is what
+        # keeps replays aligned: pin it with a two-stream comparison.
+        a, b = Pcg32(9, 9), Pcg32(9, 9)
+        for d in (1, 2, 3, 100):
+            self.assertFalse(a.chance(0, d))
+        self.assertEqual([a.next_u32() for _ in range(4)], [b.next_u32() for _ in range(4)])
+
     def test_streams(self):
         a1 = derive_stream(99, "battle:1", "x")
         a2 = derive_stream(99, "battle:1", "x")

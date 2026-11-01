@@ -35,9 +35,12 @@ Verify the state first:
 - `_OMIT_WHEN_DEFAULT` is empty, so omit-at-default is only tested synthetically in Kotlin.
 - ADR-0009 proposes that Kotlin Rational overflow throws; the owner has not confirmed it.
 - Lead mutation check on the good-morale roll (`m > 0` -> `m >= 0`) survived; judged an equivalent
-  mutant (zero-probability chance draws nothing). Worth a proof test.
-- Missing tests: adventure `Move.dest` float/bool rejection; changing stored town/hero content
-  changes `state_hash`.
+  mutant (zero-probability chance draws nothing). ~~Worth a proof test.~~ Closed: test_rng.py
+  `CHANCE_EDGES` and Kotlin `RngEdgeTest` pin that the guards consume no draw (state compared).
+- ~~Missing tests: adventure `Move.dest` float/bool rejection; changing stored town/hero content
+  changes `state_hash`.~~ Closed (`CommandInputTypeTest`, `StoredContentHashTest` in town/hero).
+- OPEN BUG found by those tests (3 `expectedFailure` in test_adventure.py): `Move.hero` accepts
+  bools (`isinstance(..., int)`), and `EndTurn.player` accepts 0.0/False (`!=` comparison).
 - The ability-text table in data/txt_maps/crtraits.json is placeholder; check against a real file.
 
 ## Needs the user (cannot be verified without real data)

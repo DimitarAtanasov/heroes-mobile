@@ -415,5 +415,51 @@ class GoldenTest(unittest.TestCase):
             s.hero.level = 3
 
 
+class StoredContentHashTest(unittest.TestCase):
+    """ADR-0006: every stored rules/class/policy field is in state_hash."""
+
+    def _hash(self, content=CONTENT, policy=H.DEFAULT_POLICY):
+        return H.state_hash(hero(content=content, policy=policy))
+
+    def _warden(self, d):
+        return next(c for c in d["classes"] if c["id"] == "class.warden")
+
+    def test_every_mutation_changes_the_hash(self):
+        def xp_entry(d): d["xp_table"][5] += 1
+        def xp_last(d): d["xp_table"][-1] += 1
+        def xp_extra(d): d["xp_table"].append(d["xp_table"][-1] + 5000)
+        def max_sec(d): d["max_secondary"] = 7
+        def levels(d): d["skill_levels"] = 4
+        def high_from(d): d["primary_high_from_level"] = 11
+        def start(d): self._warden(d)["start_primary"][0] += 1
+        def low(d): self._warden(d)["primary_low"][0] += 1
+        def high(d): self._warden(d)["primary_high"][3] += 1
+        def sec(d): self._warden(d)["secondary"]["skill.jade"] += 1
+        muts = dict(xp_entry=xp_entry, xp_last=xp_last, xp_extra=xp_extra, max_sec=max_sec,
+                    levels=levels, high_from=high_from, start=start, low=low, high=high, sec=sec)
+        base = self._hash()
+        hashes = {base}
+        for name, mut in muts.items():
+            with self.subTest(field=name):
+                d = raw()
+                mut(d)
+                h = self._hash(H.parse_hero_pack(d))
+                self.assertNotEqual(h, base)
+                hashes.add(h)
+        self.assertEqual(len(hashes), 1 + len(muts))
+
+    def test_unmutated_reparse_keeps_the_hash(self):
+        self.assertEqual(self._hash(H.parse_hero_pack(raw())), self._hash())
+
+    def test_policy_fields_change_the_hash(self):
+        base = self._hash()
+        for pol in (H.HeroPolicy(offer_mode="weighted_pair"), H.HeroPolicy(offer_fill="single")):
+            with self.subTest(policy=pol):
+                self.assertNotEqual(self._hash(policy=pol), base)
+
+    def test_class_choice_changes_the_hash(self):
+        self.assertNotEqual(H.state_hash(hero("class.seer")), H.state_hash(hero("class.warden")))
+
+
 if __name__ == "__main__":
     unittest.main()

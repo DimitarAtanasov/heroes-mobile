@@ -604,5 +604,98 @@ class MalformedDestTest(unittest.TestCase):
         self.assertEqual(A.canonical(a), A.canonical(b))
 
 
+class CommandInputTypeTest(unittest.TestCase):
+    """Gap (1): every coordinate/pair/id input of an adventure command is
+    rejected with IllegalCommand when it is a float, bool, string, None, wrong
+    length or has non-int elements. State and RNG untouched."""
+
+    BAD_PAIRS = ((2.0, 5), (2, 5.0), (True, 5), (1, True), (False, 0), (1, 0, 0), (1,), (),
+                 (None, 0), (0, None), ("1", 0), ("ab",), "ab", "10", b"ab", None, 5, 2.0,
+                 True, ([1], 0), ((1,), 0), {1: 0}, {1, 0}, [1.0, 0], [True, 0], [1], [1, 0, 0])
+
+    def _s(self):
+        return started(grid(["ggg", "ggg"]))
+
+    def test_move_dest_rejected(self):
+        s = self._s()
+        canon, h = A.canonical(s), A.state_hash(s)
+        for bad in self.BAD_PAIRS:
+            with self.subTest(dest=bad):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, A.Move(0, bad), NoRng())
+                self.assertEqual(A.canonical(s), canon)
+                self.assertEqual(A.state_hash(s), h)
+
+    def test_move_dest_rejected_even_when_equal_to_a_tile(self):
+        # (1.0, 0) == (1, 0) and (True, 0) == (1, 0): equality must not admit them
+        s = self._s()
+        self.assertIn((1, 0), A.reachable(s, 0))
+        for bad in ((1.0, 0), (1, 0.0), (True, 0), (1, False), [1.0, 0]):
+            with self.subTest(dest=bad):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, A.Move(0, bad), NoRng())
+
+    def test_find_path_does_not_crash_on_good_tile(self):
+        self.assertIsNotNone(A.find_path(self._s(), 0, (1, 0)))
+
+    def test_move_hero_id_types(self):
+        s = started(grid(["ggg", "ggg"]),
+                    heroes=(A.HeroSetup(0, (0, 0), army(5)), A.HeroSetup(0, (0, 1), army(5))))
+        canon = A.canonical(s)
+        for bad in (0.0, 1.0, "0", None, (0,), -1, 2, 99):
+            with self.subTest(hero=bad):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, A.Move(bad, (1, 0)), NoRng())
+                self.assertEqual(A.canonical(s), canon)
+
+    @unittest.expectedFailure   # BUG: _validate uses isinstance(cmd.hero, int); True/False pass as hero 1/0
+    def test_move_bool_hero_id_rejected(self):
+        # True == 1 and isinstance(True, int): hero 1 must not be reachable by True
+        s = started(grid(["ggg", "ggg"]),
+                    heroes=(A.HeroSetup(0, (0, 0), army(5)), A.HeroSetup(0, (0, 1), army(5))))
+        for bad in (True, False):
+            with self.subTest(hero=bad):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, A.Move(bad, (1, 0)), NoRng())
+
+    def test_endturn_player_types(self):
+        s = self._s()
+        canon = A.canonical(s)
+        for bad in (None, "0", (0,), 1, -1, 99):
+            with self.subTest(player=bad):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, A.EndTurn(bad), NoRng())
+                self.assertEqual(A.canonical(s), canon)
+
+    @unittest.expectedFailure   # BUG: EndTurn compares cmd.player != state.current; 0.0 == 0 passes
+    def test_endturn_float_player_rejected(self):
+        s = self._s()
+        with self.assertRaises(A.IllegalCommand):
+            A.apply(s, A.EndTurn(0.0), NoRng())
+
+    @unittest.expectedFailure   # BUG: EndTurn compares cmd.player != state.current; False == 0 passes
+    def test_endturn_bool_player_rejected(self):
+        s = self._s()
+        with self.assertRaises(A.IllegalCommand):
+            A.apply(s, A.EndTurn(False), NoRng())
+
+    def test_attack_inputs_rejected_before_any_draw(self):
+        s = self._s()
+        canon = A.canonical(s)
+        for hero, target in ((0.0, 1), (True, 1), (None, 1), ("0", 1), (0, 1.0), (0, None),
+                             (0, (1, 0)), (0, True)):
+            with self.subTest(hero=hero, target=target):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, A.Attack(hero, target), NoRng())
+                self.assertEqual(A.canonical(s), canon)
+
+    def test_unknown_command_rejected(self):
+        s = self._s()
+        for bad in (None, 5, "Move", (0, (1, 0))):
+            with self.subTest(cmd=bad):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, bad, NoRng())
+
+
 if __name__ == "__main__":
     unittest.main()
