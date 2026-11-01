@@ -97,4 +97,3 @@ flowchart LR
 | - | Android build: plugin versions declared once in settings | lead | pushed; verified by CI only |
 | - | Graphify code index (docs/codebase-index, tools/graphify/index.sh) | lead | done |
 | 65 | :presenter module: TapReducer + BattleSession (64 AI games equal a plain apply loop) | Sonnet | done (a lead mutation survived, stale-preview test added) |
-\n
