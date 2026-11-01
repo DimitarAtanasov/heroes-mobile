@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "creatures": [
+    {"name": "Test Pikeman", "attack": 6, "defense": 5, "dmg_min": 2, "dmg_max": 4, "hp": 12, "speed": 5},
+    {"name": "Test Slinger", "attack": 5, "defense": 3, "dmg_min": 2, "dmg_max": 5, "hp": 8, "speed": 4, "shots": 12},
+    {"name": "Test Glider", "attack": 8, "defense": 6, "dmg_min": 3, "dmg_max": 5, "hp": 16, "speed": 7, "flyer": true, "hates": ["Test Brute"]},
+    {"name": "Test Brute", "attack": 10, "defense": 9, "dmg_min": 5, "dmg_max": 9, "hp": 40, "speed": 4, "double_wide": true}
+  ]
+}
