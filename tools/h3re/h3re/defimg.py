@@ -7,18 +7,25 @@ from __future__ import annotations
 
 import struct
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
-__all__ = ["DefError", "Frame", "Block", "DefFile", "parse_def",
-           "frame_to_canvas", "to_rgba", "to_rgb", "write_png", "write_ppm"]
+__all__ = ["DefError", "EmptyImageError", "Frame", "Block", "DefFile",
+           "parse_def", "frame_to_canvas", "frame_is_empty", "frame_to_png",
+           "to_rgba", "to_rgb", "write_png", "write_ppm", "MAX_TOTAL_PIXELS"]
 
 MAX_BLOCKS = 256
 MAX_ENTRIES = 4096
 MAX_DIM = 8192
+# Default budget of decoded pixels (summed over distinct frames) per file.
+MAX_TOTAL_PIXELS = 64 * 1024 * 1024
 
 
 class DefError(ValueError):
     """Raised when a .DEF file is malformed."""
+
+
+class EmptyImageError(ValueError):
+    """Raised when asked to encode an image with a zero dimension."""
 
 
 class _Reader:
@@ -99,7 +106,7 @@ def _decode_runs(r: _Reader, pos: int, count: int, out: bytearray, what: str) ->
         got += n
 
 
-def _decode_frame(r: _Reader, off: int, name: str) -> Frame:
+def _decode_frame(r: _Reader, off: int, name: str, budget: list) -> Frame:
     size = r.u32(off, "frame size")
     fmt = r.u32(off + 4, "frame format")
     fw = r.u32(off + 8, "frame full width")
@@ -113,7 +120,19 @@ def _decode_frame(r: _Reader, off: int, name: str) -> Frame:
     for v in (fw, fh, w, h):
         if v > MAX_DIM:
             raise DefError(f"frame {name!r}: dimension {v} too large")
-    base = off + 32
+    # `size` is the length of the pixel data following the 32-byte header.
+    # Confine all decoding to that window so it is validated against what is
+    # actually read (and cannot read neighbouring frames).
+    r.check(off + 32, size, f"frame {name!r} data (declared size)")
+    if fmt == 0 and size != w * h:
+        raise DefError(f"frame {name!r}: raw size {size} != width*height {w * h}")
+    npix = w * h
+    if npix > budget[0]:
+        raise DefError(f"frame {name!r}: decoded pixel budget exceeded "
+                       f"({npix} > {budget[0]} remaining)")
+    budget[0] -= npix
+    r = _Reader(r.raw(off + 32, size, "frame data"))
+    base = 0
     out = bytearray()
     if w == 0 or h == 0:
         pass
@@ -152,8 +171,13 @@ def _decode_frame(r: _Reader, off: int, name: str) -> Frame:
     return Frame(name, off, size, fmt, fw, fh, w, h, x, y, bytes(out))
 
 
-def parse_def(data: bytes) -> DefFile:
-    """Parse a .DEF file from bytes."""
+def parse_def(data: bytes, max_pixels: int = MAX_TOTAL_PIXELS) -> DefFile:
+    """Parse a .DEF file from bytes.
+
+    Frames referenced by several entries (same offset) are decoded once and
+    share their pixel buffer.  The total pixels decoded across distinct frames
+    may not exceed `max_pixels`, otherwise DefError is raised.
+    """
     if not isinstance(data, (bytes, bytearray, memoryview)):
         raise DefError("data must be bytes-like")
     r = _Reader(bytes(data))
@@ -167,6 +191,8 @@ def parse_def(data: bytes) -> DefFile:
     palette = [tuple(pal_raw[i * 3:i * 3 + 3]) for i in range(256)]
     pos = 16 + 768
     blocks = []
+    budget = [max_pixels]
+    cache = {}
     for _ in range(nblocks):
         bid = r.u32(pos, "block id")
         n = r.u32(pos + 4, "block entry count")
@@ -182,7 +208,10 @@ def parse_def(data: bytes) -> DefFile:
         pos += 4 * n
         block = Block(bid)
         for nm, fo in zip(names, offs):
-            block.frames.append(_decode_frame(r, fo, nm))
+            fr = cache.get(fo)
+            if fr is None:
+                fr = cache[fo] = _decode_frame(r, fo, nm, budget)
+            block.frames.append(replace(fr, name=nm))
         blocks.append(block)
     return DefFile(dtype, width, height, palette, blocks)
 
@@ -206,6 +235,26 @@ def frame_to_canvas(frame: Frame, transparent: int = 0) -> bytes:
         src = row * frame.width + (x0 - frame.x)
         canvas[cy * fw + x0:cy * fw + x1] = frame.pixels[src:src + (x1 - x0)]
     return bytes(canvas)
+
+
+def frame_is_empty(frame: Frame) -> bool:
+    """True if the frame (or its canvas) has a zero dimension."""
+    return (frame.width == 0 or frame.height == 0
+            or frame.full_width == 0 or frame.full_height == 0)
+
+
+def frame_to_png(frame: Frame, palette, canvas: bool = True):
+    """Encode a frame as RGBA PNG, or return None if it is empty.
+
+    With canvas=True the full_width x full_height canvas is used, otherwise
+    just the width x height image.
+    """
+    if frame_is_empty(frame):
+        return None
+    if canvas:
+        return write_png(frame.full_width, frame.full_height,
+                         to_rgba(frame_to_canvas(frame), palette))
+    return write_png(frame.width, frame.height, to_rgba(frame.pixels, palette))
 
 
 def to_rgb(pixels: bytes, palette) -> bytes:
@@ -240,7 +289,10 @@ def write_png(width: int, height: int, data: bytes, channels: int = 4) -> bytes:
     """Return PNG bytes for 8-bit RGB (channels=3) or RGBA (channels=4) data."""
     if channels not in (3, 4):
         raise ValueError("channels must be 3 or 4")
-    if width <= 0 or height <= 0:
+    if width == 0 or height == 0:
+        raise EmptyImageError(f"cannot encode empty image ({width}x{height}); "
+                              "use frame_is_empty()/frame_to_png() to skip")
+    if width < 0 or height < 0:
         raise ValueError("dimensions must be positive")
     if len(data) != width * height * channels:
         raise ValueError("data length does not match dimensions")

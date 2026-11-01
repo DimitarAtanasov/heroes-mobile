@@ -11,9 +11,13 @@ Implemented in `tools/h3re/h3re/defimg.py`. All integers little-endian.
 | 12 | u32 | block count |
 | 16 | 768 | palette, 256 x RGB |
 
-Palette indices 0-9 are special (0 transparent, 1/4 shadow-like, others
-selection/outline effects). The renderer treats 0 as transparent and 1/4 as
-approximate semi-transparent black; other effect colors are left as palette RGB.
+Special palette indices (UNCERTAIN): the low palette entries are reserved for
+effects, but sources disagree on the range. This spec previously said 0-9;
+`engine-design.md` says 0-7. Only index 0 (transparent) is certain; 1 and 4 are
+believed shadow-like. Treat 0-9 as the conservative reserved range (a superset
+of 0-7) until verified against real assets; indices 8 and 9 in particular are
+unconfirmed. The renderer treats 0 as transparent and 1/4 as approximate
+semi-transparent black (alpha 64/128, guessed); all others keep palette RGB.
 
 ## Blocks
 Blocks follow the palette back to back. Each block:
@@ -38,8 +42,16 @@ relative to the end of the 32-byte header).
 ## Implementation status / caveats
 - Formats 2 and 3 offsets/layout are written from memory of community
   documentation and verified only against synthetic fixtures.
-- Frame `size` is recorded but not used for validation. Palette-cycling and
-  the special-color semantics are not modeled.
+- Palette-cycling and the special-color semantics are not modeled.
+- Frame `size` is the length of pixel data after the 32-byte header. It must fit
+  in the file, must equal width*height for format 0, and all line/segment
+  offsets and run data are confined to that window (else `DefError`).
+- Hardening: frames sharing an offset are decoded once (cached; entries share
+  the pixel buffer). `parse_def(data, max_pixels=MAX_TOTAL_PIXELS)` bounds the
+  total pixels decoded over distinct frames (default 64M) and raises `DefError`.
+- Empty frames (zero width/height): `write_png` raises `EmptyImageError`
+  (a `ValueError`); use `frame_is_empty(frame)` or `frame_to_png(frame, palette)`
+  (returns `None` for empty frames) to skip them.
 - Output: `Frame.pixels` (indices), `frame_to_canvas`, `to_rgb`/`to_rgba`,
   `write_ppm`, `write_png` (8-bit RGB/RGBA, zlib, no third-party libs).
 - Malformed input raises `DefError` (truncation, bad format, overrunning runs,

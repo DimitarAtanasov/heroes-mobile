@@ -5,7 +5,7 @@ import unittest
 import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from h3re.defimg import (DefError, parse_def, frame_to_canvas, to_rgba, to_rgb,
+from h3re.defimg import (DefError, EmptyImageError, frame_is_empty, frame_to_png, parse_def, frame_to_canvas, to_rgba, to_rgb,
                          write_png, write_ppm)
 
 PAL = b"".join(bytes([i, 255 - i, (i * 7) & 255]) for i in range(256))
@@ -27,6 +27,15 @@ def build_def(frames, names=None):
         offs.append(off0 + len(blob))
         blob += f
     return head + bh + nm + struct.pack("<%dI" % n, *offs) + blob
+
+
+def build_shared(blob, n):
+    """One block with n entries all pointing at the same frame blob."""
+    head = struct.pack("<4I", 0x42, 8, 4, 1) + PAL
+    bh = struct.pack("<4I", 0, n, 0, 0)
+    nm = b"".join(b"F%d.pcx" % i + b"\0" * (13 - len(b"F%d.pcx" % i)) for i in range(n))
+    off = len(head) + len(bh) + len(nm) + 4 * n
+    return head + bh + nm + struct.pack("<%dI" % n, *([off] * n)) + blob
 
 
 class DefTests(unittest.TestCase):
@@ -108,6 +117,65 @@ class DefTests(unittest.TestCase):
         bad[-8 - 32 - 4:-8 - 32] = b"\xff\xff\xff\x7f"
         with self.assertRaises(DefError):
             parse_def(bytes(bad))
+
+    def test_shared_frame_cached(self):
+        px = bytes(range(1, 9))
+        blob = frame_bytes(0, 4, 2, 4, 2, 0, 0, px)
+        d = parse_def(build_shared(blob, 3))
+        fr = d.blocks[0].frames
+        self.assertEqual([f.name for f in fr], ["F0.pcx", "F1.pcx", "F2.pcx"])
+        self.assertIs(fr[0].pixels, fr[2].pixels)
+
+    def test_pixel_budget(self):
+        a = frame_bytes(0, 4, 2, 4, 2, 0, 0, bytes(8))
+        b = frame_bytes(0, 4, 2, 4, 2, 0, 0, bytes(range(8)))
+        # 16 distinct pixels needed
+        parse_def(build_def([a, b]), max_pixels=16)
+        with self.assertRaises(DefError):
+            parse_def(build_def([a, b]), max_pixels=15)
+        # same frame repeated is only charged once
+        parse_def(build_shared(a, 50), max_pixels=8)
+
+    def test_rle_bomb(self):
+        # huge RLE frame (8192x8192) from tiny data, referenced many times
+        line = bytes([0, 255]) * 32  # 32 runs of 256 = 8192
+        body = b"".join(struct.pack("<I", 4 * 8192) for _ in range(8192)) + line
+        blob = frame_bytes(1, 8192, 8192, 8192, 8192, 0, 0, body)
+        with self.assertRaises(DefError):
+            parse_def(build_shared(blob, 100), max_pixels=1000)
+
+    def test_size_validation(self):
+        px = bytes(range(8))
+        blob = bytearray(frame_bytes(0, 4, 2, 4, 2, 0, 0, px))
+        blob[0:4] = struct.pack("<I", 7)  # raw size mismatch
+        with self.assertRaises(DefError):
+            parse_def(build_def([bytes(blob)]))
+        # RLE data that lies outside the declared size
+        l0 = bytes([5, 3])
+        body = struct.pack("<I", 4) + l0
+        blob = bytearray(frame_bytes(1, 4, 1, 4, 1, 0, 0, body + b"\0" * 4))
+        blob[0:4] = struct.pack("<I", 4)  # only the offset table
+        with self.assertRaises(DefError):
+            parse_def(build_def([bytes(blob)]))
+        # size beyond end of file
+        blob = bytearray(frame_bytes(0, 4, 2, 4, 2, 0, 0, px))
+        blob[0:4] = struct.pack("<I", 1000)
+        with self.assertRaises(DefError):
+            parse_def(build_def([bytes(blob)]))
+
+    def test_empty_frame_png(self):
+        d = parse_def(build_def([frame_bytes(0, 4, 4, 0, 0, 0, 0, b""),
+                                 frame_bytes(0, 2, 1, 2, 1, 0, 0, bytes([1, 2]))]))
+        e, ok = d.blocks[0].frames
+        self.assertTrue(frame_is_empty(e))
+        self.assertFalse(frame_is_empty(ok))
+        self.assertIsNone(frame_to_png(e, d.palette))
+        self.assertTrue(frame_to_png(ok, d.palette).startswith(b"\x89PNG"))
+        self.assertTrue(frame_to_png(ok, d.palette, canvas=False).startswith(b"\x89PNG"))
+        with self.assertRaises(EmptyImageError):
+            write_png(0, 0, b"")
+        with self.assertRaises(ValueError):  # subclass of ValueError
+            write_png(0, 3, b"")
 
 
 if __name__ == "__main__":
