@@ -38,6 +38,43 @@ class TestVectors(unittest.TestCase):
         self.assertEqual(doc["published"]["u32"][0], 0xA15C02B7)
         self.assertEqual(doc["pcg32_u32"][0]["u32"][:6], doc["published"]["u32"])
 
+    def test_rules_vectors_cover_required_cases(self):
+        doc = json.loads(V.generate()["rules.json"])
+        sections = ("attack_defense", "base_damage", "damage_from_base", "resolve",
+                    "resolve_seeded", "preview", "luck_chance", "good_morale_chance",
+                    "bad_morale_chance", "penalties")
+        self.assertGreaterEqual(sum(len(doc[k]) for k in sections), 300)
+        stacks = {c["ctx"]["count"] for c in doc["resolve"]}
+        for n in (1, 10, 11, 1000):
+            self.assertIn(n, stacks)
+        self.assertIn(1, {c["damage"] for c in doc["resolve"] if "damage" in c})
+        self.assertTrue(any(a["attack"] - a["defense"] == 60 for a in doc["attack_defense"]))
+        self.assertTrue(any(a["attack"] - a["defense"] == -28 for a in doc["attack_defense"]))
+        self.assertTrue(any("error" in c for c in doc["base_damage"]))
+        self.assertTrue(any("error" in c for c in doc["resolve"]))
+        self.assertTrue(all(isinstance(c["state_after"], int) for c in doc["resolve_seeded"]
+                            if "error" not in c))
+
+    def test_rules_pack_matches_data_file(self):
+        # Compare with the raw file as loaded (independent of rules.py's Fraction arithmetic).
+        from fractions import Fraction
+        from h3re import datapack
+        with open(os.path.join(datapack.LOADED_DIR, "rules.json"), encoding="utf-8") as f:
+            raw = json.load(f)
+        pack = json.loads(V.generate()["rules.json"])["pack"]
+
+        def pr(x):
+            fr = Fraction(*x)
+            return [fr.numerator, fr.denominator]
+
+        for k in ("ad_bonus_cap", "ad_bonus_per_point", "da_penalty_cap", "da_penalty_per_point",
+                  "half", "hate_bonus", "luck_bonus"):
+            self.assertEqual(pack[k], pr(raw[k]), k)
+        for k in ("archery", "armorer", "offense"):
+            self.assertEqual(pack[k], [pr(r) for r in raw[k]], k)
+        for k in ("bad_morale_numerators", "vcmi_bad_morale_numerators", "morale_die"):
+            self.assertEqual(pack[k], raw[k], k)
+
 
 if __name__ == "__main__":
     unittest.main()

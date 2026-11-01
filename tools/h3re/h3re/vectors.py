@@ -8,12 +8,15 @@ Usage:  python3 -m h3re.vectors [--out DIR] [--check]
 """
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
 import sys
+from fractions import Fraction
 
 from . import battle as B
+from . import rules as R
 from .rng import Pcg32, derive_stream
 
 VECTOR_FORMAT = 1
@@ -192,6 +195,361 @@ def _state_vectors():
 
 
 # --------------------------------------------------------------------------
+# rules: battle damage (rules.md 6.5-6.6), from the public API of rules.py.
+# Exact values are [numerator, denominator] pairs, reduced, denominator > 0.
+# --------------------------------------------------------------------------
+
+_DIFFS = (-61, -60, -59, -29, -28, -27, -1, 0, 1, 2, 27, 28, 29, 59, 60, 61)
+_STACK_COUNTS = (1, 2, 9, 10, 11, 12, 1000)
+_DET_POLICIES = (R.RollPolicy.PESSIMAL, R.RollPolicy.EXPECTED, R.RollPolicy.OPTIMAL)
+
+
+def _pair(x):
+    f = Fraction(x)
+    return [f.numerator, f.denominator]
+
+
+def _u64(g):
+    return (g.next_u32() << 32) | g.next_u32()
+
+
+def _ctx_json(c):
+    return dataclasses.asdict(c)
+
+
+def _clamp_attack(a):
+    return max(0, min(255, a))
+
+
+class _Scripted:
+    """Roll source that replays a fixed list of randint results in order.
+
+    Each result must lie in the requested bounds, and the script must be used up
+    exactly, so a case also pins how many dice base_damage draws."""
+
+    def __init__(self, rolls):
+        self._rolls = list(rolls)
+        self._i = 0
+
+    def randint(self, lo, hi):
+        if self._i >= len(self._rolls):
+            raise AssertionError("script exhausted")
+        v = self._rolls[self._i]
+        self._i += 1
+        if not lo <= v <= hi:
+            raise AssertionError("scripted roll %d outside [%d, %d]" % (v, lo, hi))
+        return v
+
+    def chance(self, num, den):
+        raise AssertionError("base_damage must not draw a chance")
+
+    def finished(self):
+        return self._i == len(self._rolls)
+
+
+def _rand_ctx(drv):
+    count = (_STACK_COUNTS[drv.range(0, len(_STACK_COUNTS))] if drv.range(0, 3) == 0
+             else drv.range(1, 61))
+    lo = 1 if drv.range(0, 4) == 0 else drv.range(1, 41)
+    hi = lo + drv.range(0, 26)
+    defense = drv.range(0, 256)
+    diff = (_DIFFS[drv.range(0, len(_DIFFS))] if drv.range(0, 2) == 0
+            else drv.range(-100, 101))
+    ranged = drv.range(0, 2) == 0
+    return R.DamageCtx(
+        count=count, dmg_min=lo, dmg_max=hi,
+        attack=_clamp_attack(defense + diff), defense=defense,
+        ranged=ranged,
+        offense=drv.range(0, 4), archery=drv.range(0, 4), armorer=drv.range(0, 4),
+        hates=drv.range(0, 4) == 0,
+        range_penalty=ranged and drv.range(0, 2) == 0,
+        wall_penalty=ranged and drv.range(0, 2) == 0,
+        melee_penalty=(not ranged) and drv.range(0, 2) == 0,
+        luck=drv.range(-4, 5), bad_luck=drv.range(0, 2) == 0)
+
+
+def _rules_edge_contexts():
+    C = R.DamageCtx
+    out = [
+        C(count=1, dmg_min=1, dmg_max=1, attack=0, defense=0),
+        C(count=1, dmg_min=1, dmg_max=1, attack=0, defense=255),   # 0.3 floors to 0: minimum 1
+        C(count=1, dmg_min=1, dmg_max=1, attack=255, defense=0),   # attack bonus at its cap
+        C(count=1, dmg_min=1, dmg_max=1, attack=0, defense=255, melee_penalty=True),
+        C(count=1, dmg_min=3, dmg_max=3, attack=0, defense=0, ranged=True,
+          range_penalty=True, wall_penalty=True),                  # 3 / 4 floors to 0: minimum 1
+        C(count=1000, dmg_min=1, dmg_max=1, attack=0, defense=255),
+        C(count=1000, dmg_min=10000, dmg_max=10000, attack=255, defense=0, ranged=True,
+          archery=3, armorer=3, range_penalty=True, wall_penalty=True, hates=True,
+          luck=3, bad_luck=True),
+        C(count=1000, dmg_min=1, dmg_max=10000, attack=255, defense=0, luck=5),
+        C(count=65537, dmg_min=2, dmg_max=3, attack=10, defense=20, offense=2),
+    ]
+    for n in (1, 10, 11, 1000):
+        for diff in (-29, -28, -27, 59, 60, 61):
+            out.append(C(count=n, dmg_min=5, dmg_max=9, attack=max(0, 100 + diff),
+                         defense=100))
+        for diff in (59, 60, 61):
+            out.append(C(count=n, dmg_min=5, dmg_max=9, attack=diff, defense=0, archery=3,
+                         ranged=True, range_penalty=True))
+    for n in (1, 11):
+        for luck in (-5, -3, -1, 0, 1, 3, 5):
+            for bad in (False, True):
+                out.append(C(count=n, dmg_min=2, dmg_max=7, attack=10, defense=10,
+                             luck=luck, bad_luck=bad))
+    return out
+
+
+def _rules_contexts():
+    drv = derive_stream(0x5EED, "vectors:rules", "ctx")
+    return _rules_edge_contexts() + [_rand_ctx(drv) for _ in range(180)]
+
+
+def _pack_json():
+    return {
+        "ad_bonus_cap": _pair(R.AD_BONUS_CAP),
+        "ad_bonus_per_point": _pair(R.AD_BONUS_PER_POINT),
+        "archery": [_pair(x) for x in R.ARCHERY],
+        "armorer": [_pair(x) for x in R.ARMORER],
+        "bad_morale_numerators": list(R.BAD_MORALE_NUMERATORS),
+        "da_penalty_cap": _pair(R.DA_PENALTY_CAP),
+        "da_penalty_per_point": _pair(R.DA_PENALTY_PER_POINT),
+        "half": _pair(R.HALF),
+        "hate_bonus": _pair(R.HATE_BONUS),
+        "luck_bonus": _pair(R.LUCK_BONUS),
+        "morale_die": R.MORALE_DIE,
+        "offense": [_pair(x) for x in R.OFFENSE],
+        "vcmi_bad_morale_numerators": list(R.VCMI_BAD_MORALE_NUMERATORS),
+    }
+
+
+def _attack_defense_vectors():
+    out = []
+    for base, span in ((0, 255), (100, 100)):
+        for diff in range(-span, span + 1):
+            a = base + max(diff, 0)
+            d = base + max(-diff, 0)
+            inc, red = R.attack_defense_factor(a, d)
+            out.append({"attack": a, "defense": d, "inc": _pair(inc), "red": _pair(red)})
+    return out
+
+
+def _base_damage_vectors():
+    drv = derive_stream(0x5EED, "vectors:rules", "base")
+    out = []
+    for _ in range(150):
+        count = (_STACK_COUNTS[drv.range(0, len(_STACK_COUNTS))] if drv.range(0, 3) == 0
+                 else drv.range(1, 61))
+        lo = drv.range(1, 41)
+        hi = lo + drv.range(0, 26)
+        n = min(count, 10) if count > 0 else 0
+        rolls = [drv.range(lo, hi + 1) for _ in range(n)]
+        script = _Scripted(rolls)
+        val = R.base_damage(count, lo, hi, script)
+        if not script.finished():
+            raise AssertionError("base_damage left scripted rolls unused")
+        out.append({"count": count, "dmg_min": lo, "dmg_max": hi, "rolls": rolls, "out": val})
+    # Explicit edges: stacks of 1, 10, 11, 1000; all-min and all-max rolls; minimum damage 1.
+    explicit = [
+        (1, 1, 1, [1]),
+        (1, 4, 4, [4]),
+        (10, 1, 6, [6] * 10),
+        (10, 1, 6, [1] * 10),
+        (11, 1, 6, [1] * 10),
+        (11, 1, 6, [6] * 10),
+        (1000, 1, 1, [1] * 10),
+        (1000, 3, 9, [9] * 10),
+        (1000, 3, 9, [3] * 10),
+        (2 ** 20, 1, 1, [1] * 10),
+        (0, 1, 3, []),
+        (0, 0, 0, []),
+        (-4, 1, 3, []),
+    ]
+    for count, lo, hi, rolls in explicit:
+        script = _Scripted(rolls)
+        val = R.base_damage(count, lo, hi, script)
+        if not script.finished():
+            raise AssertionError("base_damage left scripted rolls unused")
+        out.append({"count": count, "dmg_min": lo, "dmg_max": hi, "rolls": rolls, "out": val})
+    for count, lo, hi in ((5, 0, 3), (5, 4, 3), (1, -1, 1)):
+        if not _raises_value_error(lambda: R.base_damage(count, lo, hi, _Scripted([]))):
+            raise AssertionError("expected ValueError for base_damage(%d, %d, %d)" % (count, lo, hi))
+        out.append({"count": count, "dmg_min": lo, "dmg_max": hi, "rolls": [], "error": True})
+    return out
+
+
+def _raises_value_error(fn):
+    try:
+        fn()
+    except ValueError:
+        return True
+    return False
+
+
+def _damage_from_base_kwargs(drv):
+    ranged = drv.range(0, 2) == 0
+    return {
+        "ranged": ranged,
+        "offense": drv.range(0, 4), "archery": drv.range(0, 4), "armorer": drv.range(0, 4),
+        "lucky": drv.range(0, 2) == 0, "hates": drv.range(0, 4) == 0,
+        "range_penalty": ranged and drv.range(0, 2) == 0,
+        "wall_penalty": ranged and drv.range(0, 2) == 0,
+        "melee_penalty": (not ranged) and drv.range(0, 2) == 0,
+    }
+
+
+def _damage_from_base_vectors():
+    drv = derive_stream(0x5EED, "vectors:rules", "dfb")
+    out = []
+    for _ in range(200):
+        kw = _damage_from_base_kwargs(drv)
+        base = drv.range(-2, 3000)
+        defense = drv.range(0, 256)
+        diff = (_DIFFS[drv.range(0, len(_DIFFS))] if drv.range(0, 2) == 0
+                else drv.range(-100, 101))
+        attack = _clamp_attack(defense + diff)
+        out.append(dict(kw, base=base, attack=attack, defense=defense,
+                        out=R.damage_from_base(base, attack, defense, **kw)))
+    # Flag combinations that must be refused, and the cases where a check is skipped.
+    bad = [
+        (dict(base=10, attack=0, defense=0, ranged=True, melee_penalty=True), True),
+        (dict(base=10, attack=0, defense=0, range_penalty=True), True),
+        (dict(base=10, attack=0, defense=0, wall_penalty=True), True),
+        (dict(base=10, attack=0, defense=0, offense=4), True),
+        (dict(base=10, attack=0, defense=0, ranged=True, archery=-1), True),
+        (dict(base=10, attack=0, defense=0, armorer=4), True),
+        # base <= 0 returns before the flag checks, and ranged ignores the offense level.
+        (dict(base=0, attack=0, defense=0, ranged=True, melee_penalty=True), False),
+        (dict(base=0, attack=0, defense=0, offense=4), False),
+        (dict(base=10, attack=0, defense=0, ranged=True, offense=4), False),
+    ]
+    for params, expect_error in bad:
+        entry = dict(params)
+        for k, v in (("ranged", False), ("offense", 0), ("archery", 0), ("armorer", 0),
+                     ("lucky", False), ("hates", False), ("range_penalty", False),
+                     ("wall_penalty", False), ("melee_penalty", False)):
+            entry.setdefault(k, v)
+        call = {k: v for k, v in entry.items() if k not in ("base", "attack", "defense")}
+        fn = lambda: R.damage_from_base(entry["base"], entry["attack"], entry["defense"], **call)
+        if expect_error:
+            if not _raises_value_error(fn):
+                raise AssertionError("expected ValueError for %r" % (entry,))
+            out.append(dict(entry, error=True))
+        else:
+            out.append(dict(entry, out=fn()))
+    return out
+
+
+def _resolve_vectors(contexts):
+    out = []
+    for c in contexts:
+        for pol in _DET_POLICIES:
+            r = R.resolve_damage(c, pol)
+            out.append({"ctx": _ctx_json(c), "policy": pol.name, "damage": r.damage,
+                        "lucky": r.lucky, "unlucky": r.unlucky})
+    # Errors raised by the same checks on the deterministic policies.
+    err_ctx = [
+        R.DamageCtx(count=3, dmg_min=0, dmg_max=2, attack=0, defense=0),
+        R.DamageCtx(count=5, dmg_min=4, dmg_max=3, attack=0, defense=0),
+        R.DamageCtx(count=2, dmg_min=1, dmg_max=2, attack=0, defense=0, offense=4),
+        R.DamageCtx(count=2, dmg_min=1, dmg_max=2, attack=0, defense=0, ranged=True,
+                    melee_penalty=True),
+        R.DamageCtx(count=2, dmg_min=1, dmg_max=2, attack=0, defense=0, wall_penalty=True),
+    ]
+    for c in err_ctx:
+        for pol in _DET_POLICIES:
+            if not _raises_value_error(lambda: R.resolve_damage(c, pol)):
+                raise AssertionError("expected ValueError for %r" % (c,))
+            out.append({"ctx": _ctx_json(c), "policy": pol.name, "error": True})
+    # A zero-count stack returns before the skill and damage checks, after the luck draws.
+    zero = R.DamageCtx(count=0, dmg_min=0, dmg_max=0, attack=0, defense=0, armorer=4)
+    for pol in _DET_POLICIES:
+        r = R.resolve_damage(zero, pol)
+        out.append({"ctx": _ctx_json(zero), "policy": pol.name, "damage": r.damage,
+                    "lucky": r.lucky, "unlucky": r.unlucky})
+    return out
+
+
+def _resolve_seeded_vectors(contexts):
+    drv = derive_stream(0x5EED, "vectors:rules", "seed")
+    out = []
+    for c in contexts:
+        seed = _u64(drv)
+        seq = _u64(drv)
+        g = Pcg32(seed, seq)
+        r = R.resolve_damage(c, R.RollPolicy.ACTUAL_SEED, g)
+        out.append({"ctx": _ctx_json(c), "seed": seed, "seq": seq, "damage": r.damage,
+                    "lucky": r.lucky, "unlucky": r.unlucky, "state_after": g.state})
+    # Seeded error: the stack has no damage range, so base_damage refuses after the luck draws.
+    bad = R.DamageCtx(count=3, dmg_min=0, dmg_max=2, attack=0, defense=0, luck=2)
+    if not _raises_value_error(lambda: R.resolve_damage(bad, R.RollPolicy.ACTUAL_SEED,
+                                                       Pcg32(1, 0))):
+        raise AssertionError("expected ValueError for seeded resolve")
+    out.append({"ctx": _ctx_json(bad), "seed": 1, "seq": 0, "error": True})
+    return out
+
+
+def _preview_vectors(contexts):
+    out = []
+    for c in contexts:
+        p = R.preview_damage(c)
+        out.append({"ctx": _ctx_json(c), "floor": p.floor, "expected": p.expected,
+                    "ceiling": p.ceiling})
+    return out
+
+
+def _chance_vectors():
+    luck = [{"luck": v, "out": _pair(R.luck_chance(v))} for v in range(-5, 6)]
+    good = [{"morale": v, "out": _pair(R.good_morale_chance(v))} for v in range(-5, 6)]
+    bad = []
+    for table in (list(R.BAD_MORALE_NUMERATORS), list(R.VCMI_BAD_MORALE_NUMERATORS),
+                  [0, 0, 0], [1, 2, 24], [24, 24, 24], [0, 12, 24]):
+        for m in range(-4, 5):
+            bad.append({"morale": m, "table": table,
+                        "out": _pair(R.bad_morale_chance(m, table))})
+    # Invalid tables are refused only when a morale penalty actually reads them.
+    for table in ([3, 2, 1], [1, 2], [1, 2, 25], [-1, 0, 0], [1, 2, 3, 4]):
+        if not _raises_value_error(lambda: R.bad_morale_chance(-1, table)):
+            raise AssertionError("expected ValueError for table %r" % (table,))
+        bad.append({"morale": -1, "table": table, "error": True})
+    bad.append({"morale": 0, "table": [3, 2, 1], "out": _pair(R.bad_morale_chance(0, [3, 2, 1]))})
+    return luck, good, bad
+
+
+def _penalty_vectors():
+    out = []
+    combos = ((False, False, False, False), (False, False, False, True),
+              (True, False, False, False), (True, True, False, False),
+              (True, False, True, False), (True, True, True, False))
+    for ranged, range_p, wall_p, melee_p in combos:
+        for base in (1, 2, 3, 7, 1000, 1048576, 2 ** 31 - 1):
+            out.append({"base": base, "ranged": ranged, "range_penalty": range_p,
+                        "wall_penalty": wall_p, "melee_penalty": melee_p,
+                        "out": R.damage_from_base(base, 0, 0, ranged=ranged,
+                                                  range_penalty=range_p, wall_penalty=wall_p,
+                                                  melee_penalty=melee_p)})
+    return out
+
+
+def _rules_vectors():
+    contexts = _rules_contexts()
+    luck, good, bad = _chance_vectors()
+    return {
+        "format": VECTOR_FORMAT,
+        "pack": _pack_json(),
+        "attack_defense": _attack_defense_vectors(),
+        "base_damage": _base_damage_vectors(),
+        "damage_from_base": _damage_from_base_vectors(),
+        "resolve": _resolve_vectors(contexts),
+        "resolve_seeded": _resolve_seeded_vectors(contexts),
+        "preview": _preview_vectors(contexts),
+        "luck_chance": luck,
+        "good_morale_chance": good,
+        "bad_morale_chance": bad,
+        "penalties": _penalty_vectors(),
+    }
+
+
+# --------------------------------------------------------------------------
 
 def generate():
     """Return {filename: bytes}. Pure function of the Python implementation."""
@@ -199,6 +557,7 @@ def generate():
         "rng.json": _dump(_rng_vectors()),
         "canonical_json.json": _dump(_canon_vectors()),
         "state_hash.json": _dump(_state_vectors()),
+        "rules.json": _dump(_rules_vectors()),
     }
 
 
