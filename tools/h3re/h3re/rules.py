@@ -22,6 +22,8 @@ from enum import Enum
 from fractions import Fraction
 from math import floor
 
+from . import datapack as _datapack
+
 __all__ = [
     "AD_BONUS_PER_POINT", "AD_BONUS_CAP", "DA_PENALTY_PER_POINT", "DA_PENALTY_CAP",
     "OFFENSE", "ARCHERY", "ARMORER", "HATE_BONUS", "LUCK_BONUS", "HALF",
@@ -33,28 +35,30 @@ __all__ = [
     "check_bad_morale_table",
 ]
 
+# Tuning constants come from data/rules.json (Forge law: balance numbers live
+# in data/*.json). The file is read and validated in datapack.py (not a sim
+# module); here we only bind the already-loaded ints and Fractions.
 # Attack > Defense: +5% per point, capped at +300% (difference 60).
-AD_BONUS_PER_POINT = Fraction(1, 20)
-AD_BONUS_CAP = Fraction(3)
 # Defense > Attack: -2.5% per point, capped at -70% (difference 28).
-DA_PENALTY_PER_POINT = Fraction(1, 40)
-DA_PENALTY_CAP = Fraction(7, 10)
-
-# Secondary skill level (0 = none, 1 basic, 2 advanced, 3 expert) -> fraction.
-OFFENSE = (Fraction(0), Fraction(1, 10), Fraction(2, 10), Fraction(3, 10))
-ARCHERY = (Fraction(0), Fraction(1, 10), Fraction(1, 4), Fraction(1, 2))
-ARMORER = (Fraction(0), Fraction(1, 20), Fraction(1, 10), Fraction(3, 20))
-
-# Morale/luck die size, and the bad-morale chance numerators for morale
-# -1, -2, -3. (1, 2, 3) is the community-documented table; VCMI configures
-# (2, 4, 6). Which one the original uses is open (rules.md 9.13).
-MORALE_DIE = 24
-BAD_MORALE_NUMERATORS = (1, 2, 3)
-VCMI_BAD_MORALE_NUMERATORS = (2, 4, 6)
-
-HATE_BONUS = Fraction(1, 2)
-LUCK_BONUS = Fraction(1)
-HALF = Fraction(1, 2)
+# Skill tables: level (0 = none, 1 basic, 2 advanced, 3 expert) -> fraction.
+# MORALE_DIE is the morale/luck die size; BAD_MORALE_NUMERATORS are the
+# bad-morale chance numerators for morale -1, -2, -3. (1, 2, 3) is the
+# community-documented table; VCMI configures (2, 4, 6). Which one the
+# original uses is open (rules.md 9.13).
+_PACK = _datapack.load_rules_dir()
+AD_BONUS_PER_POINT = _PACK["ad_bonus_per_point"]
+AD_BONUS_CAP = _PACK["ad_bonus_cap"]
+DA_PENALTY_PER_POINT = _PACK["da_penalty_per_point"]
+DA_PENALTY_CAP = _PACK["da_penalty_cap"]
+OFFENSE = _PACK["offense"]
+ARCHERY = _PACK["archery"]
+ARMORER = _PACK["armorer"]
+MORALE_DIE = _PACK["morale_die"]
+BAD_MORALE_NUMERATORS = _PACK["bad_morale_numerators"]
+VCMI_BAD_MORALE_NUMERATORS = _PACK["vcmi_bad_morale_numerators"]
+HATE_BONUS = _PACK["hate_bonus"]
+LUCK_BONUS = _PACK["luck_bonus"]
+HALF = _PACK["half"]
 
 
 def _skill(table, level):

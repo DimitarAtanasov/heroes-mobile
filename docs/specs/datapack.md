@@ -48,3 +48,11 @@ affect it; any value change does.
 `tests/test_datapack.py` asserts the JSON values equal the current `rules.py`
 constants. `rules.py` is not yet wired to read the JSON; that is a follow-up
 once its refactor lands.
+
+## Runtime loading (checkpoint 34)
+`rules.py` binds its tuning constants from `data/rules.json` at import, through
+`datapack.load_rules_dir()`. The directory is `$H3_DATA_PACK_DIR` if set, otherwise `<repo>/data`.
+A missing or invalid pack raises `DataPackError` at import. The simulation modules do no file I/O
+themselves; the read happens in `datapack.py`. `test_package.py` pins that importing `h3re` opens
+only `rules.json`. `test_datapack.py::test_json_equals_code` compares both the loaded pack and the
+`rules.py` constants with an independent literal copy inside the test, so drift in either fails.

@@ -39,7 +39,24 @@ class LoadTest(unittest.TestCase):
             pack.rules["half"] = 1
 
     def test_json_equals_code(self):
+        # Independent literal copy: editing data/rules.json (or rules.py
+        # derivation) without updating this copy fails the test.
+        F = Fraction
+        lit = {
+            "ad_bonus_per_point": F(1, 20), "ad_bonus_cap": F(3),
+            "da_penalty_per_point": F(1, 40), "da_penalty_cap": F(7, 10),
+            "offense": (F(0), F(1, 10), F(2, 10), F(3, 10)),
+            "archery": (F(0), F(1, 10), F(1, 4), F(1, 2)),
+            "armorer": (F(0), F(1, 20), F(1, 10), F(3, 20)),
+            "hate_bonus": F(1, 2), "luck_bonus": F(1), "half": F(1, 2),
+            "morale_die": 24, "bad_morale_numerators": (1, 2, 3),
+            "vcmi_bad_morale_numerators": (2, 4, 6),
+        }
         r = D.load_dir().rules
+        for k, v in lit.items():
+            self.assertEqual(r[k], v, k)
+            self.assertEqual(getattr(R, k.upper()), v, k)
+            self.assertIs(type(getattr(R, k.upper())), type(v), k)
         self.assertEqual(r["ad_bonus_per_point"], R.AD_BONUS_PER_POINT)
         self.assertEqual(r["ad_bonus_cap"], R.AD_BONUS_CAP)
         self.assertEqual(r["da_penalty_per_point"], R.DA_PENALTY_PER_POINT)

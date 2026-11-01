@@ -70,7 +70,7 @@ class TestImportSideEffects(unittest.TestCase):
         self.assertEqual(proc.stdout, "")
         self.assertEqual(proc.stderr, "")
 
-    def test_fresh_import_opens_no_files(self):
+    def test_fresh_import_opens_only_the_rules_pack(self):
         code = (
             "import builtins, io\n"
             "opened = []\n"
@@ -81,7 +81,9 @@ class TestImportSideEffects(unittest.TestCase):
             "builtins.open = _spy\n"
             "io.open = _spy\n"
             "import h3re\n"
-            "assert opened == [], opened\n"
+            "import os\n"
+            "names = [os.path.basename(str(p)) for p in opened]\n"
+            "assert names == ['rules.json'], opened\n"
         )
         proc = _run_isolated(code)
         self.assertEqual(proc.returncode, 0, proc.stderr)

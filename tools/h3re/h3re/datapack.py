@@ -3,8 +3,9 @@
 Spec: docs/specs/datapack.md. Stdlib only. Strict validation (types, ranges,
 unknown keys rejected), integer-only values (floats rejected), deterministic
 ordering (creatures sorted by name) and a SHA-256 content hash of the
-canonical JSON of the validated pack. Does not import ``rules`` constants;
-``tests/test_datapack.py`` checks the JSON equals them so drift is caught.
+canonical JSON of the validated pack. ``rules.py`` derives its constants from
+this module at import (``load_rules_dir``), so this module must not import
+``rules`` or ``battle`` at module load (``battle`` is imported lazily).
 """
 
 import hashlib
@@ -13,12 +14,15 @@ import os
 from fractions import Fraction
 from types import MappingProxyType
 
-from . import battle
 
-__all__ = ["DataPackError", "DataPack", "load", "load_dir", "parse", "DEFAULT_DIR"]
+__all__ = ["DataPackError", "DataPack", "load", "load_dir", "parse", "DEFAULT_DIR", "ENV_DIR",
+           "load_rules", "load_rules_dir"]
 
-DEFAULT_DIR = os.path.abspath(os.path.join(
+ENV_DIR = "H3_DATA_PACK_DIR"
+_REPO_DIR = os.path.abspath(os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "data"))
+# H3_DATA_PACK_DIR (if set and non-empty) overrides the repo-relative data/ dir.
+DEFAULT_DIR = os.environ.get(ENV_DIR) or _REPO_DIR
 SCHEMA_VERSION = 1
 MAX_INT = 1 << 31
 
@@ -182,6 +186,7 @@ def _is_frac_table(v):
 
 
 def _build(c):
+    from . import battle  # lazy: battle -> rules -> datapack
     kw = {k: v for k, v in c.items() if k != "hates"}
     kw["hates"] = tuple(c.get("hates", ()))
     return battle.Creature(**kw)
@@ -213,9 +218,9 @@ def parse(rules_obj, creatures_obj):
     return DataPack(_check_rules(rules_obj), _check_creatures(creatures_obj))
 
 
-def load(rules_path, creatures_path):
+def _read(paths):
     texts = []
-    for p in (rules_path, creatures_path):
+    for p in paths:
         try:
             with open(p, encoding="utf-8") as f:
                 texts.append(_loads(f.read(), os.path.basename(p)))
@@ -223,7 +228,20 @@ def load(rules_path, creatures_path):
             raise DataPackError("cannot read %s: %s" % (p, e.strerror)) from None
         except UnicodeDecodeError:
             raise DataPackError("%s: not valid UTF-8" % p) from None
-    return parse(*texts)
+    return texts
+
+
+def load(rules_path, creatures_path):
+    return parse(*_read((rules_path, creatures_path)))
+
+
+def load_rules(rules_path):
+    """Validate only rules.json; return the read-only constants mapping."""
+    return DataPack(_check_rules(_read((rules_path,))[0]), []).rules
+
+
+def load_rules_dir(directory=None):
+    return load_rules(os.path.join(directory or DEFAULT_DIR, "rules.json"))
 
 
 def load_dir(directory=DEFAULT_DIR):

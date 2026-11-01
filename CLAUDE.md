@@ -16,7 +16,7 @@ Specs live in `docs/specs/`, decisions in `docs/adr/`, progress in `docs/checkpo
    stream (`rng.derive_stream`, one named stream per feature). Set membership is fine.
 3. **Integer-only simulation** (ADR-0002). `int` and `fractions.Fraction` only, with one
    named rounding step per derived quantity. No `/` on sim values, no float literals.
-4. **Balance numbers live in `data/*.json`.** Code holds formulas, not tuning values. The pack and loader exist (`data/`, `h3re/datapack.py`); `rules.py` and `battle.py` do not read it yet, and a drift test guards the gap until they do.
+4. **Balance numbers live in `data/*.json`.** Code holds formulas, not tuning values. `rules.py` constants are loaded from `data/rules.json` at import via `h3re/datapack.py` (override the directory with `H3_DATA_PACK_DIR`); `battle.py` creatures and policies still migrate later. Importing `h3re` may open only `rules.json`; a test pins that.
    Existing constants in code are migration debt (HANDOFF item 1), not precedent.
 5. **Every sim change needs a test** in `tools/h3re/tests/`, in the same change.
 6. **Golden re-pin rule.** Golden hashes are pinned in the tests. A re-pin is a reviewed
