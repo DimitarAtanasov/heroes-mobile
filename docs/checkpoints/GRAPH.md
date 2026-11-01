@@ -27,3 +27,5 @@ flowchart LR
 | 1 | LOD archive reader | Haiku (stride fixed by lead) | done |
 | 2 | DEF sprite + H3M map parsers | Sonnet | done (H3M stops after teams; unverified vs real files) |
 | 3 | Combat/economy rules spec + engine design | Opus | done (uncertain items listed in rules.md, 12 experiments to verify) |
+| 4 | CI workflow + README | Haiku | done |
+| 5 | H3M sections after teams | Sonnet | done (layouts unverified; ban-bit semantics assumed) |
