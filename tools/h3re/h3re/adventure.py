@@ -21,6 +21,7 @@ import hashlib
 import heapq
 import json
 from dataclasses import asdict, dataclass, replace
+from math import isqrt
 
 from .rng import derive_stream
 
@@ -94,24 +95,38 @@ class AdventurePolicy:
     """Switchable rules. Every field is [uncertain] in rules.md (or [engine]);
     see docs/specs/adventure.md section 6 for the list and the defaults."""
 
-    # 2.2 road cost per road type (rules.md: dirt 50; others may be cheaper).
-    road_cost: tuple = (("cobblestone", 50), ("dirt", 50), ("gravel", 50))
+    # 2.2 road cost per road type (VCMI cross-check: 75/65/50).
+    road_cost: tuple = (("cobblestone", 50), ("dirt", 75), ("gravel", 65))
     # Does the road discount need a road on both tiles of the step?
-    road_needs_both: bool = False
+    road_needs_both: bool = True
+    # Which tile's road sets the rate: "source" | "dest" | "max" (dearer).
+    # With road_needs_both=False only one tile may have a road; its rate is used.
+    road_rate_from: str = "source"
     # Whose terrain prices a step: the tile entered or the tile left.
-    cost_from: str = "dest"             # "dest" | "source"
-    # 2.2 diagonals: allowed?, cost = orth * num / den rounded.
+    cost_from: str = "source"           # "source" | "dest"
+    # 2.2 diagonals: allowed?, cost = orth * sqrt2 (integer-exact) or a ratio.
     diagonal_moves: bool = True
+    diagonal_mode: str = "sqrt2"        # "sqrt2" | "ratio" (num/den below)
     diagonal_num: int = 141
     diagonal_den: int = 100
-    diagonal_rounding: str = "floor"
+    diagonal_rounding: str = "floor"    # rounding for "ratio" mode (sqrt2 is floor)
     # May a diagonal step squeeze between two impassable orthogonal tiles?
     diagonal_corner_cut: bool = True
-    # 2.2 last step with too few points: "forbid" | "allow_if_any"
-    # (any points left: take it, points drop to 0) | "allow_if_fresh"
-    # (only as the hero's first step of the day).
-    last_step: str = "allow_if_any"
-    # 2.2 Pathfinding: % cut of the part of terrain cost above 100.
+    # 2.2 last step with too few points: "forbid" (a step needs points >= its
+    # cost) | "allow_if_any" (any points left: take it, points drop to 0) |
+    # "allow_if_fresh" (only as the hero's first step of the day).
+    last_step: str = "forbid"
+    # A diagonal step that costs more than the points left is still allowed,
+    # using all points left, if they cover the orthogonal cost of the step.
+    diagonal_exception: bool = True
+    # After a paid step, if 0 < points left < the cost of repeating the step,
+    # all remaining points are used up.
+    zero_remainder: bool = True
+    # 2.2 Pathfinding: "flat" (points off the terrain cost, floor below) or
+    # "percent" (% cut of the part of terrain cost above 100).
+    pathfinding_mode: str = "flat"
+    pathfinding_flat: tuple = (0, 25, 50, 75)
+    move_cost_floor: int = 100
     pathfinding_pct: tuple = (0, 25, 50, 75)
     pathfinding_rounding: str = "floor"
     # 3 Do players receive daily income at the start of day 1?
@@ -120,6 +135,17 @@ class AdventurePolicy:
     def __post_init__(self):
         if self.cost_from not in ("dest", "source"):
             raise ValueError("bad cost_from")
+        if self.road_rate_from not in ("source", "dest", "max"):
+            raise ValueError("bad road_rate_from")
+        if self.diagonal_mode not in ("sqrt2", "ratio"):
+            raise ValueError("bad diagonal_mode")
+        if self.pathfinding_mode not in ("flat", "percent"):
+            raise ValueError("bad pathfinding_mode")
+        if len(self.pathfinding_flat) != 4 or not all(
+                p >= 0 for p in self.pathfinding_flat):
+            raise ValueError("pathfinding_flat needs 4 values >= 0")
+        if self.move_cost_floor <= 0:
+            raise ValueError("bad move_cost_floor")
         if self.last_step not in ("forbid", "allow_if_any", "allow_if_fresh"):
             raise ValueError("bad last_step")
         for r in (self.diagonal_rounding, self.pathfinding_rounding):
@@ -351,9 +377,44 @@ def max_movement(hero, policy=DEFAULT_POLICY):
     return base + base * LOGISTICS_PCT[hero.logistics] // 100
 
 
-def step_cost(grid, a, b, pathfinding=0, policy=DEFAULT_POLICY):
-    """Movement cost of one step a -> b (8-neighbours), ignoring the
-    remaining-points rule. Returns None when the step is not allowed."""
+def _orth_cost(grid, a, b, pathfinding, policy):
+    """Cost of the step a -> b before any diagonal factor."""
+    ta, tb = grid.tile(a), grid.tile(b)
+    ra, rb = ta.road != "none", tb.road != "none"
+    if (ra and rb) or (not policy.road_needs_both and (ra or rb)):
+        roads = dict(policy.road_cost)
+        ca = roads[ta.road] if ra else None
+        cb = roads[tb.road] if rb else None
+        if ca is None or cb is None:
+            return ca if cb is None else cb
+        if policy.road_rate_from == "source":
+            return ca
+        if policy.road_rate_from == "dest":
+            return cb
+        return max(ca, cb)
+    terrain = tb.terrain if policy.cost_from == "dest" else ta.terrain
+    cost = TERRAIN_COST[terrain]
+    if cost > 100 and pathfinding:
+        if policy.pathfinding_mode == "flat":
+            cost = max(cost - policy.pathfinding_flat[pathfinding],
+                       policy.move_cost_floor)
+        else:
+            pen = cost - 100
+            cut = _div(pen * policy.pathfinding_pct[pathfinding], 100,
+                       policy.pathfinding_rounding)
+            cost = 100 + pen - cut
+    return cost
+
+
+def _diagonal(cost, policy):
+    if policy.diagonal_mode == "sqrt2":
+        return isqrt(2 * cost * cost)       # floor(cost * sqrt 2), exact
+    return _div(cost * policy.diagonal_num, policy.diagonal_den,
+                policy.diagonal_rounding)
+
+
+def _step_parts(grid, a, b, pathfinding, policy):
+    """(full cost, orthogonal cost, is_diagonal) or None if not allowed."""
     dx, dy = b[0] - a[0], b[1] - a[1]
     if (dx, dy) == (0, 0) or max(abs(dx), abs(dy)) != 1:
         return None
@@ -366,24 +427,31 @@ def step_cost(grid, a, b, pathfinding=0, policy=DEFAULT_POLICY):
         if not policy.diagonal_corner_cut and not (
                 grid.passable((a[0] + dx, a[1])) and grid.passable((a[0], a[1] + dy))):
             return None
-    ta, tb = grid.tile(a), grid.tile(b)
-    roads = dict(policy.road_cost)
-    if tb.road != "none" and (ta.road != "none" or not policy.road_needs_both):
-        if policy.road_needs_both:
-            cost = max(roads[ta.road], roads[tb.road])
-        else:
-            cost = roads[tb.road]
-    else:
-        terrain = tb.terrain if policy.cost_from == "dest" else ta.terrain
-        cost = TERRAIN_COST[terrain]
-        if cost > 100 and pathfinding:
-            pen = cost - 100
-            cut = _div(pen * policy.pathfinding_pct[pathfinding], 100,
-                       policy.pathfinding_rounding)
-            cost = 100 + pen - cut
-    if diagonal:
-        cost = _div(cost * policy.diagonal_num, policy.diagonal_den, policy.diagonal_rounding)
-    return cost
+    orth = _orth_cost(grid, a, b, pathfinding, policy)
+    return (_diagonal(orth, policy) if diagonal else orth), orth, diagonal
+
+
+def step_cost(grid, a, b, pathfinding=0, policy=DEFAULT_POLICY):
+    """Movement cost of one step a -> b (8-neighbours), ignoring the
+    remaining-points rule. Returns None when the step is not allowed."""
+    parts = _step_parts(grid, a, b, pathfinding, policy)
+    return None if parts is None else parts[0]
+
+
+def _paid(parts, left, fresh, policy):
+    """Points actually spent on a step with ``left`` points, or None if it
+    cannot be taken. Applies the last-step rules."""
+    c, orth, diagonal = parts
+    if left >= c:
+        if policy.zero_remainder and 0 < left - c < c:
+            return left
+        return c
+    if policy.last_step == "allow_if_any" or (
+            policy.last_step == "allow_if_fresh" and fresh):
+        return left
+    if policy.diagonal_exception and diagonal and left >= orth:
+        return left
+    return None
 
 
 _DIRS = ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1))
@@ -411,16 +479,14 @@ def _search(state, hero, budget):
             nxt = (cur[0] + dx, cur[1] + dy)
             if nxt in occupied or nxt in done:
                 continue
-            c = step_cost(grid, cur, nxt, hero.pathfinding, pol)
-            if c is None:
+            parts = _step_parts(grid, cur, nxt, hero.pathfinding, pol)
+            if parts is None:
                 continue
-            if budget is not None and spent + c > budget:
-                left = budget - spent
+            c = parts[0]
+            if budget is not None:
                 fresh = spent == 0 and not hero.moved_today
-                if pol.last_step == "allow_if_any" or (
-                        pol.last_step == "allow_if_fresh" and fresh):
-                    c = left           # the step uses up every point left
-                else:
+                c = _paid(parts, budget - spent, fresh, pol)
+                if c is None:
                     continue
             label = (spent + c, steps + 1, path + (nxt,))
             if nxt not in best or label < best[nxt]:

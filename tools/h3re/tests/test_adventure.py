@@ -77,18 +77,23 @@ class MovementPointsTest(unittest.TestCase):
 
 class StepCostTest(unittest.TestCase):
     def test_terrain_costs(self):
+        # the SOURCE tile prices the step (VCMI cross-check)
         for code, cost in (("d", 100), ("g", 100), ("l", 100), ("u", 100),
                            ("r", 125), ("s", 150), ("n", 150), ("w", 175)):
-            g = grid(["g" + code])
+            g = grid([code + "g"])
             self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), cost, code)
             self.assertEqual(A.find_path(game(g), 0, (1, 0)), (cost, ((0, 0), (1, 0))))
+        self.assertEqual(A.step_cost(grid(["gw"]), (0, 0), (1, 0)), 100)
 
     def test_roads(self):
         g = grid(["sss"], ["111"])
-        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 50)
-        self.assertEqual(A.find_path(game(g), 0, (2, 0))[0], 100)
-        for r in "23":
-            self.assertEqual(A.step_cost(grid(["ss"], ["." + r]), (0, 0), (1, 0)), 50)
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 75)
+        self.assertEqual(A.find_path(game(g), 0, (2, 0))[0], 150)
+        for r, cost in (("2", 65), ("3", 50)):
+            self.assertEqual(A.step_cost(grid(["ss"], [r + r]), (0, 0), (1, 0)), cost)
+        # a road on one tile only gives no discount
+        self.assertEqual(A.step_cost(grid(["ss"], [".3"]), (0, 0), (1, 0)), 150)
+        self.assertEqual(A.step_cost(grid(["ss"], ["3."]), (0, 0), (1, 0)), 150)
 
     def test_impassable(self):
         g = grid(["g~#g"], blocked={(3, 0)})
@@ -97,20 +102,38 @@ class StepCostTest(unittest.TestCase):
         self.assertIsNone(A.find_path(game(g), 0, (3, 0)))
 
     def test_diagonal_cost(self):
-        g = grid(["gg", "gw"])
-        self.assertEqual(A.step_cost(g, (0, 0), (1, 1)), 246)   # 175*141//100
+        g = grid(["wg", "gg"])
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 1)), 247)   # floor(175*sqrt2)
         self.assertEqual(A.step_cost(g, (1, 0), (0, 1)), 141)
+        for code, want in (("g", 141), ("r", 176), ("s", 212), ("w", 247)):
+            self.assertEqual(A.step_cost(grid([code + "g", "gg"]), (0, 0), (1, 1)), want)
+        for r, want in (("1", 106), ("2", 91), ("3", 70)):
+            self.assertEqual(A.step_cost(grid(["gg", "gg"], [r * 2] * 2), (0, 0), (1, 1)), want)
 
-    def test_pathfinding_cuts_penalty_only(self):
-        g = grid(["gw", "gg"])
-        costs = [A.step_cost(g, (0, 0), (1, 0), pf) for pf in range(4)]
-        self.assertEqual(costs, [175, 157, 138, 119])          # 75 * 0/25/50/75%
-        self.assertEqual(A.step_cost(g, (1, 0), (0, 0), 3), 100)
+    def test_sqrt2_is_exact_floor(self):
+        for c in range(1, 5000):
+            d = A._diagonal(c, A.DEFAULT_POLICY)
+            self.assertTrue(d * d <= 2 * c * c < (d + 1) * (d + 1))
+
+    def test_pathfinding_is_flat_with_floor(self):
+        def costs(code):
+            g = grid([code + "g", "gg"])
+            return [A.step_cost(g, (0, 0), (1, 0), pf) for pf in range(4)]
+        self.assertEqual(costs("w"), [175, 150, 125, 100])
+        self.assertEqual(costs("s"), [150, 125, 100, 100])
+        self.assertEqual(costs("r"), [125, 100, 100, 100])
+        self.assertEqual(costs("g"), [100, 100, 100, 100])
+        # applied before the diagonal factor
+        g = grid(["wg", "gg"])
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 1), 3), 141)
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 1), 1), 212)
+        # roads are not affected
+        self.assertEqual(A.step_cost(grid(["ww"], ["11"]), (0, 0), (1, 0), 3), 75)
 
     def test_path_prefers_road_detour(self):
-        g = grid(["gsssg", "ggggg"], ["1...1", "11111"])
+        g = grid(["gsssg", "ggggg"], ["3...3", "33333"])
         cost, path = A.find_path(game(g), 0, (4, 0))
-        # straight over sand: 3*150 + 50 = 500; diagonal onto the road row and
+        # straight over sand: 100 + 3*150 = 550; diagonal onto the road row and
         # back: 70 + 2*50 + 70 = 240
         self.assertEqual(cost, 70 + 50 * 2 + 70)
         self.assertEqual(path, ((0, 0), (1, 1), (2, 1), (3, 1), (4, 0)))
@@ -133,35 +156,48 @@ class StepCostTest(unittest.TestCase):
 
 class PolicyTest(unittest.TestCase):
     def test_road_cost_table(self):
-        pol = replace(A.DEFAULT_POLICY,
-                      road_cost=(("cobblestone", 50), ("dirt", 75), ("gravel", 65)))
-        g = grid(["gggg"], [".123"])
-        self.assertEqual([A.step_cost(g, (i, 0), (i + 1, 0), policy=pol) for i in range(3)],
+        g = grid(["gggg"], ["1233"])
+        self.assertEqual([A.step_cost(g, (i, 0), (i + 1, 0)) for i in range(3)],
                          [75, 65, 50])
+        pol = replace(A.DEFAULT_POLICY,
+                      road_cost=(("cobblestone", 50), ("dirt", 50), ("gravel", 50)))
+        self.assertEqual([A.step_cost(g, (i, 0), (i + 1, 0), policy=pol) for i in range(3)],
+                         [50, 50, 50])
 
     def test_road_needs_both(self):
         g = grid(["ss"], [".1"])
-        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 50)
-        pol = replace(A.DEFAULT_POLICY, road_needs_both=True)
-        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), policy=pol), 150)
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 150)
+        pol = replace(A.DEFAULT_POLICY, road_needs_both=False)
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), policy=pol), 75)
 
-    def test_cost_from_source(self):
+    def test_road_rate_from(self):
+        g = grid(["ss"], ["13"])
+        rates = []
+        for mode in ("source", "dest", "max"):
+            pol = replace(A.DEFAULT_POLICY, road_rate_from=mode)
+            rates.append(A.step_cost(g, (0, 0), (1, 0), policy=pol))
+        self.assertEqual(rates, [75, 50, 75])
+
+    def test_cost_from_dest(self):
         g = grid(["wg"])
-        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 100)
-        pol = replace(A.DEFAULT_POLICY, cost_from="source")
-        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), policy=pol), 175)
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 175)
+        pol = replace(A.DEFAULT_POLICY, cost_from="dest")
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), policy=pol), 100)
 
-    def test_diagonal_rounding_and_ratio(self):
+    def test_diagonal_ratio_mode(self):
         g = grid(["gg", "gg"])
         for num, den, mode, want in ((141, 100, "floor", 141), (142, 100, "floor", 142),
                                      (1414, 1000, "ceil", 142), (1414, 1000, "nearest", 141)):
-            pol = replace(A.DEFAULT_POLICY, diagonal_num=num, diagonal_den=den,
-                          diagonal_rounding=mode)
+            pol = replace(A.DEFAULT_POLICY, diagonal_mode="ratio", diagonal_num=num,
+                          diagonal_den=den, diagonal_rounding=mode)
             self.assertEqual(A.step_cost(g, (0, 0), (1, 1), policy=pol), want)
-        g2 = grid(["gr", "gr"])
-        ceil = replace(A.DEFAULT_POLICY, diagonal_rounding="ceil")
-        self.assertEqual(A.step_cost(g2, (0, 0), (1, 1)), 176)            # 176.25
+        g2 = grid(["rg", "gg"])
+        old = replace(A.DEFAULT_POLICY, diagonal_mode="ratio")
+        ceil = replace(old, diagonal_rounding="ceil")
+        self.assertEqual(A.step_cost(g2, (0, 0), (1, 1), policy=old), 176)    # 176.25
         self.assertEqual(A.step_cost(g2, (0, 0), (1, 1), policy=ceil), 177)
+        g3 = grid(["wg", "gg"])           # ratio 141/100 gives 246, sqrt2 gives 247
+        self.assertEqual(A.step_cost(g3, (0, 0), (1, 1), policy=old), 246)
 
     def test_no_diagonals(self):
         g = grid(["gg", "gg"])
@@ -177,41 +213,69 @@ class PolicyTest(unittest.TestCase):
         self.assertIsNone(A.find_path(game(g, policy=pol), 0, (1, 1)))
 
     def test_last_step(self):
-        # speed 5 -> 1630 points; 9 grass steps = 900, then 4 swamp steps = 700.
-        g = grid(["g" * 10 + "wwwww"])
-        far = (14, 0)
-        base = started(g)
+        # speed 5 -> 1630 points; sand costs 150 per step (source tile).
+        g = grid(["s" * 14])
+        far = (11, 0)
+        D = A.DEFAULT_POLICY
+        raw = replace(D, zero_remainder=False)
+        base = started(g, policy=raw)
         r = A.reachable(base, 0)
-        self.assertEqual(r[(13, 0)][0], 1600)
-        self.assertEqual(r[far][0], 1630)              # last step takes the 30 left
-        s, ev = A.apply(base, A.Move(0, far), NoRng())
+        self.assertEqual(r[(10, 0)][0], 1500)
+        self.assertNotIn(far, r)               # 130 left < 150: step refused
+
+        # zero remainder: the 10th step leaves 130 < 150, so it takes all 280
+        z = started(g)
+        r = A.reachable(z, 0)
+        self.assertEqual(r[(9, 0)][0], 1350)
+        self.assertEqual(r[(10, 0)][0], 1630)
+        self.assertNotIn(far, r)
+        s, ev = A.apply(z, A.Move(0, (10, 0)), NoRng())
         self.assertEqual(s.heroes[0].mp, 0)
         self.assertEqual(ev[-1].mp_left, 0)
 
-        forbid = started(g, policy=replace(A.DEFAULT_POLICY, last_step="forbid"))
-        self.assertNotIn(far, A.reachable(forbid, 0))
+        anyp = started(g, policy=replace(raw, last_step="allow_if_any"))
+        self.assertEqual(A.reachable(anyp, 0)[far][0], 1630)   # takes the 130 left
         with self.assertRaises(A.IllegalCommand):
-            A.apply(forbid, A.Move(0, far), NoRng())
+            A.apply(base, A.Move(0, far), NoRng())
 
-        fresh = started(g, policy=replace(A.DEFAULT_POLICY, last_step="allow_if_fresh"))
+        fresh = started(g, policy=replace(raw, last_step="allow_if_fresh"))
         self.assertNotIn(far, A.reachable(fresh, 0))
         # a hero that has not moved today may always take one step
         poor = grid(["w" * 20])
         heroes = (A.HeroSetup(0, (0, 0), army(5)),)
         f2 = started(poor, heroes=heroes,
-                     policy=replace(A.DEFAULT_POLICY, last_step="allow_if_fresh"))
+                     policy=replace(raw, last_step="allow_if_fresh"))
         f2 = replace(f2, heroes=(replace(f2.heroes[0], mp=100),))
         self.assertEqual(A.reachable(f2, 0)[(1, 0)][0], 100)
         moved = replace(f2, heroes=(replace(f2.heroes[0], moved_today=True),))
         self.assertEqual(A.reachable(moved, 0), {})
 
-    def test_pathfinding_rounding(self):
-        g = grid(["gr"])
-        ceil = replace(A.DEFAULT_POLICY, pathfinding_rounding="ceil")
-        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), 1), 119)        # cut 6.25 -> 6
+    def test_diagonal_exception(self):
+        g = grid(["ss", "ss"])            # orthogonal 150, diagonal 212
+        raw = replace(A.DEFAULT_POLICY, zero_remainder=False)
+        for exc, want in ((True, {(1, 0): 150, (0, 1): 150, (1, 1): 200}),
+                          (False, {(1, 0): 150, (0, 1): 150})):
+            s = started(g, policy=replace(raw, diagonal_exception=exc))
+            s = replace(s, heroes=(replace(s.heroes[0], mp=200),))
+            self.assertEqual({t: c for t, (c, _) in A.reachable(s, 0).items()}, want)
+        # 140 left does not cover the orthogonal cost of 150: no exception
+        s = started(g, policy=raw)
+        s = replace(s, heroes=(replace(s.heroes[0], mp=140),))
+        self.assertEqual(A.reachable(s, 0), {})
+
+    def test_pathfinding_percent_mode(self):
+        g = grid(["rg"])
+        pct = replace(A.DEFAULT_POLICY, pathfinding_mode="percent")
+        ceil = replace(pct, pathfinding_rounding="ceil")
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), 1, pct), 119)   # cut 6.25 -> 6
         self.assertEqual(A.step_cost(g, (0, 0), (1, 0), 1, ceil), 118)
-        nopf = replace(A.DEFAULT_POLICY, pathfinding_pct=(0, 0, 0, 0))
+        w = grid(["wg"])
+        self.assertEqual([A.step_cost(w, (0, 0), (1, 0), pf, pct) for pf in range(4)],
+                         [175, 157, 138, 119])
+        nopf = replace(pct, pathfinding_pct=(0, 0, 0, 0))
         self.assertEqual(A.step_cost(g, (0, 0), (1, 0), 3, nopf), 125)
+        flat0 = replace(A.DEFAULT_POLICY, pathfinding_flat=(0, 0, 0, 0))
+        self.assertEqual(A.step_cost(w, (0, 0), (1, 0), 3, flat0), 175)
 
     def test_income_on_first_day(self):
         players = (A.Player(mines=("gold_mine",)),)
@@ -224,6 +288,9 @@ class PolicyTest(unittest.TestCase):
     def test_bad_policy_rejected(self):
         for kw in ({"cost_from": "x"}, {"last_step": "x"}, {"diagonal_rounding": "x"},
                    {"diagonal_den": 0}, {"pathfinding_pct": (0, 1)},
+                   {"road_rate_from": "x"}, {"diagonal_mode": "x"},
+                   {"pathfinding_mode": "x"}, {"pathfinding_flat": (0, 1)},
+                   {"move_cost_floor": 0},
                    {"road_cost": (("dirt", 50),)}):
             with self.assertRaises(ValueError):
                 A.AdventurePolicy(**kw)
@@ -378,7 +445,11 @@ def play_days(state, days=14):
 class GoldenTest(unittest.TestCase):
     # Pinned: changing rules, policy defaults or the canonical form changes
     # this hash and must be a deliberate, reviewed change.
-    PINNED = "e859fff54fabcfcffc9d0f6797e09f91ee9896a991bff106f30304f04b2cfb6e"
+    # History: e859fff5... (draft v1 defaults) -> 179c5700... (VCMI cross-check
+    # defaults: source-tile pricing, roads 75/65/50 on both tiles, flat
+    # Pathfinding, exact floor(sqrt2) diagonals, last-step rules). See
+    # docs/specs/adventure.md section 6.
+    PINNED = "179c570020d05be9a53c265a76517a4bb9f398c92f37d19485d30f804f703420"
 
     def test_replay_is_deterministic(self):
         s1, t1 = play_days(golden_setup())
@@ -411,11 +482,15 @@ class GoldenTest(unittest.TestCase):
 
 POLICIES = [
     A.DEFAULT_POLICY,
-    A.AdventurePolicy(last_step="forbid", diagonal_corner_cut=False, cost_from="source",
-                      road_needs_both=True, diagonal_rounding="ceil"),
+    A.AdventurePolicy(last_step="allow_if_any", diagonal_corner_cut=False,
+                      cost_from="dest", road_needs_both=False, road_rate_from="max",
+                      diagonal_mode="ratio", diagonal_rounding="ceil",
+                      zero_remainder=False, diagonal_exception=False,
+                      pathfinding_mode="percent",
+                      road_cost=(("cobblestone", 50), ("dirt", 50), ("gravel", 50))),
     A.AdventurePolicy(last_step="allow_if_fresh", diagonal_moves=False,
-                      road_cost=(("cobblestone", 50), ("dirt", 75), ("gravel", 65)),
-                      pathfinding_rounding="nearest", income_on_first_day=True),
+                      pathfinding_mode="percent", pathfinding_rounding="nearest",
+                      income_on_first_day=True),
 ]
 
 
@@ -458,11 +533,13 @@ class PropertyTest(unittest.TestCase):
         s, _ = A.apply(golden_setup(), A.Begin(), NoRng())
         for hid in (0, 1):
             for t, (cost, path) in A.reachable(s, hid).items():
-                if cost < s.heroes[hid].mp:
+                # no step can hit the zero-remainder rule if 2 * (dearest step, 247) is spare
+                if cost + 494 <= s.heroes[hid].mp:
                     self.assertEqual(A.find_path(s, hid, t), (cost, path))
-                total = sum(A.step_cost(s.grid, a, b, s.heroes[hid].pathfinding)
-                            for a, b in zip(path, path[1:]))
-                self.assertGreaterEqual(total, cost)
+                steps = [A.step_cost(s.grid, a, b, s.heroes[hid].pathfinding)
+                         for a, b in zip(path, path[1:])]
+                # only the last step may be adjusted by the last-step rules
+                self.assertLessEqual(sum(steps[:-1]), cost)
 
     def test_state_is_immutable(self):
         s = golden_setup()

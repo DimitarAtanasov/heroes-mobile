@@ -52,20 +52,26 @@ Same pattern as `battle.md` §1. [engine]
   rough 125, sand/snow 150, swamp 175. [documented] `water` and `rock`, and
   any tile with `blocked=True`, cannot be entered or left on land.
   [engine: stand-in for map decorations and the sea]
-- A road step costs `policy.road_cost[road]`. [uncertain] The road applies
-  when the tile entered has a road, or, with `road_needs_both`, only when
-  both tiles do. In that case the step costs the dearer of the two road
-  costs. [uncertain]
-- Without a road, the terrain that sets the price is the tile entered
-  (`cost_from="dest"`, per the wording of rules.md §2.2) or the tile left
-  (`"source"`). [uncertain]
-- Pathfinding level L reduces the part of the terrain cost above 100 by
-  `pathfinding_pct[L]` percent, rounded by `pathfinding_rounding`. It never
-  affects roads or 100-cost terrain. [uncertain]
-- Diagonal step = the orthogonal cost (after the road and Pathfinding rules)
-  × `diagonal_num / diagonal_den`, rounded by `diagonal_rounding`.
-  [uncertain] The order "Pathfinding first, then the diagonal factor" is
-  [uncertain] and has no switch.
+- Road step (VCMI cross-check, `vcmi-crosscheck-rules.md`, clear): a road
+  applies only if both tiles have one (`road_needs_both=True`), and the rate is
+  the SOURCE tile's road (`road_rate_from="source"`). `road_cost` defaults to
+  dirt 75, gravel 65, cobblestone 50. With `road_needs_both=False` a road on
+  either tile applies (the rate comes from the tile that has one, or per
+  `road_rate_from` when both do; `"dest"` and `"max"` are options).
+- Without a road, the tile LEFT sets the terrain price (`cost_from="source"`;
+  `"dest"` keeps the old wording of rules.md §2.2).
+- Pathfinding level L (`pathfinding_mode="flat"`): subtract
+  `pathfinding_flat[L]` = 0/25/50/75 points from the terrain cost, never below
+  `move_cost_floor` = 100 (swamp 175 -> 150/125/100, sand 150 -> 125/100/100,
+  rough 125 -> 100). It never affects roads. `pathfinding_mode="percent"`
+  keeps the old rule: cut `pathfinding_pct[L]` percent of the part above 100,
+  rounded by `pathfinding_rounding`.
+- Diagonal step (`diagonal_mode="sqrt2"`): floor(cost x sqrt 2), computed
+  exactly with `isqrt(2*cost^2)` (no floats): 100 -> 141, 125 -> 176,
+  150 -> 212, 175 -> 247; roads 75 -> 106, 65 -> 91, 50 -> 70. Applied after
+  the road and Pathfinding rules. `diagonal_mode="ratio"` keeps the old
+  `diagonal_num / diagonal_den` with `diagonal_rounding` (141/100 gives 246
+  for 175, one less than sqrt2).
 - Corner cutting: with `diagonal_corner_cut=False`, a diagonal step needs
   both orthogonal side tiles to be passable. [uncertain]
 - Tiles occupied by other heroes (of any owner) cannot be entered or crossed.
@@ -85,13 +91,19 @@ Same pattern as `battle.md` §1. [engine]
 - Before `Begin`, heroes have 0 points. After `Begin`, the first player's
   heroes start full, and every other player's heroes fill up when that
   player's turn starts.
-- Last step (`last_step`) [uncertain], when the next step costs more than
-  the points left:
-  - `"forbid"`: the step cannot be taken.
-  - `"allow_if_any"` (default): with any points left, the step is taken and
-    costs exactly what is left, so the hero ends on 0.
-  - `"allow_if_fresh"`: only allowed as the hero's first step of the day,
-    which spends all of the points. Otherwise the same as `"forbid"`.
+- Last step. A step needs points left >= its cost (`last_step="forbid"`,
+  the default), with two VCMI-documented rules (both clear in the report):
+  - `diagonal_exception=True`: a diagonal step that costs more than the points
+    left is still allowed if the points left cover the orthogonal cost of the
+    same step. It uses up all remaining points.
+  - `zero_remainder=True`: after a paid step, if 0 < points left < the cost of
+    repeating that step, all remaining points are used up (the step is charged
+    `left`). This is applied inside `reachable`, so a tile reached this way
+    costs the whole remaining budget and ends the day. `find_path` (no budget)
+    never applies it.
+  - Old options: `last_step="allow_if_any"` (any points left: take the step,
+    costs exactly what is left) and `"allow_if_fresh"` (only as the hero's
+    first step of the day).
 - Points never go negative (property-tested).
 
 ## 4. Pathfinding
@@ -136,25 +148,47 @@ Same pattern as `battle.md` §1. [engine]
 
 ## 6. Policy fields (`AdventurePolicy`)
 
-Each field below is an unverified assumption. They are resolved by
-`rules.md` §9 items 7 and 8, plus the new items marked *.
+Fields in the first rows now default to the VCMI cross-check values
+(`docs/specs/vcmi-crosscheck-rules.md`, items rated clear). VCMI is evidence,
+not proof: `rules.md` §9 items 7 and 8 still decide, and each old behaviour is
+kept as an option. Mysticism is out of scope. Items marked * were never in §9.
 
 | Field | Default | Alternatives | Question |
 |---|---|---|---|
-| `road_cost` | dirt/gravel/cobblestone all 50 | any positive costs | Are gravel/cobblestone roads cheaper? |
-| `road_needs_both` | `False` | `True` (dearer road wins) | Does a road need to be on both tiles?* |
-| `cost_from` | `"dest"` | `"source"` | Is a step priced by the tile entered or the tile left?* |
+| `road_cost` | dirt 75, gravel 65, cobblestone 50 | any positive costs | Road rates (VCMI) |
+| `road_needs_both` | `True` | `False` | Road needed on both tiles (VCMI) |
+| `road_rate_from` | `"source"` | `"dest"`, `"max"` | Which road sets the rate (VCMI: source) |
+| `cost_from` | `"source"` | `"dest"` | Tile that prices a step (VCMI: source) |
 | `diagonal_moves` | `True` | `False` | (engine switch, for comparison) |
-| `diagonal_num/den` | 141/100 | e.g. 142/100, 1414/1000 | Diagonal multiplier |
-| `diagonal_rounding` | `"floor"` | `"ceil"`, `"nearest"` | Diagonal rounding |
+| `diagonal_mode` | `"sqrt2"` | `"ratio"` | floor(cost x sqrt2) vs a fixed ratio |
+| `diagonal_num/den` | 141/100 | e.g. 142/100 | Ratio mode only |
+| `diagonal_rounding` | `"floor"` | `"ceil"`, `"nearest"` | Ratio mode only |
 | `diagonal_corner_cut` | `True` | `False` | Can a diagonal pass between two blocked tiles?* |
-| `last_step` | `"allow_if_any"` | `"forbid"`, `"allow_if_fresh"` | Last-step rule |
-| `pathfinding_pct` | (0, 25, 50, 75) | any 0..100 | Pathfinding reductions |
-| `pathfinding_rounding` | `"floor"` | `"ceil"`, `"nearest"` | Pathfinding rounding* |
+| `last_step` | `"forbid"` | `"allow_if_any"`, `"allow_if_fresh"` | Points needed for a step |
+| `diagonal_exception` | `True` | `False` | Diagonal allowed if orthogonal cost is covered |
+| `zero_remainder` | `True` | `False` | Leftover < repeat cost is used up |
+| `pathfinding_mode` | `"flat"` | `"percent"` | Flat 25/50/75 points vs percent of penalty |
+| `pathfinding_flat` | (0, 25, 50, 75) | any >= 0 | Flat reductions |
+| `move_cost_floor` | 100 | any > 0 | Floor for Pathfinding |
+| `pathfinding_pct` | (0, 25, 50, 75) | any 0..100 | Percent mode only |
+| `pathfinding_rounding` | `"floor"` | `"ceil"`, `"nearest"` | Percent mode only |
 | `income_on_first_day` | `False` | `True` | Is income paid on day 1?* |
 
-Other unverified assumptions that have no switch: Pathfinding is applied
-before the diagonal factor; points are computed from the army at the start
+### Default changes and the golden hash
+
+One reviewed change moved these defaults: `cost_from` dest -> source;
+`road_needs_both` False -> True (plus `road_rate_from="source"`); road costs
+50/50/50 -> 75/65/50; Pathfinding percent -> flat points with a floor of 100;
+diagonals 141/100 -> exact floor(cost x sqrt2); `last_step` `"allow_if_any"` ->
+`"forbid"` plus `diagonal_exception` and `zero_remainder`. The 14-day golden
+hash was re-pinned once, from `e859fff5...` to `179c5700...`, because the
+scripted heroes now pay different costs and so take different tiles each day.
+The policy is also part of the hashed state. The old values are reachable as
+policy options, and the property tests cover them.
+
+Other unverified assumptions that have no switch (the VCMI order of road,
+Pathfinding and diagonal is as above): Pathfinding is applied before the
+diagonal factor; points are computed from the army at the start
 of the day; heroes block tiles; `water`/`rock` cannot be passed on land.
 
 ## 7. Tests
