@@ -293,6 +293,7 @@ def parse_h3m_bytes(raw: bytes) -> H3mHeader:
         raise H3mError(f"unsupported map format 0x{fmt:X}")
     has_hero = bool(r.u8("has hero"))
     size = r.u32("map size")
+    # Deliberately permissive sanity bound (see docs/specs/h3m.md).
     if not 1 <= size <= 1024:
         raise H3mError(f"implausible map size {size}")
     two = bool(r.u8("two levels"))
@@ -324,6 +325,14 @@ def parse_h3m(data: bytes) -> H3mHeader:
             raw = d.decompress(data, MAX_DECOMPRESSED)
             if d.unconsumed_tail:
                 raise H3mError("decompressed map exceeds size limit")
+            if not d.eof:
+                raise H3mError("truncated gzip stream")
+            if d.unused_data:
+                # Real maps are a single gzip member; trailing bytes or
+                # additional members are rejected rather than ignored.
+                raise H3mError(
+                    f"{len(d.unused_data)} bytes of trailing data after "
+                    "gzip stream (multi-member gzip not supported)")
         except (zlib.error, EOFError, gzip.BadGzipFile) as e:
             raise H3mError(f"bad gzip stream: {e}") from e
     else:

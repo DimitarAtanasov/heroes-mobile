@@ -2,17 +2,23 @@
 
 Implemented in `tools/h3re/h3re/h3m.py`. Files are gzip streams; little-endian.
 Strings are u32 length + bytes (cp1252). Decompression is capped at 64 MiB.
+Truncated gzip streams, trailing bytes after the stream, and multi-member
+gzip files are rejected with `H3mError` (real maps are one gzip member).
 
 ## Header
 | Field | Type |
 |---|---|
 | format | u32: 0x0E RoE, 0x15 AB, 0x1C SoD, 0x33 WoG |
 | has hero | u8 |
-| map size | u32 (square side) |
+| map size | u32 (square side); see note below |
 | two levels | u8 |
 | name, description | strings |
 | difficulty | u8 (0-4) |
 | max hero level | u8, only if not RoE |
+
+Map size note: real sizes are 36/72/108/144 (S/M/L/XL), and newer editions
+(e.g. HotA) allow others. The parser only checks the permissive range
+1..1024 as a sanity bound and does not enforce the standard sizes.
 
 ## Players (8 slots)
 u8 can_human, u8 can_computer. If neither, skip 6 (RoE) / 12 (AB) / 13 (SoD+)

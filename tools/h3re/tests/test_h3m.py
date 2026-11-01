@@ -205,6 +205,30 @@ class H3mTests(unittest.TestCase):
         with self.assertRaises(H3mError):
             parse_h3m_bytes(bytes(bad))
 
+    def test_gzip_truncated_rejected(self):
+        gz = gzip.compress(build(SOD))
+        for cut in (len(gz) - 1, len(gz) - 8, len(gz) // 2):
+            with self.assertRaises(H3mError, msg=str(cut)):
+                parse_h3m(gz[:cut])
+
+    def test_gzip_trailing_and_multimember_rejected(self):
+        gz = gzip.compress(build(SOD))
+        with self.assertRaises(H3mError):
+            parse_h3m(gz + b"junk")
+        with self.assertRaises(H3mError):
+            parse_h3m(gz + gzip.compress(b"more"))
+        self.assertEqual(parse_h3m(gz).name, "Test Map")
+
+    def test_map_size_bounds(self):
+        good = build(SOD)
+        for size, ok in ((0, False), (1, True), (1024, True), (1025, False)):
+            raw = good[:5] + struct.pack("<I", size) + good[9:]
+            if ok:
+                self.assertEqual(parse_h3m_bytes(raw).size, size)
+            else:
+                with self.assertRaises(H3mError):
+                    parse_h3m_bytes(raw)
+
     def test_uncompressed_accepted(self):
         self.assertEqual(parse_h3m(build(AB)).name, "Test Map")
 
