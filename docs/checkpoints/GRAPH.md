@@ -59,4 +59,5 @@ flowchart LR
 | 31 | CLAUDE.md, role files, ADRs 0001-0003 | Haiku | done |
 | 32 | Determinism gate: soak, bisector, banned-API lint, CI job | Sonnet | done |
 | 33 | Single damage pipeline (RollPolicy) | Opus | done (golden hash unchanged) |
-| R5 | Wire data pack into rules/battle; prettier battle-sim; README loop graph | mixed | next |
+| 34 | rules.py constants load from data/rules.json | Sonnet | done (import opens only rules.json) |
+| 35 | battle-sim --pretty, README landing page | Haiku | done (CLI wiring by lead) |
