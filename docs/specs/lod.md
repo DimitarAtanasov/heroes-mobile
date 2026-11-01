@@ -62,7 +62,7 @@ A member with `uncompressed_size == 0` and `compressed_size == 0` is an empty fi
 
 Parsing fails with `LodFormatError` if any of these hold:
 
-1. The file is shorter than 8 bytes, or the magic is wrong.
+1. The file is shorter than the 92-byte header, or the magic is wrong.
 2. `entry_count` is greater than 1 048 576 (sanity cap).
 3. The directory (`92 + 32 * entry_count` bytes) extends past end of file.
 4. Any payload range `[offset, offset + stored_size)` extends past end of file, where
@@ -106,4 +106,5 @@ Extraction does not create subdirectories.
 - The header field positions (count at offset 8 after magic+version, directory at offset 92) and the 32-byte
   stride follow the project brief. They have not been verified against a reference file.
 - The meaning of the `type` field is unknown and is exposed as an integer only.
-- The 48 trailing bytes in each directory entry are unidentified.
+- The directory entry is 32 bytes (16-byte name plus four uint32 fields); there are no trailing
+  bytes after these fields. Only the stride itself is unverified (see above).

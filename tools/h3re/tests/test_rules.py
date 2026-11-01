@@ -139,6 +139,14 @@ class ApplyDamageTest(unittest.TestCase):
         self.assertEqual(rules.apply_damage(3, 7, 10, 1000), (0, 0, 3))
         self.assertEqual(rules.apply_damage(3, 7, 10, 27), (0, 0, 3))
 
+    def test_empty_stack_is_valid(self):
+        self.assertEqual(rules.apply_damage(0, 0, 10, 0), (0, 0, 0))
+        self.assertEqual(rules.apply_damage(0, 0, 10, 500), (0, 0, 0))
+        with self.assertRaises(ValueError):
+            rules.apply_damage(0, 3, 10, 5)
+        with self.assertRaises(ValueError):
+            rules.apply_damage(0, 0, 10, -1)
+
     def test_zero_and_invalid(self):
         self.assertEqual(rules.apply_damage(4, 6, 6, 0), (4, 6, 0))
         with self.assertRaises(ValueError):

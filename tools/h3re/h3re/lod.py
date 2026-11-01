@@ -31,8 +31,8 @@ MAX_ENTRIES = 1 << 20  # sanity cap on the directory length
 
 _HEADER_COUNT = struct.Struct("<I")
 # offset, uncompressed size, type, compressed size (each uint32 LE),
-# starting right after the 16-byte name. The remaining 48 bytes of each
-# entry are not described by the format and are ignored.
+# starting right after the 16-byte name. Each entry is exactly 32 bytes
+# (ENTRY_SIZE), so no bytes trail these fields.
 _ENTRY_FIELDS = struct.Struct("<IIII")
 
 

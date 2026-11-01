@@ -118,13 +118,21 @@ def damage_range(count, dmg_min, dmg_max, attack, defense, **mods):
 
 
 def apply_damage(count, top_hp, max_hp, damage):
-    """Apply damage to a stack. Returns (new_count, new_top_hp, killed)."""
-    if max_hp <= 0 or not 0 < top_hp <= max_hp or count < 0:
+    """Apply damage to a stack. Returns (new_count, new_top_hp, killed).
+
+    An empty stack (count == 0) is valid and has no top creature, so its
+    top_hp must be 0. Damage to it kills nothing and returns (0, 0, 0).
+    """
+    if max_hp <= 0 or count < 0:
         raise ValueError("invalid stack state")
     if damage < 0:
         raise ValueError("damage must be non-negative")
     if count == 0:
+        if top_hp != 0:
+            raise ValueError("empty stack must have top_hp 0")
         return 0, 0, 0
+    if not 0 < top_hp <= max_hp:
+        raise ValueError("invalid stack state")
     total = (count - 1) * max_hp + top_hp
     remaining = max(0, total - damage)
     if remaining == 0:

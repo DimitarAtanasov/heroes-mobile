@@ -215,6 +215,10 @@ same synthetic fixtures.
 
 Every phase ends with a milestone that a test can check.
 
+Note: the phase numbers below are roadmap phases. They are distinct from the
+checkpoint numbers in the checkpoint log in `docs/checkpoints/GRAPH.md`, so
+"Phase 1" (LOD reader) is not "checkpoint 1".
+
 | Phase | Scope | Testable milestone |
 |------:|-------|--------------------|
 | 0 | Repo scaffold, clean-room rules, CI running `unittest` | CI green on empty suite |

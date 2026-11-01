@@ -385,7 +385,7 @@ resurrection spells are [uncertain].
 
 - `attack_defense_factor`, `base_damage` (with an injectable RNG),
   `damage_from_base`, `damage_range`, `apply_damage`, `luck_chance` and
-  `morale_chance`, plus the skill constant tables.
+  `good_morale_chance` and `bad_morale_chance`, plus the skill constant tables.
 
 Items marked [uncertain] stay out of it until §9 verifies them.
 
