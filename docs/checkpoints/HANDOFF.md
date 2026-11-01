@@ -56,3 +56,10 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - The three questions in `docs/specs/android-app.md` section 14 (channel, sprite mapping source, editions).
 - Allow `nextwork.ai` in the session network settings if its project should inform the plan.
 - Real game data (`H3_DATA_DIR`), real maps, and the rules.md section 9 experiments; nothing has run on real files.
+
+## Wrap-up (checkpoint 72, usage 100%)
+- Committed + pushed: 71 (Kotlin H3M reader), 72 (Kotlin adventure core). Python 742 tests OK; Kotlin sim 140 / presenter 76 OK.
+- Branch `app-shell-ci` holds the uncompiled Compose app shell; CI run 86 pending. Read its log, fix errors, then merge into the working branch.
+- Hero Kotlin port: producer agent a61be954a4a70e04c may still be running; verify in a clean copy (verify_clean, mutations M1-M5/V1, audit), wire `vectors_hero`, commit.
+- Next: determinism audit of Adventure.kt/H3m.kt; adventure stage E (encounter/Attack); port encounter and town.
+- Owner decisions open: bad-morale (24,24,24) rule, ADR-0008 amendment, ADR-0012 acceptance, sdlc-sandbix license, nextwork.ai network allow.
