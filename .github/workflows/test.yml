@@ -18,6 +18,22 @@ jobs:
       - name: Run h3re tests
         run: python3 -m unittest discover -s tools/h3re/tests
 
+  determinism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Banned-API lint (simulation modules)
+        run: python3 tools/lint/banned_api_lint.py
+
+      - name: Determinism soak
+        working-directory: tools/h3re
+        run: python3 -m h3re.soak --games 30 --max-steps 120 -q
+
   real-files:
     # Optional: runs only when dispatched manually, on a self-hosted runner
     # that has the game data. The runner variable H3_DATA_DIR gives its path.

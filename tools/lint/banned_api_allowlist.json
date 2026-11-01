@@ -1,0 +1,8 @@
+[
+  {"file": "battle.py", "rule": "ITER_UNORDERED", "function": "_speed_sorted",
+   "justification": "Iterates set of speeds only to fill rank[s.id]; each key's value is independent of visit order, and the result is consumed via sorted()."},
+  {"file": "adventure.py", "rule": "ITER_UNORDERED", "function": "AdventurePolicy.__post_init__",
+   "justification": "any() over dict values is order-free (validation predicate)."},
+  {"file": "adventure.py", "rule": "ITER_UNORDERED", "function": "_search",
+   "justification": "Dict `best` is insertion-ordered by the deterministic heap pop order; the result is a dict looked up by key, never positionally."}
+]

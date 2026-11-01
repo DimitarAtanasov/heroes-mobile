@@ -22,4 +22,4 @@ Consequences:
 Verification:
 - Review by `determinism-auditor` on every sim diff (CLAUDE.md law 2).
 - Exact-value tests in `tools/h3re/tests/test_rules.py` and the damage and movement tests.
-- Pending: an automated banned-API lint (float, `/`, time, unordered iteration, I/O), tracked in `docs/checkpoints/HANDOFF.md` item 3. Until it is committed and wired into the suite, this ADR is enforced by review and tests only.
+- Enforced by `tools/lint/banned_api_lint.py` (float, `/`, time, unordered iteration, I/O) in the `determinism` CI job and `test_lint.py`; exceptions need a written justification in `tools/lint/banned_api_allowlist.json` or an inline `# det-lint-allow: RULE -- reason`. See `docs/specs/determinism-gate.md`.
