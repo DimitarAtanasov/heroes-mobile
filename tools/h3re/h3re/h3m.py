@@ -4,8 +4,8 @@ Parses: format version, size, name, description, difficulty, player slots,
 victory/loss conditions, teams, then (per version) allowed heroes,
 placeholder heroes, disposed heroes, allowed artifacts/spells/skills, rumors
 and predefined hero data, then terrain tiles.  With ``objects=True`` it also
-parses the object-template table, the object instances (bodies for a
-supported subset of classes) and the global events.  See docs/specs/h3m.md.
+parses the object-template table, the object instances (bodies for every
+RoE/AB/SoD class VCMI reads, except HotA-only subids) and the global events.  See docs/specs/h3m.md.
 Malformed data raises H3mError; an object class whose body is not supported
 raises H3mUnsupportedObject (a subclass) carrying the object index and offset.
 """
@@ -649,14 +649,185 @@ def _body_generic(r, ver, t):
     return {}
 
 
+# Bodies below: layout per VCMI lib/mapping/MapFormatH3M.cpp and
+# lib/mapping/MapReaderH3M.cpp @ c53e0e8 (functional facts; our own code).
+QUEST_TEXTS = 3  # first visit, next visit, completed
+MAX_QUEST_ITEMS = 0xFF  # u8 counts
+SKILL_MASK_BYTES = 4
+NO_SPELL32 = 0xFF
+
+
+def _body_sign(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readSign) @ c53e0e8
+    d = {"message": r.string("sign message")}
+    r.skip(4, "sign reserved")
+    return d
+
+
+def _body_garrison(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readGarrison) @ c53e0e8
+    d = {"owner": r.u32("garrison owner"), "army": _army(r, ver)}
+    d["removable_units"] = r.flag("garrison removable") if ver >= AB else True
+    r.skip(8, "garrison reserved")
+    return d
+
+
+def _body_grail(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readGrail) @ c53e0e8
+    return {"radius": r.i32("grail radius")}
+
+
+def _body_owner32(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readShipyard, readLighthouse) @ c53e0e8
+    return {"owner": r.u32("owner")}  # 255 = neutral (raw)
+
+
+def _body_scholar(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readScholar) @ c53e0e8
+    d = {"bonus_type": r.i8("scholar bonus type"), "bonus_id": r.u8("scholar bonus id")}
+    r.skip(6, "scholar reserved")
+    return d
+
+
+def _body_shrine(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readShrine) @ c53e0e8
+    s = r.u32("shrine spell")
+    return {"spell": None if s == NO_SPELL32 else s}
+
+
+def _body_witch_hut(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readWitchHut) @ c53e0e8
+    if ver == ROE:
+        return {"skills_mask": None, "skills": None}
+    m = r.raw(SKILL_MASK_BYTES, "witch hut skills")
+    return {"skills_mask": m, "skills": _bits(m, SKILL_COUNT, True)}  # set = allowed
+
+
+def _body_hero_placeholder(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readHeroPlaceholder) @ c53e0e8
+    d = {"owner": _opt8(r.u8("placeholder owner")),
+         "hero_type": _opt8(r.u8("placeholder hero type")), "power_rank": None}
+    if d["hero_type"] is None:
+        d["power_rank"] = r.u8("placeholder power rank")
+    return d
+
+
+QUEST_NONE, QUEST_ARTIFACT, QUEST_HOTA_MULTI = 0, 5, 10
+
+
+def _read_quest(r: _Reader, ver: int):
+    """AB-style quest (seer huts AB+, quest guards in every version); None = no quest."""
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readQuest) @ c53e0e8
+    at = r.pos
+    m = r.i8("quest type")
+    if not 0 <= m <= 10:
+        raise H3mError(f"invalid quest type {m} at offset {at}")
+    if m == QUEST_NONE:
+        return None
+    if m == QUEST_HOTA_MULTI:
+        raise H3mError(f"quest type 10 (HotA-only) at offset {at} is not supported")
+    q: dict = {"type": m}
+    if m == 1:
+        q["level"] = r.u32("quest level")
+    elif m == 2:
+        q["primary_skills"] = tuple(r.u8("quest primary") for _ in range(PRIMARY))
+    elif m in (3, 4):
+        q["target_identifier"] = r.u32("quest target")
+    elif m == 5:
+        n = r.count("quest artifact count", MAX_QUEST_ITEMS, 2 if _wide(ver) else 1, width=1)
+        q["artifacts"] = [_art(r, ver, "quest artifact") for _ in range(n)]
+    elif m == 6:
+        n = r.count("quest creature count", MAX_QUEST_ITEMS, 4 if _wide(ver) else 3, width=1)
+        q["creatures"] = [(_creature(r, ver, "quest creature"), r.u16("quest creature count"))
+                          for _ in range(n)]
+    elif m == 7:
+        q["resources"] = tuple(r.u32("quest resource") for _ in range(RESOURCES))
+    elif m == 8:
+        q["hero"] = _opt8(r.u8("quest hero"))
+    else:  # 9
+        q["player"] = _opt8(r.u8("quest player"))
+    q["deadline"] = r.i32("quest deadline")  # last day; -1 = none (raw)
+    q["first_visit"] = r.string("quest first visit text")
+    q["next_visit"] = r.string("quest next visit text")
+    q["completed"] = r.string("quest completed text")
+    return q
+
+
+def _read_reward(r: _Reader, ver: int) -> dict:
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readSeerHutQuest) @ c53e0e8
+    at = r.pos
+    k = r.i8("reward type")
+    if not 0 <= k <= 10:
+        raise H3mError(f"invalid seer hut reward type {k} at offset {at}")
+    d: dict = {"type": k}
+    if k == 1:
+        d["experience"] = r.u32("reward experience")
+    elif k == 2:
+        d["mana"] = r.u32("reward mana")
+    elif k == 3:
+        d["morale"] = r.i8("reward morale")
+    elif k == 4:
+        d["luck"] = r.i8("reward luck")
+    elif k == 5:
+        d["resource"] = r.i8("reward resource")
+        d["amount"] = r.u32("reward resource amount")
+    elif k == 6:
+        d["primary_skill"] = r.u8("reward primary skill")
+        d["amount"] = r.u8("reward primary amount")
+    elif k == 7:
+        d["skill"] = r.u8("reward skill")
+        d["level"] = r.i8("reward skill level")
+    elif k == 8:
+        d["artifact"] = _art(r, ver, "reward artifact")
+    elif k == 9:
+        d["spell"] = r.u8("reward spell")
+    elif k == 10:
+        d["creature"] = _creature(r, ver, "reward creature")
+        d["count"] = r.u16("reward creature count")
+    return d
+
+
+def _body_seer_hut(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readSeerHut, readSeerHutQuest) @ c53e0e8
+    if ver >= AB:
+        q = _read_quest(r, ver)
+    else:  # RoE: a single artifact id, no deadline, no texts
+        a = _art(r, ver, "seer hut artifact")
+        q = None if a is None else {"type": QUEST_ARTIFACT, "artifacts": [a],
+                                    "deadline": None, "first_visit": None,
+                                    "next_visit": None, "completed": None}
+    if q is None:
+        r.skip(1, "seer hut empty reward")
+        reward = None
+    else:
+        reward = _read_reward(r, ver)
+    r.skip(2, "seer hut reserved")
+    return {"quest": q, "reward": reward}
+
+
+def _body_quest_guard(r, ver, t):
+    # Layout per VCMI lib/mapping/MapFormatH3M.cpp (readQuestGuard) @ c53e0e8
+    return {"quest": _read_quest(r, ver)}
+
+
 _HERO = (34, 62, 70)
 _MONSTER = (54, 71, 72, 73, 74, 75, 162, 163, 164)
 _ARTIFACT = (5, 65, 66, 67, 68, 69)
 _DWELLING = (17, 18, 19, 20)
-# Classes with a body in RoE/AB/SoD that this parser does not implement:
-# garrison 33/219, grail 36, lighthouse 42, bottle 59, scholar 81, seer hut 83,
-# shipyard 87, shrines 88-90, sign 91, witch hut 113, hero placeholder 214,
-# quest guard 215.  Everything else in _GENERIC has no body before HotA.
+# Classes dispatched by subid: grail 36 and border gate 212 with subid >= 1000
+# are HotA objects and stay unsupported.  Everything in _GENERIC has no body
+# before HotA (banks, pyramid, university, black market, border guard 9,
+# keymaster 10, border gate 212, ...).
+_BODIES = {
+    59: ("sign", _body_sign), 91: ("sign", _body_sign),
+    33: ("garrison", _body_garrison), 219: ("garrison", _body_garrison),
+    42: ("lighthouse", _body_owner32), 87: ("shipyard", _body_owner32),
+    81: ("scholar", _body_scholar), 83: ("seer_hut", _body_seer_hut),
+    88: ("shrine", _body_shrine), 89: ("shrine", _body_shrine),
+    90: ("shrine", _body_shrine), 113: ("witch_hut", _body_witch_hut),
+    214: ("hero_placeholder", _body_hero_placeholder),
+    215: ("quest_guard", _body_quest_guard),
+}
 _GENERIC = frozenset(
     set(range(2, 40)) | set(range(41, 139)) | {143} | set(range(147, 162))
     | set(range(212, 232))
@@ -692,6 +863,10 @@ def _classify(t: ObjectTemplate):
         return "dwelling", _body_owned
     if c in (216, 217, 218):
         return "random_dwelling", _body_random_dwelling
+    if c == 36:
+        return ("grail", _body_grail) if sub < 1000 else None  # >= 1000: HotA
+    if c in _BODIES:
+        return _BODIES[c]
     if c == 212 and sub >= 1000:  # HotA quest gate / grave share this class
         return None
     if c in _GENERIC:
