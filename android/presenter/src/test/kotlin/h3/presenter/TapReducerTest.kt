@@ -83,9 +83,14 @@ class TapReducerTest {
         val p = tap(TapState.Idle, h, s)
         assertSame(TapState.Idle, reducer.reduce(p, TapEvent.Cancel, s))
         assertSame(TapState.Idle, reducer.reduce(TapState.Confirmed(BattleCommand.Begin), TapEvent.Cancel, s))
-        // long press previews but never confirms, even on the previewed hex
-        assertEquals(p, reducer.reduce(TapState.Idle, TapEvent.LongPress(h), s))
-        assertEquals(p, reducer.reduce(p, TapEvent.LongPress(h), s))
+        // long press never changes the preview state (android-app.md 5.1): the app shows the card
+        assertSame(TapState.Idle, reducer.reduce(TapState.Idle, TapEvent.LongPress(h), s))
+        assertSame(p, reducer.reduce(p, TapEvent.LongPress(h), s))
+        val other = cell(movesOf(s).last().dest)
+        assertSame(p, reducer.reduce(p, TapEvent.LongPress(other), s))
+        val q = reducer.reduce(p, TapEvent.Select(0), s)
+        assertSame(q, reducer.reduce(q, TapEvent.LongPress(h), s))
+        assertSame(TapState.Idle, reducer.reduce(TapState.Confirmed(BattleCommand.Begin), TapEvent.LongPress(h), s))
         // select outside the candidates is ignored
         assertSame(p, reducer.reduce(p, TapEvent.Select(5), s))
         assertSame(p, reducer.reduce(p, TapEvent.Select(-1), s))
@@ -114,37 +119,63 @@ class TapReducerTest {
 
     @Test
     fun attackCandidatesCarryPreviewsAndDefaultIsNoMoveAttack() {
-        val s = attackState
-        val a = attacksOf(s).first()
-        val t = s.stacks[a.target]
-        val p = tap(TapState.Idle, battle.cells(t).first(), s)
-        assertIs<TapState.Previewing>(p)
-        assertTrue(p.candidates.isNotEmpty())
-        for (c in p.candidates) {
-            val pv = c.preview ?: fail("no preview for ${c.command}")
-            assertTrue(pv.floor <= pv.expected && pv.expected <= pv.ceiling)
-            assertTrue(pv.killsFloor <= pv.killsCeiling)
+        // A melee target with both the attack without moving and attacks from other hexes.
+        var found = 0
+        for (s in Fixture.states.filter(::live)) {
+            for (t in attacksOf(s).filter { it.fromHex == null }.map { it.target }.distinct()) {
+                val p = tap(TapState.Idle, battle.cells(s.stacks[t]).first(), s)
+                assertIs<TapState.Previewing>(p)
+                if (p.candidates.any { it.command is BattleCommand.Shoot }) continue
+                if (p.candidates.size < 2) continue
+                for (c in p.candidates) {
+                    val pv = c.preview ?: fail("no preview for ${c.command}")
+                    assertTrue(pv.floor <= pv.expected && pv.expected <= pv.ceiling)
+                    assertTrue(pv.killsFloor <= pv.killsExpected && pv.killsExpected <= pv.killsCeiling)
+                }
+                assertEquals(BattleCommand.Attack(s.active!!, t, null), p.command)
+                if (++found >= 10) return
+            }
         }
-        val hasStay = p.candidates.any { (it.command as? BattleCommand.Attack)?.fromHex == null && it.command is BattleCommand.Attack }
-        val hasShoot = p.candidates.any { it.command is BattleCommand.Shoot }
-        if (hasShoot) assertIs<BattleCommand.Shoot>(p.command)
-        else if (hasStay) assertEquals(null, (p.command as BattleCommand.Attack).fromHex)
+        assertTrue(found > 0, "no melee target with several attack candidates in the recorded states")
     }
 
     @Test
     fun shooterTargetDefaultsToShootAndSelectSwitchesCandidate() {
-        val s = shootState
-        val sh = battle.legalCommands(s).filterIsInstance<BattleCommand.Shoot>().first()
-        val p = tap(TapState.Idle, battle.cells(s.stacks[sh.target]).first(), s)
-        assertIs<TapState.Previewing>(p)
-        assertEquals(sh, p.command)
-        if (p.candidates.size > 1) {
-            val q = reducer.reduce(p, TapEvent.Select(1), s)
-            assertIs<TapState.Previewing>(q)
-            assertEquals(p.candidates[1].command, q.command)
-            assertEquals(TapState.Confirmed(p.candidates[1].command), tap(q, p.hex, s))
+        // A shoot target that also has melee candidates (at least two candidates in all).
+        var found = 0
+        for (s in Fixture.states.filter(::live)) {
+            for (sh in battle.legalCommands(s).filterIsInstance<BattleCommand.Shoot>()) {
+                val p = tap(TapState.Idle, battle.cells(s.stacks[sh.target]).first(), s)
+                assertIs<TapState.Previewing>(p)
+                assertEquals(sh, p.command)
+                if (p.candidates.size < 2) continue
+                val i = p.candidates.indexOfFirst { it.command != sh }
+                val q = reducer.reduce(p, TapEvent.Select(i), s)
+                assertIs<TapState.Previewing>(q)
+                assertEquals(p.candidates[i].command, q.command)
+                assertEquals(TapState.Confirmed(p.candidates[i].command), tap(q, p.hex, s))
+                assertEquals(TapState.Confirmed(sh), tap(p, p.hex, s))
+                if (++found >= 5) return
+            }
         }
-        assertEquals(TapState.Confirmed(sh), tap(p, p.hex, s))
+        assertTrue(found > 0, "no shoot target with two or more candidates in the recorded states")
+    }
+
+    @Test
+    fun tapOnThePreviewedHexAfterTheTargetMovedAwayDoesNotConfirmTheAttack() {
+        // Preview a no-move attack on T at hex h; then T moves to another hex next to the attacker,
+        // so the attack is still legal, but h is now an empty hex (a move). The second tap on h must
+        // give the move preview, not confirm an attack on a stack that is no longer under the finger.
+        val (s, st, h) = AttackMovedScenario.find(battle)
+        val p = tap(TapState.Idle, h, s)
+        assertIs<TapState.Previewing>(p)
+        val atk = p.command
+        assertIs<BattleCommand.Attack>(atk)
+        assertTrue(atk in battle.legalCommands(st), "precondition: the attack is still legal")
+        val fresh = tap(TapState.Idle, h, st)
+        assertIs<TapState.Previewing>(fresh)
+        assertTrue(fresh.candidates.none { it.command == atk })
+        assertEquals(fresh, tap(p, h, st))
     }
 
     @Test
@@ -170,29 +201,38 @@ class TapReducerTest {
 
     @Test
     fun staleSelectedCommandIsNeverConfirmedWhenTheHexIsStillActionable() {
-        // Preview in state s, then the battle moves on (an AI turn) to a state st where the same hex is
-        // still actionable but the previewed command is no longer legal. A second tap must rebuild the
-        // preview for st; confirming the old command would send an illegal command to the engine.
+        // Preview in state s, then the battle moves on to a state st where the same hex is still
+        // actionable. A second tap confirms only if the previewed command is still one of the hex's
+        // candidates in st; otherwise it rebuilds the preview for st. Moves, attacks and shoots.
         val live = Fixture.states.filter(::live).take(150)
-        var exercised = 0
-        outer@ for (s in live) {
-            for (m in battle.legalCommands(s).filterIsInstance<BattleCommand.Move>().take(2)) {
-                val h = cell(m.dest)
+        val stale = HashMap<String, Int>()
+        val kind = { c: BattleCommand -> c::class.simpleName!! }
+        for (s in live) {
+            val cmds = battle.legalCommands(s)
+            val hexes = cmds.filterIsInstance<BattleCommand.Move>().take(2).map { cell(it.dest) } +
+                cmds.mapNotNull { (it as? BattleCommand.Attack)?.target ?: (it as? BattleCommand.Shoot)?.target }
+                    .distinct().map { battle.cells(s.stacks[it]).first() }
+            for (h in hexes) {
                 val p = tap(TapState.Idle, h, s)
-                if (p !is TapState.Previewing) continue
+                assertIs<TapState.Previewing>(p)
+                val k = kind(p.command)
+                if ((stale[k] ?: 0) >= 20) continue
                 for (st in live) {
                     if (st === s) continue
                     val fresh = tap(TapState.Idle, h, st)
                     if (fresh !is TapState.Previewing || fresh.hex != p.hex) continue
-                    if (p.command in battle.legalCommands(st)) continue
                     val after = tap(p, h, st)
-                    assertTrue(after !is TapState.Confirmed, "a stale command was confirmed")
-                    assertEquals(fresh, after)
-                    if (++exercised >= 20) break@outer
+                    if (fresh.candidates.any { it.command == p.command }) {
+                        assertEquals(TapState.Confirmed(p.command), after)
+                    } else {
+                        assertTrue(after !is TapState.Confirmed, "a stale ${p.command} was confirmed")
+                        assertEquals(fresh, after)
+                        stale[k] = (stale[k] ?: 0) + 1
+                    }
                 }
             }
         }
-        assertTrue(exercised > 0, "no stale-preview scenario found in the recorded states")
+        for (k in listOf("Move", "Attack", "Shoot")) assertTrue((stale[k] ?: 0) > 0, "no stale $k preview found: $stale")
     }
 
     @Test

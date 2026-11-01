@@ -5,7 +5,6 @@ import h3.sim.BattleCommand
 import h3.sim.BattleState
 import h3.sim.HexCell
 import h3.sim.Present
-import h3.sim.legalCommands
 
 /**
  * Damage preview of one candidate (view v2 `preview`): the damage range and the kills each bound
@@ -46,14 +45,14 @@ sealed interface TapState {
 /**
  * Pure reducer for the preview-then-confirm interaction. It reads only the engine's presenter
  * view ([Present.candidateCommands], [Present.candidateActions]) and never builds a command from
- * parts: a confirmed command is always an element of the current `legalCommands` list.
+ * parts: a confirmed command is always a current candidate of the tapped hex, so it is legal.
  *
  * Rules:
  *  - Tap on a hex with no candidate: no-op (state unchanged).
  *  - Tap on a legal hex or target while not previewing it: Previewing (re-targets from another one).
- *  - Tap on the hex being previewed: Confirmed, provided the previewed command is still legal in
- *    the given state; otherwise the preview is rebuilt from the current state.
- *  - LongPress on a legal hex: Previewing, never confirms (inspect).
+ *  - Tap on the hex being previewed: Confirmed, provided the previewed command is still one of
+ *    the hex's candidates in the given state; otherwise the preview is rebuilt from that state.
+ *  - LongPress: returns the current state (the app shows the card; android-app.md 5.1).
  *  - Select(i): choose among the candidates of the current preview.
  *  - Cancel: Idle. Any event in Confirmed starts again from Idle.
  */
@@ -66,11 +65,13 @@ class TapReducer(private val battle: Battle) {
             TapEvent.Cancel -> TapState.Idle
             is TapEvent.Select ->
                 if (cur is TapState.Previewing && event.index in cur.candidates.indices) cur.copy(selected = event.index) else cur
-            is TapEvent.LongPress -> preview(state, event.hex) ?: cur
+            is TapEvent.LongPress -> cur // inspect only (the app shows the card); never changes the preview
             is TapEvent.Tap -> {
                 val next = preview(state, event.hex) ?: return cur
+                // Confirm only a command that this hex still means now: a previewed attack whose
+                // target has moved away is legal but no longer under the finger.
                 if (cur is TapState.Previewing && cur.hex == next.hex &&
-                    cur.command in battle.legalCommands(state)
+                    next.candidates.any { it.command == cur.command }
                 ) {
                     TapState.Confirmed(cur.command)
                 } else {
