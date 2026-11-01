@@ -7,6 +7,8 @@ Usage (from the directory that contains the ``h3re`` package)::
     python3 -m h3re def-to-png FILE.DEF OUTDIR
     python3 -m h3re h3m-info FILE.H3M
     python3 -m h3re battle-sim SCENARIO.json --seed N [--chooser CHOOSER] [--pretty [--board-every N] [--color]]
+    python3 -m h3re replay record SCENARIO.json --seed N [--chooser C] -o OUT.h3r
+    python3 -m h3re replay <verify|info> FILE.h3r
 
 Exit status: 0 on success, 1 for malformed input or I/O errors, 2 for
 command-line usage errors. Errors are reported as one line on stderr.
@@ -21,7 +23,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import battle_cli, defimg, h3m, lod
+from . import battle_cli, defimg, h3m, lod, replay
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -144,6 +146,30 @@ def cmd_battle_sim(args: argparse.Namespace) -> int:
                           color=args.color)
 
 
+def cmd_replay(args: argparse.Namespace) -> int:
+    try:
+        if args.replay_command == "record":
+            scenario = battle_cli._load_json(args.scenario)
+            commands = replay.run_chooser(scenario, args.seed, args.chooser)
+            data = replay.record(scenario, commands, args.seed)
+            Path(args.output).write_bytes(data)
+            print(f"recorded {len(commands)} command(s) to {args.output}")
+            return EXIT_OK
+        data = Path(args.file).read_bytes()
+        if args.replay_command == "verify":
+            header = replay.verify(data)
+            print(f"ok: {header['command_count']} command(s), final {header['final_hash']}")
+        else:
+            header = replay.info(data)
+            for key in sorted(header):
+                print(f"{key}: {header[key]}")
+        return EXIT_OK
+    except (replay.ReplayError, battle_cli.CliError) as exc:
+        print(f"h3re: error: {type(exc).__name__}: {' '.join(str(exc).split())}",
+              file=sys.stderr)
+        return EXIT_FAILURE
+
+
 # ------------------------------------------------------------------ plumbing
 
 
@@ -187,6 +213,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--color", action="store_true",
                    help="with --pretty, use ANSI colour when stdout is a terminal")
     p.set_defaults(func=cmd_battle_sim)
+
+    p = sub.add_parser("replay", help="record, verify or inspect a battle replay file")
+    rsub = p.add_subparsers(dest="replay_command", required=True, metavar="ACTION")
+    r = rsub.add_parser("record", help="play a scenario and write a .h3r replay file")
+    r.add_argument("scenario", help="path to a battle scenario JSON file")
+    r.add_argument("--seed", type=int, required=True, help="master seed")
+    r.add_argument("--chooser", choices=[c for c in battle_cli.CHOOSERS],
+                   default="first-legal", help="who picks each command")
+    r.add_argument("-o", "--output", required=True, help="replay file to write")
+    r = rsub.add_parser("verify", help="replay a file and check all hashes")
+    r.add_argument("file", help="path to a .h3r file")
+    r = rsub.add_parser("info", help="print the header of a replay file")
+    r.add_argument("file", help="path to a .h3r file")
+    p.set_defaults(func=cmd_replay)
 
     return parser
 
