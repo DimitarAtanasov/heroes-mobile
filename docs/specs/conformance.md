@@ -115,3 +115,88 @@ Not in this set: `apply_damage` (rules.md 6.6 step 4) and `damage_range` (a thin
 Regenerate and check with the commands at the top of this file. Python is authoritative: a
 change to any of these values is a `rules.py` change first (spec, re-pin per ADR-0001 if a
 pinned hash moves), then a regeneration.
+
+## Hex: battle grid geometry and movement (`hex.json`)
+
+Source: `tools/h3re/h3re/battle.py` (battle.md sections 2-3: `in_grid`, `to_axial`, `from_axial`,
+`neighbours`, `hex_distance`, `_cells_at`/`_tail`, `_playable`, `_fits`, `_reach`, `reachable`,
+`_adjacent_cells`), exported by `vectors.py` `_hex_vectors()`. Kotlin: `Hex.kt` (`object Hex`,
+`HexCell`), `HexTest.kt`. Hexes are `[col, row]` pairs; cell index is `row * 17 + col`. Booleans
+that Python used as dict keys appear as `"True"`/`"False"`. The generator is seeded through
+`derive_stream(0x5EED, "vectors:hex", ...)` (Pcg32), never Python's `random`.
+
+Sections (`format` 1):
+- `width`, `height`: 17, 11.
+- `neighbours`: `{row_offset, hex, out}` for every cell, both `"even"` and `"odd"`; `out` is the
+  sorted in-grid neighbour list (column, then row).
+- `axial`: `{row_offset, hex, q, r}`; `from_axial`: `{row_offset, q, r, out}` over r in -3..13 and
+  q in -12..19 (includes negative rows, where floor division matters); `in_grid`: `{hex, out}`
+  including out-of-grid points.
+- `distance`: `{even: [...], odd: [...]}`, each the flat row-major matrix of `hex_distance` over all
+  187 x 187 ordered pairs (`out[a_index * 187 + b_index]`).
+- `cells`: `{side, head, double_wide, cells, fits_empty}`: footprint (head then tail; tail is
+  `col-1` for side 0, `col+1` for side 1) and, per `edge_columns_walkable`, whether every cell is
+  playable on an empty board (heads at -1 and 17 included).
+- `adjacent`: `{row_offset, a, b, out}` for `_adjacent_cells` over one- and two-cell lists.
+- `reach`: scenarios `{row_offset, edge_columns_walkable, side, double_wide, flyer, speed, pos,
+  obstacles, others, reachable, paths}`. `others` are `{side, head, double_wide, alive}`; occupancy
+  is the union of the cells of the living ones (dead stacks never block). `reachable` is the sorted
+  head list; `paths[i]` is the path to `reachable[i]` (start excluded, destination last). Speeds
+  include 0 and values beyond the grid; the mover's own start cell is never validated.
+
+Rules the Kotlin side must match:
+- Row parity: any `row_offset` other than `"odd"` behaves as `"even"` (Python's `if == "odd"`).
+- Axial conversion uses floor division on `r +/- (r & 1)`; Kotlin uses `Math.floorDiv`.
+- Walking is breadth-first with neighbours visited in sorted order; the first discovery of a cell
+  fixes its parent, so path tie-breaking falls out of that order and must not be changed.
+  The search stops expanding at distance `speed`.
+- Flyers: path is just `[dest]`; any in-range head (distance <= speed, not the start) whose cells
+  all fit; obstacles and units in between are ignored.
+- A head fits only if every footprint cell is in the grid, in columns 1..15 (unless the edge flag),
+  not an obstacle and not occupied.
+
+Not portable bit-for-bit: Python's dict order of `_reach` results is exposed in Kotlin as a
+`LinkedHashMap` in the same order, but only the sorted `reachable` list is in the vectors.
+
+## Battle state (`battle_states.json`)
+
+Source: `tools/h3re/h3re/vectors_battle.py` `generate()` (`python3 -m h3re.vectors_battle [--out DIR]`
+writes the file; the `vectors.py` generator may call `generate()` too). Kotlin: `BattleState.kt`
+(typed model, `BattleCodec`, `BattlePolicyPack`), `BattleStateTest.kt`. No apply logic yet: this
+slice pins the state model and its canonical encoding only.
+
+Content (`format` 1):
+- `packs`: `battle_policy` (the parsed `data/battle_policy.json`), `bad_morale_numerators` (the rules
+  pack default of the policy's `bad_morale_table`, which is not in the policy file) and `rules_hash`.
+  Kotlin builds its policy defaults from these; `BattlePolicy` has no hard-coded balance numbers.
+- `schema`: dataclass field names (declaration order) of `BattleState`, `BattlePolicy`, `Stack`,
+  `Creature`, `Hero` and every command and event class. The Kotlin test checks that the typed
+  classes have exactly these properties (snake_case to camelCase) and that their maps carry
+  exactly these keys.
+- `command_cases`, `event_cases`: static encodings of every command (both `Attack` forms) and event.
+  Commands and events are `soak.encode_command` dicts: `{"type": ClassName, <fields>}`, tuples as lists,
+  `None` as null.
+- `cases` (14): the golden scenario (seed 12345) plus soak scenarios `soak.build_scenario("battle", seed, policy)`
+  under `default` (seeds 0, 1, 4, 6) and the non-default `alt-order`, `vcmi-like`, `strict` policies
+  (seeds 0, 1, 6): one- and two-hex units, shooters, flyers, obstacles, heroes. Each case:
+  `scenario` (seed, policy name and kwargs, battle id), `initial` `{canonical, sha256}` (before `Begin`)
+  and `steps` (up to 120, 586 in all) of `{command, canonical, sha256, events}` after each command.
+  The driver is the greedy AI, except that a `derive_stream` draw substitutes a legal `Wait` or
+  `Defend` 40% of the time, so all six commands and all twelve events occur. Randomness is `Pcg32` only.
+
+Rules the Kotlin side matches:
+- `canonical` is the exact text of `battle.canonical`. Kotlin parses it into the typed model, re-encodes
+  with `Canonical.encode` and requires byte-identical text and the same SHA-256. Parsing is strict:
+  missing or unknown keys, and wrong JSON types, are errors (no silent defaults).
+- Omit-at-default (ADR-0005): `BattleCodec(pack, omitWhenDefault)` mirrors `_OMIT_WHEN_DEFAULT` (policy
+  field names; empty today). A listed field is left out while equal to the pack default and is restored
+  from the default on parse. The vectors cannot exercise it while the Python list is empty, so
+  `BattleStateTest.omitWhenDefaultMechanism` covers it synthetically. When Python lists a field, the
+  Kotlin codec must be constructed with the same list.
+- Tuples and lists are both JSON arrays; `None` is null (`active`, `winner`, `last_side`, `Attack.from_hex`,
+  and `None` hero entries).
+- Integers are 32-bit `Int` (ADR-0008) and parsing fails on values outside the range. `rules_hash` is a
+  required field in Kotlin (the Python default is the local rules pack's content hash).
+- Kotlin class names: `BattleCreature`, `BattleHero`, `BattleStack` (to stay clear of future adventure
+  types), commands and events nested in `BattleCommand` / `BattleEvent`. Positions are `Pair<Int, Int>`
+  (col, row); hex geometry lives elsewhere.

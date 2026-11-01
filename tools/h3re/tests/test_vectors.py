@@ -75,6 +75,31 @@ class TestVectors(unittest.TestCase):
         for k in ("bad_morale_numerators", "vcmi_bad_morale_numerators", "morale_die"):
             self.assertEqual(pack[k], raw[k], k)
 
+    def test_hex_vectors_cover_required_cases(self):
+        doc = json.loads(V.generate()["hex.json"])
+        self.assertEqual({n["row_offset"] for n in doc["neighbours"]}, {"even", "odd"})
+        self.assertEqual(len(doc["neighbours"]), 2 * 17 * 11)
+        for off in ("even", "odd"):
+            self.assertEqual(len(doc["distance"][off]), (17 * 11) ** 2)
+        r = doc["reach"]
+        self.assertGreaterEqual(len(r), 500)
+        self.assertTrue(any(c["flyer"] for c in r))
+        self.assertTrue(any(c["double_wide"] for c in r))
+        self.assertTrue(any(c["edge_columns_walkable"] for c in r))
+        self.assertTrue(any(not o["alive"] for c in r for o in c["others"]))
+        self.assertTrue(any(c["reachable"] == [] for c in r))
+        for c in r:
+            self.assertEqual(len(c["reachable"]), len(c["paths"]))
+            for h, p in zip(c["reachable"], c["paths"]):
+                self.assertEqual(p[-1], h)
+
+    def test_hex_vectors_agree_with_public_geometry(self):
+        doc = json.loads(V.generate()["hex.json"])
+        a, b = (3, 2), (12, 9)
+        i = (a[1] * 17 + a[0]) * 187 + (b[1] * 17 + b[0])
+        self.assertEqual(doc["distance"]["even"][i], B.hex_distance(a, b, "even"))
+        self.assertEqual(doc["distance"]["odd"][i], B.hex_distance(a, b, "odd"))
+
 
 if __name__ == "__main__":
     unittest.main()

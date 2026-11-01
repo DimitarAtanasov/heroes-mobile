@@ -551,6 +551,139 @@ def _rules_vectors():
 
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# hex: battle grid geometry and movement (battle.md sections 2-3).
+# Hexes are [col, row] pairs. Grid cell index = row * 17 + col.
+# --------------------------------------------------------------------------
+
+_OFFSETS = ("even", "odd")
+
+
+def _hx(h):
+    return [h[0], h[1]]
+
+
+def _grid_cells():
+    return [(c, r) for r in range(B.HEIGHT) for c in range(B.WIDTH)]
+
+
+def _hex_distance_matrix(off):
+    cells = _grid_cells()
+    return [B.hex_distance(a, b, off) for a in cells for b in cells]
+
+
+def _hex_geometry_vectors():
+    cells = _grid_cells()
+    neighbours = [{"row_offset": off, "hex": _hx(h),
+                   "out": [_hx(n) for n in B.neighbours(h, off)]}
+                  for off in _OFFSETS for h in cells]
+    axial = []
+    for off in _OFFSETS:
+        for h in cells:
+            q, r = B.to_axial(h, off)
+            axial.append({"row_offset": off, "hex": _hx(h), "q": q, "r": r})
+    from_axial = []
+    for off in _OFFSETS:
+        for r in range(-3, B.HEIGHT + 3):
+            for q in range(-12, B.WIDTH + 4):
+                from_axial.append({"row_offset": off, "q": q, "r": r,
+                                   "out": _hx(B.from_axial(q, r, off))})
+    in_grid = [{"hex": [c, r], "out": B.in_grid((c, r))}
+               for r in range(-2, B.HEIGHT + 2) for c in range(-2, B.WIDTH + 2)]
+    return {
+        "width": B.WIDTH, "height": B.HEIGHT,
+        "neighbours": neighbours, "axial": axial, "from_axial": from_axial, "in_grid": in_grid,
+        # Row-major over all 187 x 187 ordered pairs: out[a_index * 187 + b_index].
+        "distance": {off: _hex_distance_matrix(off) for off in _OFFSETS},
+    }
+
+
+def _hex_cells_vectors():
+    out = []
+    for side in (B.ATTACKER, B.DEFENDER):
+        for dw in (False, True):
+            for h in [(c, r) for r in (0, 1, 5, 10) for c in (-1, 0, 1, 2, 8, 15, 16, 17)]:
+                out.append({"side": side, "head": _hx(h), "double_wide": dw,
+                            "cells": [_hx(c) for c in B._cells_at(h, side, dw)],
+                            "fits_empty": {str(e): B._playable(h, B.BattlePolicy(edge_columns_walkable=e))
+                                           and (not dw or B._playable(B._tail(h, side, dw),
+                                                                      B.BattlePolicy(edge_columns_walkable=e)))
+                                           for e in (False, True)}})
+    return out
+
+
+def _hex_adjacent_vectors(drv):
+    out = []
+    for i in range(400):
+        off = _OFFSETS[i % 2]
+        a = [(drv.range(0, B.WIDTH), drv.range(0, B.HEIGHT))]
+        b = [(drv.range(0, B.WIDTH), drv.range(0, B.HEIGHT))]
+        if i % 3 == 0:
+            a.append((a[0][0] - 1, a[0][1]))
+        if i % 5 == 0:
+            b.append((b[0][0] + 1, b[0][1]))
+        if i % 4 == 0:   # force near pairs so both outcomes are well covered
+            n = B.neighbours(a[0], off)
+            b = [n[drv.range(0, len(n))]]
+        out.append({"row_offset": off, "a": [_hx(h) for h in a], "b": [_hx(h) for h in b],
+                    "out": B._adjacent_cells(a, b, off)})
+    return out
+
+
+def _hex_reach_case(drv, i):
+    off = _OFFSETS[drv.range(0, 2)]
+    edge = bool(drv.range(0, 2))
+    side = drv.range(0, 2)
+    dw = drv.range(0, 3) == 0
+    flyer = drv.range(0, 4) == 0
+    speed = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 16, 30)[drv.range(0, 13)]
+    if drv.range(0, 8) == 0:
+        pos = (drv.range(0, B.WIDTH), drv.range(0, B.HEIGHT))
+    else:
+        pos = (drv.range(1, B.WIDTH - 1), drv.range(0, B.HEIGHT))
+    n_obs = (0, 0, 3, 8, 15, 30, 60, 90)[drv.range(0, 8)]
+    obstacles = sorted({(drv.range(0, B.WIDTH), drv.range(0, B.HEIGHT)) for _ in range(n_obs)})
+    others = []
+    for _ in range((0, 1, 2, 4, 7, 10)[drv.range(0, 6)]):
+        others.append({"side": drv.range(0, 2),
+                       "head": (drv.range(0, B.WIDTH), drv.range(0, B.HEIGHT)),
+                       "double_wide": drv.range(0, 2) == 0,
+                       "alive": drv.range(0, 4) != 0})
+    pol = B.BattlePolicy(row_offset=off, edge_columns_walkable=edge)
+    cr = B.Creature("m", 1, 1, 1, 1, 1, speed, flyer=flyer, double_wide=dw)
+    stacks = [B.Stack(id=0, side=side, slot=0, creature=cr, count=1, top_hp=1, pos=pos, shots=0,
+                      retaliations=1, defending=False, morale=0, luck=0)]
+    for k, o in enumerate(others):
+        ocr = B.Creature("o", 1, 1, 1, 1, 1, 1, double_wide=o["double_wide"])
+        stacks.append(B.Stack(id=k + 1, side=o["side"], slot=k, creature=ocr,
+                              count=1 if o["alive"] else 0, top_hp=1, pos=o["head"], shots=0,
+                              retaliations=1, defending=False, morale=0, luck=0))
+    st = B.BattleState(battle_id="hex", policy=pol, heroes=(None, None),
+                       obstacles=tuple(obstacles), stacks=tuple(stacks))
+    reach = B._reach(st, stacks[0])
+    keys = sorted(reach)
+    assert tuple(keys) == B.reachable(st, 0)
+    return {
+        "row_offset": off, "edge_columns_walkable": edge,
+        "side": side, "double_wide": dw, "flyer": flyer, "speed": speed, "pos": _hx(pos),
+        "obstacles": [_hx(o) for o in obstacles],
+        "others": [{"side": o["side"], "head": _hx(o["head"]), "double_wide": o["double_wide"],
+                    "alive": o["alive"]} for o in others],
+        "reachable": [_hx(h) for h in keys],
+        "paths": [[_hx(x) for x in reach[h]] for h in keys],
+    }
+
+
+def _hex_vectors():
+    doc = {"format": VECTOR_FORMAT}
+    doc.update(_hex_geometry_vectors())
+    doc["cells"] = _hex_cells_vectors()
+    doc["adjacent"] = _hex_adjacent_vectors(derive_stream(0x5EED, "vectors:hex", "adjacent"))
+    drv = derive_stream(0x5EED, "vectors:hex", "reach")
+    doc["reach"] = [_hex_reach_case(drv, i) for i in range(600)]
+    return doc
+
+
 def generate():
     """Return {filename: bytes}. Pure function of the Python implementation."""
     return {
@@ -558,6 +691,7 @@ def generate():
         "canonical_json.json": _dump(_canon_vectors()),
         "state_hash.json": _dump(_state_vectors()),
         "rules.json": _dump(_rules_vectors()),
+        "hex.json": _dump(_hex_vectors()),
     }
 
 
