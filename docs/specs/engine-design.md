@@ -77,8 +77,7 @@ same synthetic fixtures.
   access. Names are matched case-insensitively.
 - **DEF sprites.** Palette (256 RGB), groups, then frames. A frame has a
   size, a full width/height, a margin, and one of several RLE compressions.
-  Indices 0–9 are reserved (conservative); only index 0 (transparent) is
-  certain. See `def.md` for the details and the open questions. `render` maps
+  Special palette indices 0-7 (VCMI-confirmed, see def.md). `render` maps
   the special indices to alpha. The output is an indexed image plus palette, and `render`
   builds atlases from that.
 - **PCX / bitmap** (in LOD): 8-bit palettized or 24-bit images.
