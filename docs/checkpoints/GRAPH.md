@@ -61,3 +61,7 @@ flowchart LR
 | 33 | Single damage pipeline (RollPolicy) | Opus | done (golden hash unchanged) |
 | 34 | rules.py constants load from data/rules.json | Sonnet | done (import opens only rules.json) |
 | 35 | battle-sim --pretty, README landing page | Haiku | done (CLI wiring by lead) |
+| A1 | Determinism audit of sim changes 28-34 | Opus | done (verdict: safe to continue, 8 findings) |
+| 36 | Rules-pack hash in BattleState; abs pack dir; one die; canonical road_cost | Opus-role | done (golden re-pin 2191ae97 -> fbe9015b, play unchanged) |
+| 37 | Soak digest + hash-seed CI, line-scoped lint, datapack linted | Sonnet-role | done |
+
