@@ -35,7 +35,7 @@ live task; only the evaluator is tested (41 tests, rule mutations killed). Try t
 
 ## Next, in order
 1. (done) `:app:assembleDebug` is green in CI and the APK is uploaded. Next is real app code (see 3).
-2. Verify and land the test-speed change (agent aadb5b6c1ccc7fa72 was still running at save time; its work is in /tmp/w_speed, not in the repo). Suite must drop from about 30 to under about 8 minutes with no check removed.
+2. Cut the Python suite time: NOT started in the repo (the agent was stopped at the usage line and had produced no changes). The suite takes about 30 minutes on a runner because several tests regenerate the vector sets (present vectors alone ~130 s, plus `vectors --check`). Memoise generation per process and keep every check; the CI `kotlin-sim` job already runs `vectors --check`. Target under about 8 minutes.
 3. 0.1 plan is `docs/specs/mvp-0.1.md`: `:presenter`/`BattleSession`, scenario and replay ports (a Kotlin replay must
    pass `python3 -m h3re replay verify`), app shell (screens, Compose board, hit-testing, tap reducer), autosave/resume,
    About screen. Then a device smoke test by the owner.
