@@ -49,13 +49,54 @@ class BattleAiTest(unittest.TestCase):
                     self.assertIn(cmd, legal)
                 state, _ = B.apply(state, ai.choose(state), rng)
 
-    def test_begin_and_no_battle_rng(self):
+    def test_begin_and_pure_choose(self):
         s = scenario(0)
         self.assertEqual(AI.choose(s), B.Begin())
         s, _ = B.apply(s, B.Begin(), B.battle_rng(0, "g0"))
         before = B.state_hash(s)
         AI.choose(s)
         self.assertEqual(before, B.state_hash(s))
+
+    def test_ai_derives_only_ai_streams(self):
+        # Record every stream the AI derives (it must only ever use "ai:*"
+        # domains, never the battle stream) and the identity of those streams.
+        calls = []
+        real = AI.derive_stream
+
+        def spy(master_seed, domain, ident=""):
+            calls.append((master_seed, domain, ident))
+            return real(master_seed, domain, ident)
+
+        battle_stream_state = None
+        AI.derive_stream = spy
+        try:
+            for seed in (0, 3):
+                state = scenario(seed)
+                brng = B.battle_rng(seed, "g%s" % seed)
+                state, _ = B.apply(state, B.Begin(), brng)
+                battle_stream_state = (brng.state, brng.inc)
+                ai = AI.GreedyAI(seed)
+                for _ in range(30):
+                    if state.winner is not None:
+                        break
+                    cmds = (AI.choose(state), ai.choose(state))
+                    # Choosing never advances the battle stream.
+                    self.assertEqual((brng.state, brng.inc), battle_stream_state)
+                    state, _ = B.apply(state, cmds[1], brng)
+                    battle_stream_state = (brng.state, brng.inc)
+        finally:
+            AI.derive_stream = real
+        self.assertTrue(calls, "AI never derived a stream (tie-break path untested)")
+        for _, domain, ident in calls:
+            self.assertRegex(domain, r"^ai:[01]$")
+            self.assertFalse(domain.startswith("battle"), domain)
+            self.assertEqual(ident, "")
+
+    def test_ai_does_not_use_the_battle_rng_object(self):
+        # The AI API takes no rng; a state that carries one would still not be
+        # consulted. Guard against importing the battle stream constructor.
+        self.assertFalse(hasattr(AI, "battle_rng"))
+        self.assertFalse(hasattr(AI, "Pcg32"))
 
     def test_side_mismatch_raises(self):
         s, _ = B.apply(scenario(0), B.Begin(), B.battle_rng(0, "g0"))

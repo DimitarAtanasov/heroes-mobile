@@ -21,6 +21,19 @@ integer-only function of (initial state, command log, seed). Three tools guard i
      state must have the same canonical form.
 - Exit status 1 and a `FAIL <kind> seed N: ... diverges at step K` line on failure.
 
+Trace digest and policy matrix:
+
+- Every run ends with `DIGEST <hex>`: SHA-256 over the per-run digests, each a
+  SHA-256 over the length-prefixed per-step (state hash, events repr) of the live
+  run. `--digest-out F` writes it; `--expect-digest-file F` exits 1 on a mismatch.
+- `--policy-matrix` repeats every seed under `soak.POLICY_MATRIX` (default plus
+  three non-default `BattlePolicy` / `AdventurePolicy` combinations), threading the
+  policy through scenario build, live runs, replay and snapshot-resume. Adding or
+  editing matrix entries changes the digest but is not a golden re-pin (the digest is
+  only ever compared between two runs of the same code).
+- CI runs the matrix under `PYTHONHASHSEED=0` and `=12345` and fails if the
+  digests differ (set/dict ordering must not reach state or events).
+
 ## 2. Bisector (`tools/h3re/h3re/bisect_tool.py`)
 
 - `python3 -m h3re.bisect_tool A.json B.json` compares two command logs
@@ -55,4 +68,4 @@ keyed by id), `AdventurePolicy.__post_init__` (`any` over values), `adventure._s
 
 ## CI
 
-Job `determinism` in `.github/workflows/test.yml` runs the lint and a 30-game soak (max 120 steps).
+Job `determinism` in `.github/workflows/test.yml` runs the lint, a 30-game soak (max 120 steps), and the policy-matrix soak twice under different `PYTHONHASHSEED` values with a digest comparison.

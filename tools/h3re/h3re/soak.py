@@ -13,6 +13,7 @@ CLI: ``python3 -m h3re.soak --games N``. Spec: docs/specs/determinism-gate.md.
 """
 
 import argparse
+import hashlib
 import pickle
 import sys
 from dataclasses import fields
@@ -24,7 +25,8 @@ from .rng import Pcg32, derive_stream
 
 __all__ = [
     "KINDS", "Divergence", "build_scenario", "generate_log", "replay_steps",
-    "trace", "encode_command", "decode_command", "check_seed", "soak", "main",
+    "trace", "encode_command", "decode_command", "check_seed", "run_seed", "soak",
+    "soak_digest", "trace_digest", "POLICY_MATRIX", "policy_matrix", "main",
 ]
 
 KINDS = ("battle", "adventure")
@@ -33,6 +35,41 @@ _MODULES = {"battle": B, "adventure": A}
 
 class Divergence(AssertionError):
     pass
+
+
+# --------------------------------------------------------------------------
+# Policy matrix: non-default (BattlePolicy, AdventurePolicy) combinations.
+# Each entry is (name, battle kwargs, adventure kwargs); the empty kwargs of
+# "default" give the default policy. Values are the documented alternatives.
+# --------------------------------------------------------------------------
+
+POLICY_MATRIX = (
+    ("default", {}, {}),
+    ("alt-order",
+     dict(row_offset="odd", speed_tie="alternate", wait_order="speed",
+          good_morale_after_wait=True, repeat_good_morale=True),
+     dict(road_needs_both=False, road_rate_from="max", cost_from="dest",
+          last_step="allow_if_any")),
+    ("vcmi-like",
+     dict(speed_tie="alternate_last_mover", wait_order="slow_first_alternate",
+          bad_morale_table=(2, 4, 6), bad_luck=True, range_origin="any_cell",
+          bad_morale_on_wait_activation=True),
+     dict(diagonal_mode="ratio", diagonal_rounding="ceil", pathfinding_mode="percent",
+          pathfinding_rounding="nearest", last_step="allow_if_fresh",
+          income_on_first_day=True)),
+    ("strict",
+     dict(edge_columns_walkable=True, defend_bonus_num=1, defend_bonus_den=4,
+          defend_bonus_min=2, defend_bonus_rounding="ceil", range_penalty_beyond=6,
+          good_morale_after_defend=True),
+     dict(diagonal_moves=False, diagonal_corner_cut=False, diagonal_exception=False,
+          zero_remainder=False, last_step="forbid")),
+)
+
+
+def policy_matrix():
+    """Instantiate POLICY_MATRIX: list of (name, BattlePolicy, AdventurePolicy)."""
+    return [(n, B.BattlePolicy(**b), A.AdventurePolicy(**a))
+            for n, b, a in POLICY_MATRIX]
 
 
 # --------------------------------------------------------------------------
@@ -78,7 +115,7 @@ def _random_army(rng, n, tag):
             for i in range(n)]
 
 
-def build_battle(seed):
+def build_battle(seed, policy=None):
     rng = _scn_rng("battle", seed)
     n_a, n_d = rng.range(1, 6), rng.range(1, 6)
     obstacles = sorted({(rng.range(5, 10), rng.range(0, B.HEIGHT))
@@ -87,11 +124,11 @@ def build_battle(seed):
                           rng.range(0, 4), rng.range(0, 4)) for _ in range(2))
     state = B.create_battle("soak-b%d" % seed, _random_army(rng, n_a, 1),
                             _random_army(rng, n_d, 2), obstacles=obstacles,
-                            heroes=heroes)
+                            heroes=heroes, policy=policy or B.DEFAULT_POLICY)
     return state, B.battle_rng(seed, state.battle_id)
 
 
-def build_adventure(seed):
+def build_adventure(seed, policy=None):
     rng = _scn_rng("adventure", seed)
     w, h = rng.range(6, 13), rng.range(6, 13)
     terrains = sorted(A.TERRAIN_COST)
@@ -118,13 +155,15 @@ def build_adventure(seed):
               for j in range(rng.range(1, 5))),
         logistics=rng.range(0, 4), pathfinding=rng.range(0, 4)) for i in range(4))
     pools = (A.GrowthPool("d0", 5, 3), A.GrowthPool("d1", 0, 7))
-    state = A.create_game("soak-a%d" % seed, grid, players, heroes, pools)
+    state = A.create_game("soak-a%d" % seed, grid, players, heroes, pools,
+                          policy=policy or A.DEFAULT_POLICY)
     return state, A.adventure_rng(seed, state.game_id)
 
 
-def build_scenario(kind, seed):
-    """Initial (state, rng) for ``kind`` ('battle' | 'adventure')."""
-    return {"battle": build_battle, "adventure": build_adventure}[kind](seed)
+def build_scenario(kind, seed, policy=None):
+    """Initial (state, rng) for ``kind`` ('battle' | 'adventure'). ``policy`` is
+    the kind's policy object (None: the default)."""
+    return {"battle": build_battle, "adventure": build_adventure}[kind](seed, policy)
 
 
 # --------------------------------------------------------------------------
@@ -176,10 +215,10 @@ def _hash(kind, state):
     return _MODULES[kind].state_hash(state)
 
 
-def generate_log(kind, seed, max_steps=400):
+def generate_log(kind, seed, max_steps=400, policy=None):
     """Play live; return (commands, trace). Trace entry i is
     (state hash, events repr) after command i."""
-    state, rng = build_scenario(kind, seed)
+    state, rng = build_scenario(kind, seed, policy)
     drv = _driver(kind, seed)
     mod = _MODULES[kind]
     cmds, tr = [], []
@@ -192,14 +231,14 @@ def generate_log(kind, seed, max_steps=400):
     return cmds, tr
 
 
-def replay_steps(kind, seed, commands, perturb=None):
+def replay_steps(kind, seed, commands, perturb=None, policy=None):
     """Replay ``commands`` from the seed's initial state. Yields
     (index, command, state_or_None, events_or_None, error_or_None) per step;
     stops after an illegal command. ``perturb`` is (name, k) with name in
     'rng' (draw one extra u32 before step k), 'drop' (skip step k), 'dup'
     (apply step k twice)."""
     mod = _MODULES[kind]
-    state, rng = build_scenario(kind, seed)
+    state, rng = build_scenario(kind, seed, policy)
     out_i = 0
     for k, cmd in enumerate(commands):
         reps = 1
@@ -220,9 +259,21 @@ def replay_steps(kind, seed, commands, perturb=None):
             out_i += 1
 
 
-def trace(kind, seed, commands, perturb=None):
+def trace(kind, seed, commands, perturb=None, policy=None):
     return [(_hash(kind, s), _events_digest(e)) if err is None else ("ERR", err)
-            for _, _, s, e, err in replay_steps(kind, seed, commands, perturb)]
+            for _, _, s, e, err in replay_steps(kind, seed, commands, perturb, policy)]
+
+
+def trace_digest(tr):
+    """SHA-256 hex over the per-step (state hash, events) trace. Each step is
+    length-prefixed so the encoding is unambiguous."""
+    h = hashlib.sha256()
+    for step in tr:
+        for part in step:
+            b = str(part).encode("utf-8")
+            h.update(len(b).to_bytes(4, "little"))
+            h.update(b)
+    return h.hexdigest()
 
 
 def _first_diff(a, b):
@@ -232,11 +283,11 @@ def _first_diff(a, b):
     return None
 
 
-def _snapshot_resume(kind, seed, commands, expect):
+def _snapshot_resume(kind, seed, commands, expect, policy=None):
     """Serialise (state, rng) mid-game, restore, finish; compare to ``expect``."""
     mod = _MODULES[kind]
     cut = len(commands) // 2
-    state, rng = build_scenario(kind, seed)
+    state, rng = build_scenario(kind, seed, policy)
     for cmd in commands[:cut]:
         state, _ = mod.apply(state, cmd, rng)
     blob = pickle.dumps((state, rng.state, rng.inc))
@@ -256,37 +307,59 @@ def _snapshot_resume(kind, seed, commands, expect):
                          % (kind, seed, cut + d))
 
 
-def check_seed(kind, seed, max_steps=400):
+def run_seed(kind, seed, max_steps=400, policy=None):
     """Run all determinism checks for one seed; raise Divergence on failure.
-    Returns the number of steps played."""
-    cmds, tr1 = generate_log(kind, seed, max_steps)
-    _, tr2 = generate_log(kind, seed, max_steps)
+    Returns (steps played, trace digest of the live run)."""
+    cmds, tr1 = generate_log(kind, seed, max_steps, policy)
+    _, tr2 = generate_log(kind, seed, max_steps, policy)
     d = _first_diff(tr1, tr2)
     if d is not None:
         raise Divergence("%s seed %d: second live run diverges at step %d"
                          % (kind, seed, d))
     for n in (1, 2):
-        d = _first_diff(tr1, trace(kind, seed, cmds))
+        d = _first_diff(tr1, trace(kind, seed, cmds, None, policy))
         if d is not None:
             raise Divergence("%s seed %d: replay %d diverges at step %d"
                              % (kind, seed, n, d))
-    _snapshot_resume(kind, seed, cmds, tr1)
-    return len(cmds)
+    _snapshot_resume(kind, seed, cmds, tr1, policy)
+    return len(cmds), trace_digest(tr1)
 
 
-def soak(games, seed_base=0, max_steps=400, kinds=KINDS, out=None):
-    """Run ``games`` seeds of each kind. Returns a list of failure strings."""
+def check_seed(kind, seed, max_steps=400, policy=None):
+    """As ``run_seed`` but returns only the number of steps played."""
+    return run_seed(kind, seed, max_steps, policy)[0]
+
+
+def soak_digest(lines):
+    """Combine per-run ``(label, digest)`` pairs into one hex digest."""
+    h = hashlib.sha256()
+    for label, dg in lines:
+        h.update(("%s=%s\n" % (label, dg)).encode("ascii"))
+    return h.hexdigest()
+
+
+def soak(games, seed_base=0, max_steps=400, kinds=KINDS, out=None,
+         matrix=False, digests=None):
+    """Run ``games`` seeds of each kind (under every policy combo when
+    ``matrix``). Returns a list of failure strings. If ``digests`` is a
+    list, ``(label, trace digest)`` is appended for every passing run."""
+    combos = policy_matrix() if matrix else [("default", None, None)]
     failures = []
-    for kind in kinds:
-        for seed in range(seed_base, seed_base + games):
-            try:
-                n = check_seed(kind, seed, max_steps)
-                if out:
-                    out.write("ok   %-9s seed %-6d %d steps\n" % (kind, seed, n))
-            except Divergence as e:
-                failures.append(str(e))
-                if out:
-                    out.write("FAIL %s\n" % e)
+    for name, bpol, apol in combos:
+        for kind in kinds:
+            pol = bpol if kind == "battle" else apol
+            for seed in range(seed_base, seed_base + games):
+                tag = "%s/%s" % (name, kind) if matrix else kind
+                try:
+                    n, dg = run_seed(kind, seed, max_steps, pol)
+                    if digests is not None:
+                        digests.append(("%s:%d" % (tag, seed), dg))
+                    if out:
+                        out.write("ok   %-16s seed %-6d %d steps\n" % (tag, seed, n))
+                except Divergence as e:
+                    failures.append("[%s] %s" % (name, e))
+                    if out:
+                        out.write("FAIL [%s] %s\n" % (name, e))
     return failures
 
 
@@ -296,14 +369,34 @@ def main(argv=None):
     ap.add_argument("--seed-base", type=int, default=0)
     ap.add_argument("--max-steps", type=int, default=400)
     ap.add_argument("--kind", choices=KINDS, action="append")
+    ap.add_argument("--policy-matrix", action="store_true",
+                    help="also run non-default BattlePolicy/AdventurePolicy combos")
+    ap.add_argument("--digest-out", metavar="FILE",
+                    help="write the overall trace digest to FILE")
+    ap.add_argument("--expect-digest-file", metavar="FILE",
+                    help="fail (exit 1) unless the digest equals the one in FILE")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args(argv)
+    digests = []
     fails = soak(args.games, args.seed_base, args.max_steps,
-                 tuple(args.kind or KINDS), None if args.quiet else sys.stdout)
+                 tuple(args.kind or KINDS), None if args.quiet else sys.stdout,
+                 args.policy_matrix, digests)
+    digest = soak_digest(digests)
     print("%d failure(s)" % len(fails))
+    print("DIGEST %s" % digest)
+    status = 1 if fails else 0
     if fails:
         print("bisect with: python3 -m h3re.bisect_tool --kind K --seed S ...")
-    return 1 if fails else 0
+    if args.digest_out:
+        with open(args.digest_out, "w", encoding="ascii") as f:
+            f.write(digest + "\n")
+    if args.expect_digest_file:
+        with open(args.expect_digest_file, "r", encoding="ascii") as f:
+            want = f.read().strip()
+        if want != digest:
+            print("DIGEST MISMATCH: expected %s, got %s" % (want, digest))
+            status = 1
+    return status
 
 
 if __name__ == "__main__":

@@ -12,10 +12,18 @@ Rules (rule id -> meaning):
   BANNED_CALL     open/print/input/eval/exec/id/hash(...) or a call on a banned module
   ITER_UNORDERED  iteration over a set/dict view/set-valued name without sorted()
                   where the order could reach the result
+  ENV_READ        os.environ / os.getenv / ... (environment reads)
 
-Allowlist: JSON list of {"file", "rule", "function" (optional), "justification"}
-(justification is mandatory), or an inline ``# det-lint-allow: RULE -- why``
-comment on the offending line.
+Default targets: the four simulation modules plus datapack.py (not a sim
+module, but it runs at import; its file I/O and env read are allowlisted).
+
+Allowlist: JSON list of {"file", "rule", "line", "justification",
+"function" (optional), "count" (optional, default 1)}. ``line`` is the exact
+(whitespace-stripped) source text of the offending line: an entry covers only
+that statement, at most ``count`` times, so a new violation in the same
+function is still reported. Function-wide entries are rejected. The
+justification is mandatory. Inline alternative: ``# det-lint-allow: RULE --
+why`` on the offending line.
 
 Usage: banned_api_lint.py [--allowlist FILE] [--root DIR] [paths...]
 Exit status 1 when violations remain.
@@ -28,6 +36,12 @@ import os
 import sys
 
 SIM_MODULES = ("battle.py", "adventure.py", "rules.py", "rng.py")
+# Not simulation modules, but they run at import and feed constants to the
+# sim, so the same rules apply (their necessary I/O is allowlisted line by line).
+IMPORT_TIME_MODULES = ("datapack.py",)
+DEFAULT_MODULES = SIM_MODULES + IMPORT_TIME_MODULES
+ENV_ATTRS = frozenset({"environ", "environb", "getenv", "getenvb", "putenv",
+                       "unsetenv"})
 DEFAULT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "..", "h3re", "h3re")
 DEFAULT_ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -54,13 +68,14 @@ SET_METHODS = frozenset({"union", "intersection", "difference",
 INLINE_MARK = "det-lint-allow:"
 
 RULES = ("FLOAT_LITERAL", "TRUE_DIV", "FLOAT_CALL", "MATH_FLOAT",
-         "BANNED_IMPORT", "BANNED_CALL", "ITER_UNORDERED")
+         "BANNED_IMPORT", "BANNED_CALL", "ITER_UNORDERED", "ENV_READ")
 
 
 class Violation:
-    def __init__(self, file, line, col, rule, message, function=""):
+    def __init__(self, file, line, col, rule, message, function="", text=""):
         self.file, self.line, self.col = file, line, col
         self.rule, self.message, self.function = rule, message, function
+        self.text = text    # stripped source text of the offending line
 
     def __str__(self):
         return "%s:%d:%d: %s %s" % (self.file, self.line, self.col, self.rule,
@@ -83,6 +98,12 @@ def load_allowlist(path):
             raise ValueError("bad allowlist entry: %r" % (e,))
         if not str(e.get("justification", "")).strip():
             raise ValueError("allowlist entry lacks justification: %r" % (e,))
+        if not str(e.get("line", "")).strip():
+            raise ValueError("allowlist entry lacks the source 'line' text "
+                             "(function-wide entries are not allowed): %r" % (e,))
+        c = e.get("count", 1)
+        if type(c) is not int or c < 1:
+            raise ValueError("allowlist entry has a bad 'count': %r" % (e,))
     return entries
 
 
@@ -117,6 +138,7 @@ class _Visitor(ast.NodeVisitor):
         self.parents = []
         self.math_aliases = set()
         self.banned_aliases = set()
+        self.os_aliases = set()
 
     # -- helpers
     def add(self, node, rule, msg):
@@ -188,17 +210,29 @@ class _Visitor(ast.NodeVisitor):
             self._import(node, a.name)
             if a.name == "math":
                 self.math_aliases.add(a.asname or "math")
+            if a.name == "os":
+                self.os_aliases.add(a.asname or "os")
             if a.name.split(".")[0] in BANNED_MODULES:
                 self.banned_aliases.add(a.asname or a.name.split(".")[0])
 
     def visit_ImportFrom(self, node):
         if node.level == 0 and node.module:
             self._import(node, node.module)
+            if node.module == "os":
+                for a in node.names:
+                    if a.name in ENV_ATTRS:
+                        self.add(node, "ENV_READ", "import of os.%s" % a.name)
             if node.module == "math":
                 for a in node.names:
                     if a.name not in MATH_INT_OK:
                         self.add(node, "MATH_FLOAT",
                                  "math.%s returns a float" % a.name)
+
+    def visit_Attribute(self, node):
+        if (isinstance(node.value, ast.Name) and node.value.id in self.os_aliases
+                and node.attr in ENV_ATTRS):
+            self.add(node, "ENV_READ", "environment access os.%s" % node.attr)
+        self.generic_visit(node)
 
     # -- calls
     def visit_Call(self, node):
@@ -256,6 +290,7 @@ def lint_source(source, file="<src>"):
     kept = []
     for x in v.out:
         text = lines[x.line - 1] if x.line <= len(lines) else ""
+        x.text = text.strip()
         if INLINE_MARK in text:
             tail = text.split(INLINE_MARK, 1)[1]
             rule, _, why = tail.partition("--")
@@ -265,40 +300,57 @@ def lint_source(source, file="<src>"):
     return sorted(kept, key=lambda x: x.key())
 
 
-def apply_allowlist(violations, allowlist):
+def _entry_matches(e, v):
+    if e["rule"] != v.rule or os.path.basename(v.file) != os.path.basename(e["file"]):
+        return False
+    if " ".join(e["line"].split()) != " ".join(v.text.split()):
+        return False
+    fn = e.get("function")
+    return fn is None or fn == v.function or v.function.startswith(fn + ".")
+
+
+def apply_allowlist(violations, allowlist, unused=None):
+    """Drop violations covered by a line-scoped entry. Each entry absorbs at
+    most ``count`` (default 1) violations, so an extra identical statement is
+    still reported. ``unused`` (a list) receives entries that matched nothing."""
+    budget = [e.get("count", 1) for e in allowlist]
+    used = [False] * len(allowlist)
     out = []
     for v in violations:
-        ok = False
-        for e in allowlist:
-            if e["rule"] == v.rule and os.path.basename(v.file) == os.path.basename(e["file"]):
-                fn = e.get("function")
-                if fn is None or fn == v.function or v.function.startswith(fn + "."):
-                    ok = True
-                    break
-        if not ok:
+        for i, e in enumerate(allowlist):
+            if budget[i] > 0 and _entry_matches(e, v):
+                budget[i] -= 1
+                used[i] = True
+                break
+        else:
             out.append(v)
+    if unused is not None:
+        unused.extend(e for e, u in zip(allowlist, used) if not u)
     return out
 
 
-def lint_paths(paths, allowlist=()):
+def lint_paths(paths, allowlist=(), unused=None):
     out = []
     for p in paths:
         with open(p, "r", encoding="utf-8") as f:
             out.extend(lint_source(f.read(), p))
-    return apply_allowlist(out, list(allowlist))
+    return apply_allowlist(out, list(allowlist), unused)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("paths", nargs="*", help="files (default: the four sim modules)")
+    ap.add_argument("paths", nargs="*", help="files (default: the sim modules and datapack.py)")
     ap.add_argument("--root", default=DEFAULT_ROOT)
     ap.add_argument("--allowlist", default=DEFAULT_ALLOWLIST)
     args = ap.parse_args(argv)
     paths = args.paths or [os.path.normpath(os.path.join(args.root, m))
-                           for m in SIM_MODULES]
-    viol = lint_paths(paths, load_allowlist(args.allowlist))
+                           for m in DEFAULT_MODULES]
+    unused = []
+    viol = lint_paths(paths, load_allowlist(args.allowlist), unused)
     for v in viol:
         print(v)
+    for e in unused:
+        print("note: unused allowlist entry: %s %s %r" % (e["file"], e["rule"], e["line"]))
     print("%d violation(s) in %d file(s)" % (len(viol), len(paths)))
     return 1 if viol else 0
 
