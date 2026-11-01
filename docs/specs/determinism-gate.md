@@ -40,6 +40,17 @@ Trace digest and policy matrix:
   (`{"kind", "seed", "commands": [{"type": "Move", ...}]}`).
 - `python3 -m h3re.bisect_tool --kind K --seed S --perturb rng@K|drop@K|dup@K [--emit F]`
   generates the seed's log and compares it with a perturbed replay.
+- Policies: `--policy NAME` (a `soak.POLICY_MATRIX` name; the kind selects the battle or
+  adventure kwargs) applies to both sides; `--policy-a` / `--policy-b` set one side.
+  `--override` / `--override-a` / `--override-b` take field overrides as a JSON object or
+  `field=value;field=value` (values JSON, lists become tuples), layered over the named
+  policy. Field names are validated against the kind's policy dataclass; unknown names
+  or fields are rejected (usage error, exit 2; no run). A log may carry an optional
+  header `"policy": {"name": N|null, "fields": {...}}` (omitted when default, so old
+  logs are unchanged), used unless the CLI names a policy for that side; `--emit`
+  writes it. Each run prints `policy A: ...` and `policy B: ...` before the report, so
+  the same log under two policies localises a policy-caused divergence. Seed mode
+  generates the log under side A's policy and replays it under B's.
 - Output: first divergent step, both commands, and the differing state fields as
   dotted paths (`stacks[5].top_hp: 29 != 25`). Exit 1 if they diverge.
 
