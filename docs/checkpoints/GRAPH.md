@@ -42,4 +42,17 @@ flowchart LR
 | 15 | Real-file tests gated on H3_DATA_DIR | Sonnet | done (never run on real data) |
 | 16 | H3M terrain tiles | Sonnet | done (layout unverified) |
 | 17 | Battle core, no spells | Opus | done (11 uncertain policies, golden hash pinned) |
-| R3 | Round 3 Opus advisor | Opus | next |
+| R3 | Round 3 Opus advisor | Opus | done |
+| 18 | Greedy battle AI | Sonnet | done (50/50 vs random) |
+| 19 | Battle hardening + docs | Sonnet | done |
+| 20 | VCMI format cross-check report | Sonnet | done |
+| 21 | battle-sim text simulator | Haiku | done |
+| 22 | Adventure movement/economy core | Opus | done |
+| 23 | VCMI rules cross-check report | Opus | done |
+| 24 | H3M fixes (victory type 10, 144 artifacts, Chronicles) | Sonnet | done |
+| 25 | DEF fixes (palette 0-7, legacy fmt 1, fmt 2/3) | Sonnet | done |
+| 26 | TXT fixes (quoting, CRLF, encoding) | Sonnet | done |
+| 27 | PCX palette + LOD duplicates | Haiku | done |
+| 28 | Adventure rules per VCMI (golden re-pinned) | Sonnet | done |
+| 29 | Battle rules per VCMI (golden re-pinned) | Opus | done |
+| R4 | Forge-inspired work: data pack, damage pipeline, determinism gate, CLAUDE.md | mixed | next |

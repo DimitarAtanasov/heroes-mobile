@@ -4,21 +4,13 @@ Branch: `ccr-c70423ba-3alf1w`. Clean-room rule: no original assets/code; VCMI (G
 is used only as a source of functional facts, via the cross-check reports.
 Run tests: `python3 -m unittest discover -s tools/h3re/tests` (all must pass before a commit).
 
-## Done (committed + pushed), checkpoints 0-24
+## Done (committed + pushed), checkpoints 0-29
 LOD, DEF (hardened), PCX, TXT, H3M (header, post-teams sections, terrain tiles, VCMI fixes),
 PCG32 RNG, battle damage rules, battle core + greedy AI + `battle-sim` CLI, adventure core,
 package exports, real-file tests gated on `H3_DATA_DIR`, CI, README, VCMI cross-check reports.
 
-## In flight when this was written (not yet committed)
-| Work | Files | Status |
-|---|---|---|
-| TXT VCMI fixes (quoting, CRLF-only records, encoding) | txt.py, test_txt.py, txt.md | agent running |
-| DEF VCMI fixes (palette 0-7, legacy format 1, format 3 rows) | defimg.py, test_def.py, def.md | agent running |
-| PCX + LOD VCMI fixes (palette last 768 bytes, duplicate names) | pcx.py, lod.py, tests, docs | agent running |
-| Battle rule fixes from VCMI (row parity even, morale split, ties, wall x range) | battle.py, rules.py, rules.md, battle.md + tests | agent running; re-pins golden hash |
-| Adventure rule fixes from VCMI (source-tile cost, road 75/65/50, flat Pathfinding) | adventure.py, adventure.md + test | agent running; re-pins golden hash |
-
-If these are uncommitted on resume: run the full suite, review the diff, commit each as its own checkpoint.
+## In flight
+Nothing. Checkpoints 0-29 are committed and pushed; 299 tests pass (2 skipped without H3_DATA_DIR).
 
 ## Next (user-approved order: VCMI fixes first, then the Forge-inspired work)
 1. Data pack: creatures and rule constants in JSON (Forge law: no hardcoded balance numbers), loaded and schema-checked.
