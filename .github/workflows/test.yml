@@ -100,9 +100,8 @@ jobs:
           if-no-files-found: warn
 
   android-app:
-    # The :app module has never been built. Keep this job non-blocking until it
-    # is green, then remove continue-on-error so it gates the workflow.
-    continue-on-error: true
+    # Builds the debug APK (green since the Android plugin was put on the root classpath) and
+    # publishes it as a build artifact so it can be downloaded and sideloaded.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -133,3 +132,11 @@ jobs:
       - name: Assemble debug app
         working-directory: android
         run: ./gradlew --no-daemon -PwithApp=true :app:assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: heroes-mobile-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
