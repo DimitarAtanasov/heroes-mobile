@@ -36,4 +36,10 @@ flowchart LR
 | 10 | PCX reader | Haiku | done |
 | 11 | PCG32 RNG + named streams | Sonnet | done (range half-open; engine-design says inclusive, to reconcile) |
 | 12 | DEF hardening | Sonnet | done (palette 0-9 vs 0-7 still unreconciled with engine-design) |
-| R2 | Round 2 Opus advisor | Opus | next |
+| R2 | Round 2 Opus advisor | Opus | done |
+| 13 | Doc reconciliation (RNG API, palette, README) | Haiku | done |
+| 14 | Package exports | Haiku | done |
+| 15 | Real-file tests gated on H3_DATA_DIR | Sonnet | done (never run on real data) |
+| 16 | H3M terrain tiles | Sonnet | done (layout unverified) |
+| 17 | Battle core, no spells | Opus | done (11 uncertain policies, golden hash pinned) |
+| R3 | Round 3 Opus advisor | Opus | next |
