@@ -806,5 +806,43 @@ class RangeOriginTest(unittest.TestCase):
             B.BattlePolicy(range_origin="tail")
 
 
+class PreviewLawTest(unittest.TestCase):
+    """Every executed strike lies in strike_preview's [floor, ceiling]."""
+
+    def _check(self, setup, seed, chooser):
+        rng = B.battle_rng(seed, "golden")
+        state, _ = B.apply(setup, B.Begin(), rng)
+        checked = 0
+        for _ in range(400):
+            if state.winner is not None:
+                break
+            cmd = chooser(state)
+            prev = None
+            if isinstance(cmd, (B.Attack, B.Shoot)):
+                prev = B.strike_preview(state, cmd.stack, cmd.target,
+                                        isinstance(cmd, B.Shoot))
+            state, ev = B.apply(state, cmd, rng)
+            if prev is not None:
+                first = [e for e in ev if isinstance(e, B.DamageDealt)][0]
+                self.assertTrue(prev.floor <= first.damage <= prev.ceiling,
+                                (seed, cmd, prev, first))
+                checked += 1
+        return checked
+
+    def test_golden_strikes_within_preview(self):
+        n = 0
+        for seed in range(40):
+            n += self._check(golden_setup(), seed, scripted_choice)
+            n += self._check(replace(golden_setup(), policy=B.BattlePolicy(bad_luck=True)),
+                             seed, scripted_choice)
+        self.assertGreater(n, 100)
+
+    def test_random_commands_within_preview(self):
+        n = 0
+        for seed in range(40):
+            r = random.Random(seed)
+            n += self._check(golden_setup(), seed, lambda s: r.choice(B.legal_commands(s)))
+        self.assertGreater(n, 20)
+
 if __name__ == "__main__":
     unittest.main()

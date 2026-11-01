@@ -2,7 +2,8 @@
 
 ``choose(state, side=None) -> Command`` returns one command from
 ``battle.legal_commands(state)``. It never draws from the battle RNG stream:
-damage is previewed without randomness (``rules.damage_range``, midpoint) and
+damage is previewed without randomness (``rules.resolve_damage`` with
+``RollPolicy.EXPECTED``, the same function execution runs) and
 ties are broken with a separate stream ``derive_stream(seed, "ai:<side>")``.
 
 Policy: attack/shoot with the best expected net damage (damage dealt, capped
@@ -26,27 +27,14 @@ def _stack_hp(s):
     return (s.count - 1) * s.creature.hp + s.top_hp if s.count > 0 else 0
 
 
-def _preview(state, att, dfn, ranged, head=None):
-    """No-RNG expected final damage of one strike of ``att`` on ``dfn``."""
-    pol = state.policy
-    ha, hd = state.heroes[att.side], state.heroes[dfn.side]
-    A = att.creature.attack + (ha.attack if ha else 0)
-    D = dfn.creature.defense + (hd.defense if hd else 0)
-    if dfn.defending:
-        D += B.defend_bonus(state, dfn)
-    range_pen = False
-    if ranged and not att.creature.no_range_penalty:
-        acells = B._cells_at(head, att.side, att.creature.double_wide) if head else B.cells(att)
-        dist = min(B.hex_distance(x, y, pol.row_offset) for x in acells for y in B.cells(dfn))
-        range_pen = dist > pol.range_penalty_beyond
-    melee_pen = (not ranged) and att.creature.shooter and not att.creature.no_melee_penalty
-    lo, hi = rules.damage_range(
-        att.count, att.creature.dmg_min, att.creature.dmg_max, A, D,
-        ranged=ranged, offense=ha.offense if ha else 0,
-        archery=ha.archery if ha else 0, armorer=hd.armorer if hd else 0,
-        hates=dfn.creature.name in att.creature.hates,
-        range_penalty=range_pen, melee_penalty=melee_pen)
-    return (lo + hi) // 2
+def _preview(state, att, dfn, ranged):
+    """No-RNG expected final damage of one strike of ``att`` on ``dfn``.
+
+    The shared pipeline (``battle.strike_context`` + ``rules.resolve_damage``
+    under EXPECTED) that execution also runs; no local copy of the rules.
+    """
+    return rules.resolve_damage(B.strike_context(state, att, dfn, ranged),
+                                rules.RollPolicy.EXPECTED).damage
 
 
 def _score_attack(state, att, cmd):
@@ -55,8 +43,7 @@ def _score_attack(state, att, cmd):
     shots = 2 if ranged and att.creature.shoots_twice else 1
     if not ranged and att.creature.strikes_twice:
         shots = 2
-    head = None if ranged else (cmd.from_hex or att.pos)
-    dealt = min(_preview(state, att, tgt, ranged, head) * shots, _stack_hp(tgt))
+    dealt = min(_preview(state, att, tgt, ranged) * shots, _stack_hp(tgt))
     value = dealt
     if not ranged and dealt < _stack_hp(tgt) and not att.creature.no_enemy_retaliation \
             and (tgt.creature.unlimited_retaliation or tgt.retaliations > 0):

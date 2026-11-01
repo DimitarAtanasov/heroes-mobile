@@ -7,6 +7,7 @@ from fractions import Fraction
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from h3re import rules  # noqa: E402
+from h3re.rng import Pcg32  # noqa: E402
 
 
 class FixedRng:
@@ -133,6 +134,135 @@ class DamageRangeTest(unittest.TestCase):
             b = rules.base_damage(37, 2, 7, rng)
             d = rules.damage_from_base(b, 12, 9, offense=2)
             self.assertTrue(lo <= d <= hi)
+
+
+def random_ctx(r):
+    """A random legal DamageCtx (integers / flags only)."""
+    ranged = r.randrange(10) < 5
+    lo = r.randint(1, 20)
+    return rules.DamageCtx(
+        count=r.choice((0, 1, r.randint(1, 10), r.randint(11, 999))),
+        dmg_min=lo, dmg_max=lo + r.randint(0, 30),
+        attack=r.randint(0, 80), defense=r.randint(0, 80), ranged=ranged,
+        offense=r.randint(0, 3), archery=r.randint(0, 3), armorer=r.randint(0, 3),
+        hates=r.randrange(10) < 3,
+        range_penalty=ranged and r.randrange(10) < 4,
+        wall_penalty=ranged and r.randrange(10) < 3,
+        melee_penalty=(not ranged) and r.randrange(10) < 3,
+        luck=r.randint(-4, 4), bad_luck=r.randrange(10) < 5)
+
+
+class ResolveDamageLawTest(unittest.TestCase):
+    """Forge law: ONE damage function serves preview and execution."""
+
+    N = 2000
+
+    def test_actual_within_preview(self):
+        r = random.Random(20261101)
+        for i in range(self.N):
+            ctx = random_ctx(r)
+            p = rules.preview_damage(ctx)
+            self.assertLessEqual(p.floor, p.expected, ctx)
+            self.assertLessEqual(p.expected, p.ceiling, ctx)
+            rng = Pcg32(i)
+            for _ in range(5):
+                d = rules.resolve_damage(ctx, rules.RollPolicy.ACTUAL_SEED, rng).damage
+                self.assertTrue(p.floor <= d <= p.ceiling, (ctx, p, d))
+
+    def test_monotonic_in_attack(self):
+        r = random.Random(99)
+        for i in range(self.N // 4):
+            ctx = random_ctx(r)
+            prev = None
+            for a in range(0, 90, 3):
+                c = rules.DamageCtx(**{**ctx.__dict__, "attack": a})
+                p = rules.preview_damage(c)
+                act = rules.resolve_damage(c, rules.RollPolicy.ACTUAL_SEED, Pcg32(i)).damage
+                cur = (p.floor, p.expected, p.ceiling, act)
+                if prev is not None:
+                    for x, y in zip(prev, cur):
+                        self.assertLessEqual(x, y, (ctx, a))
+                prev = cur
+
+    def test_monotonic_in_offense_and_archery(self):
+        r = random.Random(5)
+        for i in range(self.N // 4):
+            ctx = random_ctx(r)
+            field = "archery" if ctx.ranged else "offense"
+            vals = [rules.resolve_damage(rules.DamageCtx(**{**ctx.__dict__, field: lv}),
+                                         rules.RollPolicy.ACTUAL_SEED, Pcg32(i)).damage
+                    for lv in range(4)]
+            self.assertEqual(vals, sorted(vals), ctx)
+
+    def test_deterministic(self):
+        r = random.Random(3)
+        for i in range(self.N // 4):
+            ctx = random_ctx(r)
+            a, b = Pcg32(i, 1), Pcg32(i, 1)
+            for _ in range(3):
+                self.assertEqual(rules.resolve_damage(ctx, rules.RollPolicy.ACTUAL_SEED, a),
+                                 rules.resolve_damage(ctx, rules.RollPolicy.ACTUAL_SEED, b))
+            self.assertEqual(a.next_u32(), b.next_u32())
+            self.assertEqual(rules.preview_damage(ctx), rules.preview_damage(ctx))
+
+    def test_preview_consumes_no_rng(self):
+        class Boom:
+            def __getattr__(self, name):
+                raise AssertionError("preview touched the rng")
+        ctx = rules.DamageCtx(30, 1, 3, 6, 4, luck=2)
+        for pol in (rules.RollPolicy.PESSIMAL, rules.RollPolicy.EXPECTED,
+                    rules.RollPolicy.OPTIMAL):
+            rules.resolve_damage(ctx, pol, Boom())
+
+    def test_execution_matches_legacy_two_step(self):
+        # ACTUAL_SEED == old base_damage + damage_from_base with the same draws.
+        r = random.Random(11)
+        for i in range(self.N // 2):
+            ctx = random_ctx(r)
+            a, b = Pcg32(i), Pcg32(i)
+            res = rules.resolve_damage(ctx, rules.RollPolicy.ACTUAL_SEED, a)
+            lucky = unlucky = False
+            if ctx.luck > 0:
+                f = rules.luck_chance(ctx.luck)
+                lucky = b.chance(f.numerator, f.denominator)
+            elif ctx.luck < 0 and ctx.bad_luck:
+                f = rules.luck_chance(-ctx.luck)
+                unlucky = b.chance(f.numerator, f.denominator)
+            base = rules.base_damage(ctx.count, ctx.dmg_min, ctx.dmg_max, b)
+            mods = {k: v for k, v in ctx.__dict__.items()
+                    if k not in ("count", "dmg_min", "dmg_max", "attack", "defense",
+                                 "luck", "bad_luck")}
+            d = rules.damage_from_base(base, ctx.attack, ctx.defense, lucky=lucky, **mods)
+            if unlucky and ctx.count > 0:  # legacy halved an empty stack's 0 up to 1
+                d = max(1, d // 2)
+            self.assertEqual(res, rules.DamageResult(d, lucky, unlucky), ctx)
+            self.assertEqual(a.next_u32(), b.next_u32())
+
+    def test_known_values(self):
+        ctx = rules.DamageCtx(10, 1, 3, 5, 5)
+        self.assertEqual(rules.preview_damage(ctx), rules.DamagePreview(10, 20, 30))
+        # Luck widens the ceiling (double) and lifts the expectation by L/24.
+        ctx = rules.DamageCtx(24, 1, 1, 0, 0, luck=3)
+        self.assertEqual(rules.preview_damage(ctx), rules.DamagePreview(24, 27, 48))
+        # Bad luck lowers the floor (halved after the floor).
+        ctx = rules.DamageCtx(24, 1, 1, 0, 0, luck=-3, bad_luck=True)
+        self.assertEqual(rules.preview_damage(ctx), rules.DamagePreview(12, 22, 24))
+        self.assertEqual(rules.damage_range(24, 1, 1, 0, 0, luck=3), (24, 48))
+
+    def test_actual_seed_needs_rng(self):
+        with self.assertRaises(ValueError):
+            rules.resolve_damage(rules.DamageCtx(1, 1, 1, 0, 0), rules.RollPolicy.ACTUAL_SEED)
+        with self.assertRaises(ValueError):
+            rules.resolve_damage(rules.DamageCtx(1, 1, 1, 0, 0, ranged=True,
+                                                 melee_penalty=True),
+                                 rules.RollPolicy.PESSIMAL)
+
+    def test_no_floats(self):
+        r = random.Random(8)
+        for _ in range(200):
+            p = rules.preview_damage(random_ctx(r))
+            for v in (p.floor, p.expected, p.ceiling):
+                self.assertIs(type(v), int)
 
 
 class ApplyDamageTest(unittest.TestCase):

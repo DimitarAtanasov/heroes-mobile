@@ -35,7 +35,8 @@ the same as in that file: **[documented]**, **[uncertain]** and **[engine]**.
   `UnitDied`, `BattleEnded(winner)`.
 - Helper queries: `reachable`, `turn_order` (the pending queue, with the active
   stack first), `round_order` (every living stack exactly once: finished
-  stacks, then pending ones) and `legal_commands`.
+  stacks, then pending ones), `legal_commands`, and the damage preview
+  `strike_preview(state, att_id, def_id, ranged)` (section 6).
 
 ## 2. Grid
 
@@ -161,7 +162,8 @@ modifiers are **[uncertain]** and the caller computes them.
 - Whether good morale can fire repeatedly is **[uncertain]**: policy
   `repeat_good_morale`, default `False`, so a bonus action makes no roll.
 - Good luck: each strike by a stack with L > 0 rolls `luck_chance(L)`. On
-  success, `lucky=True` is passed to `damage_from_base`. [documented]
+  success the strike takes `I_luck = 1.0` (inside `rules.resolve_damage`).
+  [documented]
 - Bad luck is **[uncertain]**: policy `bad_luck`, default `False`, matching
   `rules.py`, which leaves it out. When it is enabled, a stack with L < 0
   rolls `luck_chance(-L)`, and on success the final damage is halved by
@@ -170,8 +172,18 @@ modifiers are **[uncertain]** and the caller computes them.
 
 ## 6. Damage and attacks
 
-- Damage is `rules.base_damage` followed by `rules.damage_from_base`, and the
-  result is applied with `rules.apply_damage`. A is the creature's Attack
+- Damage is one call: `rules.resolve_damage(strike_context(...),
+  RollPolicy.ACTUAL_SEED, rng)` (luck roll, damage rolls, modifiers; draw
+  for draw the same as the former `base_damage` + `damage_from_base`
+  two-step, so the golden hash did not change). The result is applied with
+  `rules.apply_damage`. `strike_context(state, att, dfn, ranged)` is the only
+  place battle state becomes damage inputs. `strike_preview(state, att_id,
+  def_id, ranged)` runs the same pipeline under PESSIMAL / EXPECTED /
+  OPTIMAL and returns `(floor, expected, ceiling)` without touching the RNG;
+  the damage `apply` deals for that strike always lies in
+  `[floor, ceiling]` (rules.md §6.6 step 5). The greedy AI
+  (`battle_ai.py`) scores attacks with the EXPECTED value of this same
+  function and keeps no copy of the rules. A is the creature's Attack
   plus the hero's Attack. D is the creature's Defense plus the hero's Defense
   plus any defend bonus. Offense and Archery come from the attacker's hero,
   Armorer from the defender's hero, and `hates` from the creature's
@@ -251,6 +263,9 @@ Cross-check numbers (#1, #4, …) refer to the table in
   and the range-penalty origin for a two-hex shooter.
 - Morale, luck, retaliation once per round, shooting and penalties, and
   battle end.
+- Preview law: across seeded golden battles (with and without `bad_luck`)
+  and random-command playouts, the first strike of every Attack/Shoot lies
+  in the `strike_preview` range computed just before it.
 - Golden hash: a seeded 2v2 battle (`battle_rng(12345, "golden")`, scripted
   chooser) replays to a pinned SHA-256.
 - Property tests: random legal playouts under default and non-default

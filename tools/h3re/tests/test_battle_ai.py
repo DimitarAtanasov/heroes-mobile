@@ -84,6 +84,25 @@ class BattleAiTest(unittest.TestCase):
                 hashes.append(B.state_hash(state))
             self.assertEqual(hashes[0], hashes[1])
 
+    def test_preview_is_the_shared_function(self):
+        # No local copy: the AI's estimate is strike_preview's EXPECTED value
+        # and lies in [floor, ceiling] of the pipeline execution runs.
+        from h3re import rules
+        for seed in range(5):
+            st, _ = B.apply(scenario(seed), B.Begin(), B.battle_rng(seed, "g%s" % seed))
+            for a in st.stacks:
+                for d in st.stacks:
+                    if a.side == d.side:
+                        continue
+                    for ranged in (False, True):
+                        p = B.strike_preview(st, a.id, d.id, ranged)
+                        e = AI._preview(st, a, d, ranged)
+                        self.assertEqual(e, p.expected)
+                        self.assertTrue(p.floor <= e <= p.ceiling)
+                        self.assertEqual(e, rules.resolve_damage(
+                            B.strike_context(st, a, d, ranged),
+                            rules.RollPolicy.EXPECTED).damage)
+
     def test_beats_random(self):
         wins = 0
         for seed in range(50):

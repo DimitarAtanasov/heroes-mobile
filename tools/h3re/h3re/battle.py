@@ -9,7 +9,9 @@ Design:
 * ``apply(state, cmd, rng) -> (state', events)`` is the only way to advance a
   battle. An illegal command raises ``IllegalCommand`` *before* any RNG draw,
   so neither the state nor the stream is touched.
-* No floats. Damage is computed by ``rules.py`` (exact fractions, one floor).
+* No floats. Damage is computed by ``rules.py`` (exact fractions, one floor),
+  through ``rules.resolve_damage``: the same function serves execution
+  (ACTUAL_SEED) and preview (``strike_preview``).
 * Randomness comes only from the ``rng`` argument, which should be the
   ``rng.py`` stream ``battle:<battle_id>`` (see ``battle_rng``).
 * Every rule that rules.md tags [uncertain] is a field of ``BattlePolicy``;
@@ -40,6 +42,7 @@ __all__ = [
     "battle_rng", "create_battle", "apply", "cells", "reachable",
     "turn_order", "round_order", "legal_commands", "canonical", "state_hash",
     "defend_bonus", "effective_morale", "DEFAULT_ROW_OFFSET",
+    "strike_context", "strike_preview",
 ]
 
 WIDTH = 17
@@ -687,43 +690,58 @@ def _chance(rng, frac):
     return rng.chance(frac.numerator, frac.denominator)
 
 
+def strike_context(state, att, dfn, ranged):
+    """``rules.DamageCtx`` for one strike of stack ``att`` on stack ``dfn``.
+
+    The single place battle state becomes damage inputs: execution
+    (``_strike``) and every preview (``strike_preview``, the AI) use it.
+    """
+    pol = state.policy
+    ha = state.heroes[att.side]
+    hd = state.heroes[dfn.side]
+    A = att.creature.attack + (ha.attack if ha else 0)
+    D = dfn.creature.defense + (hd.defense if hd else 0)
+    if dfn.defending:
+        D += defend_bonus(state, dfn)
+    range_pen = False
+    if ranged and not att.creature.no_range_penalty:
+        off = pol.row_offset
+        origin = (att.pos,) if pol.range_origin == "head" else cells(att)
+        dist = min(hex_distance(x, y, off) for x in origin for y in cells(dfn))
+        range_pen = dist > pol.range_penalty_beyond
+    melee_pen = (not ranged) and att.creature.shooter and not att.creature.no_melee_penalty
+    return rules.DamageCtx(
+        att.count, att.creature.dmg_min, att.creature.dmg_max, A, D,
+        ranged=ranged,
+        offense=ha.offense if ha else 0,
+        archery=ha.archery if ha else 0,
+        armorer=hd.armorer if hd else 0,
+        hates=dfn.creature.name in att.creature.hates,
+        range_penalty=range_pen, melee_penalty=melee_pen,
+        luck=att.luck, bad_luck=pol.bad_luck)
+
+
+def strike_preview(state, att_id, def_id, ranged):
+    """``rules.DamagePreview`` (floor, expected, ceiling) of one strike.
+
+    Same pipeline as execution; consumes no RNG. The damage ``apply`` deals
+    for that strike always lies in [floor, ceiling].
+    """
+    return rules.preview_damage(
+        strike_context(state, state.stacks[att_id], state.stacks[def_id], ranged))
+
+
 def _strike(state, att_id, def_id, ranged, retaliation, rng, events):
     """One strike (luck roll, damage rolls, apply). Returns new state."""
     a = state.stacks[att_id]
     d = state.stacks[def_id]
-    pol = state.policy
-    ha = state.heroes[a.side]
-    hd = state.heroes[d.side]
-    A = a.creature.attack + (ha.attack if ha else 0)
-    D = d.creature.defense + (hd.defense if hd else 0)
-    if d.defending:
-        D += defend_bonus(state, d)
-    lucky = unlucky = False
-    if a.luck > 0:
-        lucky = _chance(rng, rules.luck_chance(a.luck))
-        if lucky:
-            events.append(LuckRolled(a.id, True))
-    elif a.luck < 0 and pol.bad_luck:
-        unlucky = _chance(rng, rules.luck_chance(-a.luck))
-        if unlucky:
-            events.append(LuckRolled(a.id, False))
-    base = rules.base_damage(a.count, a.creature.dmg_min, a.creature.dmg_max, rng)
-    range_pen = False
-    if ranged and not a.creature.no_range_penalty:
-        off = pol.row_offset
-        origin = (a.pos,) if pol.range_origin == "head" else cells(a)
-        dist = min(hex_distance(x, y, off) for x in origin for y in cells(d))
-        range_pen = dist > pol.range_penalty_beyond
-    melee_pen = (not ranged) and a.creature.shooter and not a.creature.no_melee_penalty
-    dmg = rules.damage_from_base(
-        base, A, D, ranged=ranged,
-        offense=ha.offense if ha else 0,
-        archery=ha.archery if ha else 0,
-        armorer=hd.armorer if hd else 0,
-        lucky=lucky, hates=d.creature.name in a.creature.hates,
-        range_penalty=range_pen, melee_penalty=melee_pen)
-    if unlucky:
-        dmg = max(1, dmg // 2)
+    res = rules.resolve_damage(strike_context(state, a, d, ranged),
+                               rules.RollPolicy.ACTUAL_SEED, rng)
+    if res.lucky:
+        events.append(LuckRolled(a.id, True))
+    if res.unlucky:
+        events.append(LuckRolled(a.id, False))
+    dmg = res.damage
     count, top, killed = rules.apply_damage(d.count, d.top_hp, d.creature.hp, dmg)
     state = _set(state, replace(d, count=count, top_hp=top,
                                 defending=d.defending if count else False))

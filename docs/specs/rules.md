@@ -408,6 +408,30 @@ integer. The minimum is 1 when the attack lands. Whether the original rounds
 at any intermediate step is [uncertain]. The reference implementation uses
 exact rational arithmetic and floors once, at the end.
 
+**Step 5 — one function for preview and execution** [engine; Forge law
+"ONE damage function serves preview and execution"]: `rules.py` exposes a
+single pipeline, `resolve_damage(ctx, policy, rng=None)`, over a
+`DamageCtx` (count, damage range, A, D, skill levels, hate, penalty flags,
+luck, bad-luck switch). `policy` is a `RollPolicy` that settles every random
+choice of the strike:
+
+| Policy | Luck roll | Damage rolls | Use |
+|---|---|---|---|
+| `ACTUAL_SEED` | drawn from the RNG (luck first, then damage rolls) | drawn | execution |
+| `PESSIMAL` | good luck never fires; bad luck fires if possible | all `min` (base `N * min`) | preview floor |
+| `EXPECTED` | `I_luck = 1.0 * P(good)`; bad luck as factor `1 - P(bad)/2` | mean (base `N * (min + max) / 2`) | preview expectation (AI) |
+| `OPTIMAL` | good luck fires if possible; bad luck never | all `max` (base `N * max`) | preview ceiling |
+
+`preview_damage(ctx)` returns `DamagePreview(floor, expected, ceiling)` from
+the last three; `damage_range` is a wrapper returning `(floor, ceiling)`.
+Every step is monotone in the base and in each luck branch, so the executed
+damage always lies in `[floor, ceiling]`. Property tests in
+`tests/test_rules.py` check this over thousands of random contexts, plus
+monotonicity in A and in Offense/Archery level, determinism, that previews
+consume no RNG, and that `ACTUAL_SEED` equals the older
+`base_damage` + `damage_from_base` two-step draw for draw (the battle golden
+hash is unchanged). All values are integers or exact fractions; no floats.
+
 **Step 4 — applying damage to a stack** [documented]: a stack is `count`
 creatures, with the top creature at `top_hp` out of `max_hp`.
 
@@ -466,7 +490,8 @@ resurrection spells are [uncertain].
 §6.5–§6.6:
 
 - `attack_defense_factor`, `base_damage` (with an injectable RNG),
-  `damage_from_base`, `damage_range`, `apply_damage`, `luck_chance` and
+  `damage_from_base`, `resolve_damage` / `RollPolicy` / `DamageCtx` /
+  `preview_damage` (§6.6 step 5), `damage_range`, `apply_damage`, `luck_chance` and
   `good_morale_chance` and `bad_morale_chance`, plus the skill constant tables.
 
 Items marked [uncertain] stay out of it until §9 verifies them. There are
