@@ -24,5 +24,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "heroes-mobile"
 include(":sim")
+include(":presenter")
 // The Android app needs dl.google.com (AGP, androidx). Opt in: gradle -PwithApp=true :app:assembleDebug
 if (providers.gradleProperty("withApp").orNull == "true") include(":app")
