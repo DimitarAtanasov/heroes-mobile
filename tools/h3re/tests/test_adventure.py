@@ -1,0 +1,476 @@
+import os
+import random
+import sys
+import unittest
+from dataclasses import replace
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from h3re import adventure as A  # noqa: E402
+
+_TERR = {"d": "dirt", "g": "grass", "l": "lava", "u": "subterranean",
+         "r": "rough", "s": "sand", "n": "snow", "w": "swamp",
+         "~": "water", "#": "rock"}
+_ROAD = {".": "none", "1": "dirt", "2": "gravel", "3": "cobblestone"}
+
+
+def grid(terrain, roads=None, blocked=()):
+    """Grid from text rows; ``roads`` rows use . 1 2 3; ``blocked`` = tiles."""
+    h, w = len(terrain), len(terrain[0])
+    roads = roads or ["." * w] * h
+    tiles = []
+    for y in range(h):
+        for x in range(w):
+            tiles.append(A.Tile(_TERR[terrain[y][x]], _ROAD[roads[y][x]],
+                                (x, y) in blocked))
+    return A.Grid(w, h, tuple(tiles))
+
+
+def army(*speeds):
+    return tuple(A.ArmySlot("c%d" % i, s, 10) for i, s in enumerate(speeds))
+
+
+def game(g, heroes=None, players=None, pools=(), policy=A.DEFAULT_POLICY):
+    players = players or (A.Player(),)
+    heroes = heroes or (A.HeroSetup(0, (0, 0), army(5)),)
+    return A.create_game("t", g, players, heroes, pools, policy)
+
+
+def started(*a, **kw):
+    s, _ = A.apply(game(*a, **kw), A.Begin(), NoRng())
+    return s
+
+
+class NoRng:
+    """The adventure core must not draw randomness yet."""
+
+    def __getattr__(self, name):
+        raise AssertionError("rng used: %s" % name)
+
+
+class MovementPointsTest(unittest.TestCase):
+    def test_speed_table(self):
+        table = {1: 1500, 3: 1500, 4: 1560, 5: 1630, 6: 1700, 7: 1760,
+                 8: 1830, 9: 1900, 10: 1960, 11: 2000, 20: 2000}
+        for spd, mp in table.items():
+            self.assertEqual(A.base_movement(army(spd)), mp, spd)
+
+    def test_slowest_stack_counts(self):
+        self.assertEqual(A.base_movement(army(11, 4, 9)), 1560)
+
+    def test_logistics(self):
+        h = A.Hero(0, 0, (0, 0), army(5), 1, 0, 0, 0, False)
+        self.assertEqual([A.max_movement(replace(h, logistics=lv)) for lv in range(4)],
+                         [1630, 1793, 1956, 2119])
+        self.assertEqual(A.max_movement(replace(h, army=army(4), logistics=1)), 1716)
+        self.assertEqual(A.max_movement(replace(h, army=army(12), logistics=3)), 2600)
+
+    def test_movement_reset_daily_no_carry_over(self):
+        s = started(grid(["ggg"]))
+        self.assertEqual(s.heroes[0].mp, 1630)
+        s, _ = A.apply(s, A.Move(0, (1, 0)), NoRng())
+        self.assertEqual(s.heroes[0].mp, 1530)
+        s, ev = A.apply(s, A.EndTurn(0), NoRng())
+        self.assertEqual(s.heroes[0].mp, 1630)
+        self.assertIn(A.MovementReset(0, 1630), ev)
+
+
+class StepCostTest(unittest.TestCase):
+    def test_terrain_costs(self):
+        for code, cost in (("d", 100), ("g", 100), ("l", 100), ("u", 100),
+                           ("r", 125), ("s", 150), ("n", 150), ("w", 175)):
+            g = grid(["g" + code])
+            self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), cost, code)
+            self.assertEqual(A.find_path(game(g), 0, (1, 0)), (cost, ((0, 0), (1, 0))))
+
+    def test_roads(self):
+        g = grid(["sss"], ["111"])
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 50)
+        self.assertEqual(A.find_path(game(g), 0, (2, 0))[0], 100)
+        for r in "23":
+            self.assertEqual(A.step_cost(grid(["ss"], ["." + r]), (0, 0), (1, 0)), 50)
+
+    def test_impassable(self):
+        g = grid(["g~#g"], blocked={(3, 0)})
+        self.assertIsNone(A.step_cost(g, (0, 0), (1, 0)))
+        self.assertIsNone(A.find_path(game(g), 0, (2, 0)))
+        self.assertIsNone(A.find_path(game(g), 0, (3, 0)))
+
+    def test_diagonal_cost(self):
+        g = grid(["gg", "gw"])
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 1)), 246)   # 175*141//100
+        self.assertEqual(A.step_cost(g, (1, 0), (0, 1)), 141)
+
+    def test_pathfinding_cuts_penalty_only(self):
+        g = grid(["gw", "gg"])
+        costs = [A.step_cost(g, (0, 0), (1, 0), pf) for pf in range(4)]
+        self.assertEqual(costs, [175, 157, 138, 119])          # 75 * 0/25/50/75%
+        self.assertEqual(A.step_cost(g, (1, 0), (0, 0), 3), 100)
+
+    def test_path_prefers_road_detour(self):
+        g = grid(["gsssg", "ggggg"], ["1...1", "11111"])
+        cost, path = A.find_path(game(g), 0, (4, 0))
+        # straight over sand: 3*150 + 50 = 500; diagonal onto the road row and
+        # back: 70 + 2*50 + 70 = 240
+        self.assertEqual(cost, 70 + 50 * 2 + 70)
+        self.assertEqual(path, ((0, 0), (1, 1), (2, 1), (3, 1), (4, 0)))
+
+    def test_deterministic_tie_break(self):
+        g = grid(["ggg", "ggg", "ggg"])
+        p = A.DEFAULT_POLICY
+        pol = replace(p, diagonal_moves=False)
+        cost, path = A.find_path(game(g, policy=pol), 0, (1, 1))
+        self.assertEqual(cost, 200)
+        # two equal paths (via (1,0) or (0,1)): the lexicographically smaller wins
+        self.assertEqual(path, ((0, 0), (0, 1), (1, 1)))
+
+    def test_other_heroes_block(self):
+        g = grid(["ggg"])
+        heroes = (A.HeroSetup(0, (0, 0), army(5)), A.HeroSetup(0, (1, 0), army(5)))
+        s = started(g, heroes=heroes)
+        self.assertIsNone(A.find_path(s, 0, (2, 0)))
+
+
+class PolicyTest(unittest.TestCase):
+    def test_road_cost_table(self):
+        pol = replace(A.DEFAULT_POLICY,
+                      road_cost=(("cobblestone", 50), ("dirt", 75), ("gravel", 65)))
+        g = grid(["gggg"], [".123"])
+        self.assertEqual([A.step_cost(g, (i, 0), (i + 1, 0), policy=pol) for i in range(3)],
+                         [75, 65, 50])
+
+    def test_road_needs_both(self):
+        g = grid(["ss"], [".1"])
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 50)
+        pol = replace(A.DEFAULT_POLICY, road_needs_both=True)
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), policy=pol), 150)
+
+    def test_cost_from_source(self):
+        g = grid(["wg"])
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0)), 100)
+        pol = replace(A.DEFAULT_POLICY, cost_from="source")
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), policy=pol), 175)
+
+    def test_diagonal_rounding_and_ratio(self):
+        g = grid(["gg", "gg"])
+        for num, den, mode, want in ((141, 100, "floor", 141), (142, 100, "floor", 142),
+                                     (1414, 1000, "ceil", 142), (1414, 1000, "nearest", 141)):
+            pol = replace(A.DEFAULT_POLICY, diagonal_num=num, diagonal_den=den,
+                          diagonal_rounding=mode)
+            self.assertEqual(A.step_cost(g, (0, 0), (1, 1), policy=pol), want)
+        g2 = grid(["gr", "gr"])
+        ceil = replace(A.DEFAULT_POLICY, diagonal_rounding="ceil")
+        self.assertEqual(A.step_cost(g2, (0, 0), (1, 1)), 176)            # 176.25
+        self.assertEqual(A.step_cost(g2, (0, 0), (1, 1), policy=ceil), 177)
+
+    def test_no_diagonals(self):
+        g = grid(["gg", "gg"])
+        pol = replace(A.DEFAULT_POLICY, diagonal_moves=False)
+        self.assertIsNone(A.step_cost(g, (0, 0), (1, 1), policy=pol))
+        self.assertEqual(A.find_path(game(g, policy=pol), 0, (1, 1))[0], 200)
+        self.assertEqual(A.find_path(game(g), 0, (1, 1))[0], 141)
+
+    def test_corner_cut(self):
+        g = grid(["g#", "#g"])
+        self.assertEqual(A.find_path(game(g), 0, (1, 1))[0], 141)
+        pol = replace(A.DEFAULT_POLICY, diagonal_corner_cut=False)
+        self.assertIsNone(A.find_path(game(g, policy=pol), 0, (1, 1)))
+
+    def test_last_step(self):
+        # speed 5 -> 1630 points; 9 grass steps = 900, then 4 swamp steps = 700.
+        g = grid(["g" * 10 + "wwwww"])
+        far = (14, 0)
+        base = started(g)
+        r = A.reachable(base, 0)
+        self.assertEqual(r[(13, 0)][0], 1600)
+        self.assertEqual(r[far][0], 1630)              # last step takes the 30 left
+        s, ev = A.apply(base, A.Move(0, far), NoRng())
+        self.assertEqual(s.heroes[0].mp, 0)
+        self.assertEqual(ev[-1].mp_left, 0)
+
+        forbid = started(g, policy=replace(A.DEFAULT_POLICY, last_step="forbid"))
+        self.assertNotIn(far, A.reachable(forbid, 0))
+        with self.assertRaises(A.IllegalCommand):
+            A.apply(forbid, A.Move(0, far), NoRng())
+
+        fresh = started(g, policy=replace(A.DEFAULT_POLICY, last_step="allow_if_fresh"))
+        self.assertNotIn(far, A.reachable(fresh, 0))
+        # a hero that has not moved today may always take one step
+        poor = grid(["w" * 20])
+        heroes = (A.HeroSetup(0, (0, 0), army(5)),)
+        f2 = started(poor, heroes=heroes,
+                     policy=replace(A.DEFAULT_POLICY, last_step="allow_if_fresh"))
+        f2 = replace(f2, heroes=(replace(f2.heroes[0], mp=100),))
+        self.assertEqual(A.reachable(f2, 0)[(1, 0)][0], 100)
+        moved = replace(f2, heroes=(replace(f2.heroes[0], moved_today=True),))
+        self.assertEqual(A.reachable(moved, 0), {})
+
+    def test_pathfinding_rounding(self):
+        g = grid(["gr"])
+        ceil = replace(A.DEFAULT_POLICY, pathfinding_rounding="ceil")
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), 1), 119)        # cut 6.25 -> 6
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), 1, ceil), 118)
+        nopf = replace(A.DEFAULT_POLICY, pathfinding_pct=(0, 0, 0, 0))
+        self.assertEqual(A.step_cost(g, (0, 0), (1, 0), 3, nopf), 125)
+
+    def test_income_on_first_day(self):
+        players = (A.Player(mines=("gold_mine",)),)
+        s = started(grid(["g"]), players=players)
+        self.assertEqual(s.players[0].resources, A.Resources())
+        pol = replace(A.DEFAULT_POLICY, income_on_first_day=True)
+        s = started(grid(["g"]), players=players, policy=pol)
+        self.assertEqual(s.players[0].resources, A.Resources(gold=1000))
+
+    def test_bad_policy_rejected(self):
+        for kw in ({"cost_from": "x"}, {"last_step": "x"}, {"diagonal_rounding": "x"},
+                   {"diagonal_den": 0}, {"pathfinding_pct": (0, 1)},
+                   {"road_cost": (("dirt", 50),)}):
+            with self.assertRaises(ValueError):
+                A.AdventurePolicy(**kw)
+
+
+class TickTest(unittest.TestCase):
+    def setUp(self):
+        self.players = (
+            A.Player(A.Resources(gold=500), ("gold_mine", "sawmill", "gem_pond"),
+                     A.Resources(gold=500)),
+            A.Player(mines=("ore_pit",)),
+        )
+        heroes = (A.HeroSetup(0, (0, 0), army(5)), A.HeroSetup(1, (2, 0), army(9)))
+        self.pools = (A.GrowthPool("castle.pikeman", 14, 14), A.GrowthPool("map.dw", 0, 3))
+        self.s = started(grid(["ggg"]), heroes=heroes, players=self.players, pools=self.pools)
+
+    def end_day(self, s):
+        evs = []
+        for p in range(len(s.players)):
+            s, ev = A.apply(s, A.EndTurn(p), NoRng())
+            evs.extend(ev)
+        return s, evs
+
+    def test_daily_income(self):
+        self.assertEqual(A.daily_income(self.players[0]),
+                         A.Resources(gold=1500, wood=2, gems=1))
+        s, ev = self.end_day(self.s)
+        self.assertEqual(s.day, 2)
+        self.assertEqual(s.players[0].resources, A.Resources(gold=2000, wood=2, gems=1))
+        self.assertEqual(s.players[1].resources, A.Resources())   # not its turn yet
+        s, ev = A.apply(s, A.EndTurn(0), NoRng())
+        self.assertEqual(s.players[1].resources, A.Resources(ore=2))
+        self.assertEqual(ev, (A.TurnEnded(0), A.TurnStarted(1, 2),
+                              A.IncomeReceived(1, A.Resources(ore=2)),
+                              A.MovementReset(1, 1900)))
+
+    def test_week_rollover(self):
+        s = self.s
+        grew = []
+        for _ in range(28):
+            s, ev = self.end_day(s)
+            grew.extend(e for e in ev if isinstance(e, (A.WeekStarted, A.PoolGrew)))
+        self.assertEqual(s.day, 29)
+        self.assertEqual(A.calendar(29), (5, 1, 2))
+        weeks = [e for e in grew if isinstance(e, A.WeekStarted)]
+        self.assertEqual([(w.week, w.month, w.new_month) for w in weeks],
+                         [(2, 1, False), (3, 1, False), (4, 1, False), (5, 2, True)])
+        self.assertEqual(s.pools, (A.GrowthPool("castle.pikeman", 14 + 4 * 14, 14),
+                                   A.GrowthPool("map.dw", 12, 3)))
+        # week 2 starts on day 8, before player 0's turn
+        s7 = self.s
+        for _ in range(6):
+            s7, _ = self.end_day(s7)
+        self.assertEqual(s7.day, 7)
+        s8, ev = self.end_day(s7)
+        tail = tuple(ev[ev.index(A.TurnEnded(1)) + 1:])
+        self.assertEqual(tail[:5], (A.DayStarted(8, 2, 1, 1), A.WeekStarted(2, 1, False),
+                                    A.PoolGrew("castle.pikeman", 14, 28),
+                                    A.PoolGrew("map.dw", 3, 3), A.TurnStarted(0, 8)))
+        self.assertEqual(s8.players[0].resources.gold, 500 + 7 * 1500)
+
+    def test_turn_order_enforced(self):
+        with self.assertRaises(A.IllegalCommand):
+            A.apply(self.s, A.EndTurn(1), NoRng())
+        with self.assertRaises(A.IllegalCommand):
+            A.apply(self.s, A.Move(1, (1, 0)), NoRng())
+        with self.assertRaises(A.IllegalCommand):
+            A.apply(self.s, A.Begin(), NoRng())
+        with self.assertRaises(A.IllegalCommand):
+            A.apply(game(grid(["g"])), A.EndTurn(0), NoRng())
+
+
+GOLDEN_TERRAIN = [
+    "gggrrsssnnww~~gg",
+    "gdddrrsssnnw~ggg",
+    "ggud#rrssnnww~gg",
+    "llud#rrsssnnwwgg",
+    "lluu#rrsssnnwwwg",
+    "gggggggggggggggg",
+    "wwwwssssrrrrdddd",
+    "gggggggggggggggg",
+]
+GOLDEN_ROADS = [
+    "1111............",
+    "...1............",
+    "...1............",
+    "...222222222....",
+    "...........2....",
+    "...........33333",
+    "................",
+    "................",
+]
+
+
+def golden_setup(policy=A.DEFAULT_POLICY):
+    g = grid(GOLDEN_TERRAIN, GOLDEN_ROADS, blocked={(9, 7), (10, 6)})
+    players = (
+        A.Player(A.Resources(gold=7500, wood=10, ore=10), ("gold_mine", "sawmill"),
+                 A.Resources(gold=500)),
+        A.Player(A.Resources(gold=5000), ("ore_pit", "crystal_cavern")),
+    )
+    heroes = (
+        A.HeroSetup(0, (0, 0), army(4, 6), logistics=1),
+        A.HeroSetup(0, (0, 7), army(7), pathfinding=2),
+        A.HeroSetup(1, (15, 5), army(5, 11), logistics=3, pathfinding=1),
+    )
+    pools = (A.GrowthPool("a", 10, 10), A.GrowthPool("b", 0, 2))
+    return A.create_game("golden", g, players, heroes, pools, policy)
+
+
+WAYPOINTS = {0: ((15, 7), (2, 3), (14, 1), (0, 0)),
+             1: ((15, 0), (8, 6), (1, 2), (0, 7)),
+             2: ((0, 4), (11, 0), (6, 7), (15, 5))}
+
+
+def scripted_turn(state):
+    """Each hero of the current player walks toward today's waypoint as far
+    as today allows (along the planned multi-day path)."""
+    events = []
+    for h in state.heroes:
+        if h.owner != state.current:
+            continue
+        target = WAYPOINTS[h.id][state.day % 4]
+        if h.pos == target:
+            continue
+        plan = A.find_path(state, h.id, target)
+        if plan is None:
+            continue
+        reach = A.reachable(state, h.id)
+        dest = None
+        for t in plan[1][1:]:
+            if t in reach:
+                dest = t
+        if dest is not None:
+            state, ev = A.apply(state, A.Move(h.id, dest), NoRng())
+            events.append(ev)
+    state, ev = A.apply(state, A.EndTurn(state.current), NoRng())
+    events.append(ev)
+    return state, events
+
+
+def play_days(state, days=14):
+    trace = []
+    state, ev = A.apply(state, A.Begin(), NoRng())
+    trace.append(ev)
+    while state.day <= days:
+        state, evs = scripted_turn(state)
+        trace.extend(evs)
+    return state, trace
+
+
+class GoldenTest(unittest.TestCase):
+    # Pinned: changing rules, policy defaults or the canonical form changes
+    # this hash and must be a deliberate, reviewed change.
+    PINNED = "e859fff54fabcfcffc9d0f6797e09f91ee9896a991bff106f30304f04b2cfb6e"
+
+    def test_replay_is_deterministic(self):
+        s1, t1 = play_days(golden_setup())
+        s2, t2 = play_days(golden_setup())
+        self.assertEqual(s1.day, 15)
+        self.assertEqual(A.state_hash(s1), A.state_hash(s2))
+        self.assertEqual(t1, t2)
+        moves = [e for ev in t1 for e in ev if isinstance(e, A.HeroMoved)]
+        self.assertGreater(len(moves), 20)
+
+    def test_golden_hash(self):
+        s, _ = play_days(golden_setup())
+        self.assertEqual(A.state_hash(s), self.PINNED)
+        self.assertEqual(s.pools, (A.GrowthPool("a", 30, 10), A.GrowthPool("b", 4, 2)))
+        self.assertEqual(s.players[0].resources,
+                         A.Resources(gold=7500 + 14 * 1500, wood=10 + 14 * 2, ore=10))
+        self.assertEqual(s.players[1].resources, A.Resources(gold=5000, ore=26, crystal=13))
+
+    def test_policy_changes_outcome(self):
+        a, ta = play_days(golden_setup())
+        b, tb = play_days(golden_setup(replace(A.DEFAULT_POLICY, diagonal_moves=False)))
+        self.assertNotEqual(A.state_hash(a), A.state_hash(b))
+        self.assertNotEqual(ta, tb)       # different paths, not just the policy
+
+    def test_stream_name(self):
+        from h3re.rng import derive_stream
+        a, b = A.adventure_rng(7, "x"), derive_stream(7, "adventure:x")
+        self.assertEqual([a.next_u32() for _ in range(4)], [b.next_u32() for _ in range(4)])
+
+
+POLICIES = [
+    A.DEFAULT_POLICY,
+    A.AdventurePolicy(last_step="forbid", diagonal_corner_cut=False, cost_from="source",
+                      road_needs_both=True, diagonal_rounding="ceil"),
+    A.AdventurePolicy(last_step="allow_if_fresh", diagonal_moves=False,
+                      road_cost=(("cobblestone", 50), ("dirt", 75), ("gravel", 65)),
+                      pathfinding_rounding="nearest", income_on_first_day=True),
+]
+
+
+class PropertyTest(unittest.TestCase):
+    def test_random_playouts(self):
+        for seed in range(9):
+            pol = POLICIES[seed % 3]
+            chooser = random.Random(seed)
+            state, _ = A.apply(golden_setup(pol), A.Begin(), NoRng())
+            for _ in range(250):
+                self.assertTrue(all(h.mp >= 0 for h in state.heroes))
+                self.assertTrue(all(h.mp <= h.mp_max for h in state.heroes))
+                pos = [h.pos for h in state.heroes]
+                self.assertEqual(len(pos), len(set(pos)))
+                self.assertTrue(all(state.grid.passable(p) for p in pos))
+                mine = [h for h in state.heroes if h.owner == state.current]
+                options = [(h.id, t) for h in mine for t in sorted(A.reachable(state, h.id))]
+                if options and chooser.random() < 0.8:
+                    hid, t = chooser.choice(options)
+                    before = state.heroes[hid].mp
+                    cost = A.reachable(state, hid)[t][0]
+                    state, ev = A.apply(state, A.Move(hid, t), NoRng())
+                    self.assertEqual(state.heroes[hid].mp, before - cost)
+                    self.assertGreater(cost, 0)
+                else:
+                    state, _ = A.apply(state, A.EndTurn(state.current), NoRng())
+                # illegal command leaves state untouched
+                canon = A.canonical(state)
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(state, A.EndTurn(state.current + 1), NoRng())
+                self.assertEqual(A.canonical(state), canon)
+
+    def test_same_inputs_same_outputs(self):
+        for pol in POLICIES:
+            runs = [play_days(golden_setup(pol), 6) for _ in range(2)]
+            self.assertEqual(A.canonical(runs[0][0]), A.canonical(runs[1][0]))
+            self.assertEqual(runs[0][1], runs[1][1])
+
+    def test_reachable_matches_find_path_when_affordable(self):
+        s, _ = A.apply(golden_setup(), A.Begin(), NoRng())
+        for hid in (0, 1):
+            for t, (cost, path) in A.reachable(s, hid).items():
+                if cost < s.heroes[hid].mp:
+                    self.assertEqual(A.find_path(s, hid, t), (cost, path))
+                total = sum(A.step_cost(s.grid, a, b, s.heroes[hid].pathfinding)
+                            for a, b in zip(path, path[1:]))
+                self.assertGreaterEqual(total, cost)
+
+    def test_state_is_immutable(self):
+        s = golden_setup()
+        with self.assertRaises(Exception):
+            s.day = 3
+        with self.assertRaises(Exception):
+            s.heroes[0].mp = 5
+
+
+if __name__ == "__main__":
+    unittest.main()
