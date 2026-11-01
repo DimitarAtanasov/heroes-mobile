@@ -29,3 +29,11 @@ flowchart LR
 | 3 | Combat/economy rules spec + engine design | Opus | done (uncertain items listed in rules.md, 12 experiments to verify) |
 | 4 | CI workflow + README | Haiku | done |
 | 5 | H3M sections after teams | Sonnet | done (layouts unverified; ban-bit semantics assumed) |
+| 6 | CLI (lod-list, lod-extract, def-to-png, h3m-info) | Haiku | done |
+| 7 | H3M truncated/trailing gzip rejection | Sonnet | done |
+| 8 | Generic TXT reader | Sonnet | done |
+| 9 | Doc consistency + empty-stack fix | Haiku | done |
+| 10 | PCX reader | Haiku | done |
+| 11 | PCG32 RNG + named streams | Sonnet | done (range half-open; engine-design says inclusive, to reconcile) |
+| 12 | DEF hardening | Sonnet | done (palette 0-9 vs 0-7 still unreconciled with engine-design) |
+| R2 | Round 2 Opus advisor | Opus | next |
