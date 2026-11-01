@@ -686,13 +686,17 @@ def _hex_vectors():
 
 def generate():
     """Return {filename: bytes}. Pure function of the Python implementation."""
-    return {
+    from . import vectors_battle  # lazy: vectors_battle imports this module
+    out = {
         "rng.json": _dump(_rng_vectors()),
         "canonical_json.json": _dump(_canon_vectors()),
         "state_hash.json": _dump(_state_vectors()),
         "rules.json": _dump(_rules_vectors()),
         "hex.json": _dump(_hex_vectors()),
     }
+    for name, obj in vectors_battle.generate().items():
+        out[name] = _dump(obj)
+    return out
 
 
 def write(out_dir):
