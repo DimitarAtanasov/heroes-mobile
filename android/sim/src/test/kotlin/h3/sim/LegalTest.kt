@@ -14,7 +14,7 @@ class LegalTest {
     private val doc = loadVector("battle_states.json")
     private val packs = doc["packs"].obj()
     private val codec = BattleCodec(
-        BattlePolicyPack(packs["battle_policy"].obj(), packs["bad_morale_numerators"].list().map { it.big().toInt() }),
+        BattlePolicyPack(packs["battle_policy"].obj(), packs["bad_morale_numerators"].list().map { it.big().intValueExact() }, packs["rules"].obj()["morale_die"].big().intValueExact()),
     )
     private val battle = Battle(Rules(rulesPack(packs["rules"].obj())), packs["rules_hash"] as String)
     private val cases = doc["cases"].list().map { it.obj() }
@@ -98,7 +98,7 @@ class LegalTest {
         for (ic in doc["illegal_cases"].list().map { it.obj() }) {
             if (ic["rules_hash"] != null) continue
             val c = byName.getValue(ic["case"] as String)
-            val k = ic["after_step"].big().toInt()
+            val k = ic["after_step"].big().intValueExact()
             val rec = if (k < 0) c["initial"].obj() else c["steps"].list()[k].obj()
             val list = rec["legal"].list().map { enc(it) }.toSet()
             assertTrue(enc(ic["command"]) !in list, "illegal ${enc(ic["command"])} listed for ${c["name"]} after $k")
@@ -115,8 +115,8 @@ class LegalTest {
         for (r in recs) {
             val state = parse(r.rec)
             for (p in r.rec["previews"].list().map { it.obj() }) {
-                val a = p["attacker"].big().toInt()
-                val t = p["target"].big().toInt()
+                val a = p["attacker"].big().intValueExact()
+                val t = p["target"].big().intValueExact()
                 val ranged = p["ranged"] as Boolean
                 val ctx = battle.strikeContext(state, state.stacks[a], state.stacks[t], ranged)
                 assertEquals(enc(p["ctx"]), enc(ctxMap(ctx)), "${r.label} ctx $a->$t ranged=$ranged")
@@ -137,11 +137,11 @@ class LegalTest {
     fun everyAttackAndShootCandidateHasARecordedPreview() {
         for (r in recs) {
             val keys = r.rec["previews"].list().map { it.obj() }
-                .map { Triple(it["attacker"].big().toInt(), it["target"].big().toInt(), it["ranged"] as Boolean) }
+                .map { Triple(it["attacker"].big().intValueExact(), it["target"].big().intValueExact(), it["ranged"] as Boolean) }
             val want = r.rec["legal"].list().map { it.obj() }.mapNotNull {
                 when (it["type"]) {
-                    "Attack" -> Triple(it["stack"].big().toInt(), it["target"].big().toInt(), false)
-                    "Shoot" -> Triple(it["stack"].big().toInt(), it["target"].big().toInt(), true)
+                    "Attack" -> Triple(it["stack"].big().intValueExact(), it["target"].big().intValueExact(), false)
+                    "Shoot" -> Triple(it["stack"].big().intValueExact(), it["target"].big().intValueExact(), true)
                     else -> null
                 }
             }.distinct()
@@ -188,7 +188,7 @@ class LegalTest {
                 battle.legalCommands(state) // would desync g from the recorded state if it drew
                 val r = battle.apply(state, BattleCodec.parseCommand(step["command"]), g.asDrawSource())
                 state = r.state
-                repeat(step["rng_u32"].big().toInt()) { fresh.nextU32() }
+                repeat(step["rng_u32"].big().intValueExact()) { fresh.nextU32() }
                 assertEquals(fresh.state, g.state, "${c["name"]} step $i")
                 assertEquals(step["rng_state_after"].u64(), g.state, "${c["name"]} step $i")
             }

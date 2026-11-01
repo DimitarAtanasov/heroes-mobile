@@ -11,7 +11,9 @@ package h3.sim
  *
  * Overflow is never silent: sums and products use `Math.*Exact`, so an out-of-range value throws
  * [ArithmeticException] instead of wrapping. No BigInteger fallback is included because every
- * value the damage pipeline builds fits in Long (see the bounds test in RulesTest).
+ * value the damage pipeline builds fits in Long once the ADR-0008 caps hold (count x dmg_max and
+ * count x hp at most 2**31-1, attack and defense sums within Int): `RationalTest.damagePipelineStaysInLongAtTheCaps`
+ * (RulesTest.kt) drives every roll policy at those extremes.
  *
  * [floor] is the single rounding step of the pipeline (Python `math.floor(Fraction)`). Integer
  * division of two Longs elsewhere is `Math.floorDiv`, matching Python's `//`.

@@ -940,3 +940,85 @@ class MalformedHexTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IntegerCapTest(unittest.TestCase):
+    """ADR-0008 caps: every state integer fits a 32-bit Int and the derived
+    products (count x dmg_max, count x hp, attack and defense sums) stay
+    within 2**31-1 (battle.md "State invariants and integer caps")."""
+
+    CAP = (1 << 31) - 1
+
+    def big(self, dmg_max=1, hp=1, attack=1000):
+        return B.Creature("cap", attack, 0, 1, dmg_max, hp, 6)
+
+    def setup_pair(self, a, d, count=None, **kw):
+        count = self.CAP if count is None else count
+        return B.create_battle("cap", [B.StackSetup(a, count, pos=(7, 5))],
+                               [B.StackSetup(d, count, pos=(8, 5))], **kw)
+
+    def test_at_the_cap_is_accepted_and_damage_exceeds_int(self):
+        s = self.setup_pair(self.big(), self.big())
+        rng = B.battle_rng(0, "cap")
+        s, _ = B.apply(s, B.Begin(), rng)
+        s, ev = B.apply(s, B.Attack(s.active, 1 - s.active), rng)
+        dmg = [e.damage for e in ev if isinstance(e, B.DamageDealt)]
+        self.assertGreater(dmg[0], self.CAP)
+
+    def test_count_times_dmg_max_above_the_cap_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "count x dmg_max"):
+            self.setup_pair(self.big(dmg_max=2), self.big())
+
+    def test_count_times_hp_above_the_cap_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "count x hp"):
+            self.setup_pair(self.big(), self.big(hp=2))
+
+    def test_count_above_int_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "count"):
+            self.setup_pair(self.big(), self.big(), count=self.CAP + 1)
+
+    def test_attack_and_defense_sums_are_capped(self):
+        with self.assertRaisesRegex(ValueError, "attack sum"):
+            self.setup_pair(self.big(), self.big(), count=1,
+                            heroes=(B.Hero(attack=self.CAP), None))
+        with self.assertRaisesRegex(ValueError, "defense sum"):
+            self.setup_pair(self.big(), self.big(), count=1,
+                            heroes=(None, B.Hero(defense=self.CAP)))
+
+    def test_policy_ints_are_capped(self):
+        for k in ("defend_bonus_num", "defend_bonus_den", "defend_bonus_min",
+                  "range_penalty_beyond"):
+            with self.assertRaisesRegex(ValueError, k):
+                B.BattlePolicy(**{k: self.CAP + 1})
+        with self.assertRaisesRegex(ValueError, "defend_bonus_min"):
+            B.BattlePolicy(defend_bonus_min=-1)
+
+
+class CheckStateTest(unittest.TestCase):
+    def setUp(self):
+        from h3re import vectors_battle as VB
+        self.VB = VB
+
+    def test_every_initial_state_passes(self):
+        B.check_state(self.VB.cap_setup())
+        from h3re import vectors as V
+        B.check_state(V.golden_setup())
+
+    def test_every_mutation_is_refused(self):
+        muts = self.VB._state_mutations(self.VB.cap_setup())
+        self.assertGreaterEqual(len(muts), 25)
+        for label, bad in muts:
+            with self.subTest(label):
+                with self.assertRaises(ValueError):
+                    B.check_state(bad)
+
+    def test_states_along_a_playout_pass(self):
+        from h3re import vectors as V
+        s = V.golden_setup()
+        rng = B.battle_rng(12345, "golden")
+        s, _ = B.apply(s, B.Begin(), rng)
+        for _ in range(60):
+            if s.winner is not None:
+                break
+            s, _ = B.apply(s, B.legal_commands(s)[-1], rng)
+            B.check_state(s)

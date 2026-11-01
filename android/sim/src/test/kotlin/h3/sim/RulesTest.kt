@@ -320,4 +320,46 @@ class RationalTest {
         assertFailsWith<ArithmeticException> { r(Long.MAX_VALUE) + r(1) }
         assertFailsWith<ArithmeticException> { r(1, Long.MAX_VALUE) + r(1, Long.MAX_VALUE - 1) }
     }
+    /**
+     * ADR-0008 caps: with count x dmg_max <= 2**31-1 and attack and defense sums within Int, every
+     * roll policy stays within Long (no ArithmeticException) and the damage is bounded by
+     * 2**31-1 times the largest total multiplier. Each case is at a cap, in both directions of
+     * the attack-defense difference, with every bonus or every reduction switched on.
+     */
+    @Test
+    fun damagePipelineStaysInLongAtTheCaps() {
+        val rules = Rules(loadPack())
+        val max = Int.MAX_VALUE.toLong()
+        val min = Int.MIN_VALUE.toLong()
+        val top = object : DrawSource {
+            override fun randint(lo: Long, hi: Long): Long = hi
+            override fun chance(num: Long, den: Long): Boolean = true
+        }
+        val shapes = listOf(Triple(max, 1L, 1L), Triple(1L, 1L, max), Triple(max / 7L, 7L, 7L), Triple(11L, 1L, max / 11L))
+        var checked = 0
+        for ((count, lo, hi) in shapes) {
+            assertTrue(Math.multiplyExact(count, hi) <= max)
+            for ((a, d) in listOf(max to min, min to max, max to max, 0L to 0L)) {
+                for (ranged in listOf(false, true)) {
+                    for (luck in listOf(3L, -3L)) {
+                        val ctx = DamageCtx(
+                            count, lo, hi, a, d, ranged = ranged, offense = 3, archery = 3, armorer = 3,
+                            hates = true, rangePenalty = ranged, meleePenalty = !ranged, luck = luck, badLuck = true,
+                        )
+                        for (p in RollPolicy.values()) {
+                            val r = rules.resolveDamage(ctx, p, if (p == RollPolicy.ACTUAL_SEED) top else null)
+                            assertTrue(r.damage in 1L..(max * 16L), "$ctx $p ${r.damage}")
+                            checked++
+                        }
+                    }
+                }
+            }
+        }
+        assertEquals(4 * 4 * 2 * 2 * RollPolicy.values().size, checked)
+        // Outside the caps the pipeline refuses (never wraps): the attack-defense difference of
+        // two Long extremes overflows.
+        assertFailsWith<ArithmeticException> {
+            rules.attackDefenseFactor(Long.MAX_VALUE, -1L)
+        }
+    }
 }

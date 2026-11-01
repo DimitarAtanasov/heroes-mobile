@@ -8,9 +8,9 @@ import kotlin.test.assertTrue
 
 private val HEX_DOC by lazy { loadVector("hex.json") }
 
-private fun Any?.cell(): HexCell = list().let { HexCell(it[0].big().toInt(), it[1].big().toInt()) }
+private fun Any?.cell(): HexCell = list().let { HexCell(it[0].big().intValueExact(), it[1].big().intValueExact()) }
 private fun Any?.cells(): List<HexCell> = list().map { it.cell() }
-private fun Map<String, Any?>.int(k: String): Int = this[k].big().toInt()
+private fun Map<String, Any?>.int(k: String): Int = this[k].big().intValueExact()
 private fun Map<String, Any?>.bool(k: String): Boolean = this[k] as Boolean
 
 class HexTest {
@@ -18,8 +18,8 @@ class HexTest {
 
     @Test
     fun gridSize() {
-        assertEquals(Hex.WIDTH, HEX_DOC["width"].big().toInt())
-        assertEquals(Hex.HEIGHT, HEX_DOC["height"].big().toInt())
+        assertEquals(Hex.WIDTH, HEX_DOC["width"].big().intValueExact())
+        assertEquals(Hex.HEIGHT, HEX_DOC["height"].big().intValueExact())
     }
 
     @Test
@@ -67,7 +67,7 @@ class HexTest {
             assertEquals(187 * 187, m.size)
             var i = 0
             for (a in allCells) for (b in allCells) {
-                assertEquals(m[i].big().toInt(), Hex.distance(a, b, off), "$off $a $b")
+                assertEquals(m[i].big().intValueExact(), Hex.distance(a, b, off), "$off $a $b")
                 i++
             }
         }

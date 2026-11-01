@@ -420,6 +420,124 @@ def _encoding_cases():
             [_event_dict(e) for e in evs])
 
 
+# --------------------------------------------------------------------------
+# Contract edges (ADR-0008 caps): policies and states both engines refuse
+# --------------------------------------------------------------------------
+
+CAP = B._MAX_INT
+
+# (field, value) pairs that BattlePolicy refuses; each replaces one field of
+# the default policy. Values are JSON shaped (lists for tuples).
+POLICY_REJECTS = (
+    ("row_offset", "diagonal"), ("speed_tie", "bogus"), ("wait_order", "bogus"),
+    ("range_origin", "tail"), ("defend_bonus_rounding", "round"),
+    ("defend_bonus_den", 0), ("defend_bonus_den", -1), ("defend_bonus_num", -1),
+    ("defend_bonus_min", -1), ("defend_bonus_num", CAP + 1), ("defend_bonus_den", CAP + 1),
+    ("defend_bonus_min", CAP + 1), ("range_penalty_beyond", -5),
+    ("range_penalty_beyond", CAP + 1),
+    ("bad_morale_table", [9, 1, 1]), ("bad_morale_table", [1, 2]),
+    ("bad_morale_table", [1, 2, 3, 4]), ("bad_morale_table", [-1, 0, 0]),
+    ("bad_morale_table", [1, 2, R.MORALE_DIE + 1]),
+    ("placement_rows", []), ("placement_rows", [[5]] * 7),
+    ("placement_rows", [[5], [2, 8], [2, 5, 8], [0, 3, 7, 10], [0, 2, 5, 8, 10],
+                        [0, 1, 3, 7, 9, 10]]),
+    ("placement_rows", [[5], [2, 8], [2, 5, 8], [0, 3, 7, 10], [0, 2, 5, 8, 10],
+                        [0, 1, 3, 7, 9, 10], [0, 1, 3, 5, 7, 9, CAP + 1]]),
+)
+
+
+def _policy_reject_cases():
+    base = _jsonable(dataclasses.asdict(B.DEFAULT_POLICY))
+    out = []
+    for field, value in POLICY_REJECTS:
+        kw = dict(base)
+        kw[field] = value
+        try:
+            B.BattlePolicy(**kw)
+            raise AssertionError("policy accepted: %s=%r" % (field, value))
+        except ValueError as e:
+            out.append({"field": field, "value": value, "error": "ValueError",
+                        "message": str(e)})
+    return out
+
+
+def cap_setup(dmg_max=1, hp=1):
+    """Two stacks of 2**31-1 creatures: count x dmg_max and count x hp at the
+    cap (with the defaults). A strike does more than 2**31-1 damage."""
+    big = B.Creature("cap", 1000, 0, 1, dmg_max, hp, 6)
+    # A third, small stack keeps the battle going after the first kill.
+    small = B.Creature("small", 1, 1, 1, 2, 5, 3)
+    return B.create_battle("cap", [B.StackSetup(big, CAP, pos=(7, 5))],
+                           [B.StackSetup(big, CAP, pos=(8, 5)),
+                            B.StackSetup(small, 3, pos=(15, 0))])
+
+
+def _state_mutations(state):
+    """(label, mutated state) pairs that check_state refuses."""
+    st = state.stacks
+    R_ = dataclasses.replace
+
+    def stack(i, **kw):
+        return R_(state, stacks=tuple(R_(s, **kw) if s.id == i else s for s in st))
+
+    def creature(i, **kw):
+        return stack(i, creature=R_(st[i].creature, **kw))
+
+    return [
+        ("count x dmg_max above cap", creature(0, dmg_max=2)),
+        ("count x hp above cap", creature(1, hp=2)),
+        ("count above Int", stack(0, count=CAP + 1)),
+        ("negative count", stack(0, count=-1)),
+        ("negative speed", creature(0, speed=-1)),
+        ("dmg_min above dmg_max", creature(0, dmg_min=2)),
+        ("hp zero", creature(0, hp=0)),
+        ("top_hp above hp", stack(0, top_hp=2)),
+        ("top_hp zero while alive", stack(0, top_hp=0)),
+        ("empty stack with top_hp", stack(0, count=0, top_hp=1)),
+        ("stack id differs from index", stack(1, id=0)),
+        ("side not 0 or 1", stack(1, side=2)),
+        ("slot out of range", stack(1, slot=7)),
+        ("position off grid", stack(0, pos=(-1, 5))),
+        ("position off grid row", stack(0, pos=(7, 11))),
+        ("negative shots", stack(0, shots=-1)),
+        ("negative retaliations", stack(0, retaliations=-1)),
+        ("morale above Int", stack(0, morale=CAP + 1)),
+        ("attack sum above cap", R_(state, heroes=(B.Hero(attack=CAP), None))),
+        ("defense sum above cap", R_(state, heroes=(None, B.Hero(defense=CAP)))),
+        ("defend bonus above cap", R_(creature(1, defense=CAP), stacks=tuple(
+            R_(s, creature=R_(s.creature, defense=CAP), defending=True) if s.id == 1 else s
+            for s in st))),
+        ("one side empty", R_(state, stacks=(st[0],))),
+        ("heroes not a pair", R_(state, heroes=(None, None, None))),
+        ("obstacle off grid", R_(state, obstacles=((17, 0),))),
+        ("negative round", R_(state, round=-1)),
+        ("active out of range", R_(state, active=len(st))),
+        ("done id out of range", R_(state, done=(len(st),))),
+        ("waited id negative", R_(state, waited=(-1,))),
+        ("winner not a side", R_(state, winner=2)),
+        ("last_side not a side", R_(state, last_side=-1)),
+    ]
+
+
+def _state_reject_cases():
+    out = []
+    for label, bad in _state_mutations(cap_setup()):
+        try:
+            B.check_state(bad)
+            raise AssertionError("state accepted: %s" % label)
+        except ValueError as e:
+            out.append({"label": label, "canonical": _text(bad), "error": "ValueError",
+                        "message": str(e)})
+    # create_battle refuses the same products before any state exists.
+    for kw in (dict(dmg_max=2), dict(hp=2)):
+        try:
+            cap_setup(**kw)
+            raise AssertionError("create_battle accepted %r" % (kw,))
+        except ValueError:
+            pass
+    return out
+
+
 def generate():
     pol = B._POLICY_PACK.values
     cases, illegal = [], []
@@ -466,6 +584,10 @@ def generate():
             state, rng = build_tie_scenario(seed, pols[pname])
             add(_case("wait-%s-%d" % (pname, seed), seed, pname, kwargs[pname], state, rng,
                       _driver(seed, wait_first=True), max_steps=TIE_MAX_STEPS))
+    # The cap: both stacks at count x dmg_max = count x hp = 2**31-1; the first
+    # strike deals more than 2**31-1 damage (a Long in Kotlin, ADR-0008).
+    add(_case("cap", 0, "default", {}, cap_setup(), B.battle_rng(0, "cap"),
+              scripted_choice, max_steps=12))
     cmds, evs = _encoding_cases()
     return {FILE: {
         "format": VECTOR_FORMAT,
@@ -478,6 +600,8 @@ def generate():
         "event_cases": evs,
         "cases": cases,
         "illegal_cases": illegal,
+        "policy_reject_cases": _policy_reject_cases(),
+        "state_reject_cases": _state_reject_cases(),
     }}
 
 

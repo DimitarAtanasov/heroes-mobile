@@ -24,7 +24,7 @@ class BattleTest {
     private val packs = doc["packs"].obj()
     private val policyPack = BattlePolicyPack(
         packs["battle_policy"].obj(),
-        packs["bad_morale_numerators"].list().map { it.big().toInt() },
+        packs["bad_morale_numerators"].list().map { it.big().intValueExact() }, packs["rules"].obj()["morale_die"].big().intValueExact(),
     )
     private val codec = BattleCodec(policyPack)
     private val battle = Battle(Rules(rulesPack(packs["rules"].obj())), packs["rules_hash"] as String)
@@ -88,7 +88,7 @@ class BattleTest {
         val step = steps(c)[i]
         val label = "${c["name"]} step $i ${step["command"].obj()["type"]}"
         val stage = step["stage"] as String
-        val g = stream(c, step["rng_u32_before"].big().toInt())
+        val g = stream(c, step["rng_u32_before"].big().intValueExact())
         val r = try {
             battle.apply(parse(stateBefore(c, i - 1)), BattleCodec.parseCommand(step["command"]), g.asDrawSource())
         } catch (e: RuntimeException) {
@@ -166,22 +166,30 @@ class BattleTest {
         val bad = ArrayList<String>()
         for ((k, ic) in illegal.withIndex()) {
             val c = byName.getValue(ic["case"] as String)
-            var state = parse(stateBefore(c, ic["after_step"].big().toInt()))
+            var state = parse(stateBefore(c, ic["after_step"].big().intValueExact()))
             (ic["rules_hash"] as String?)?.let { state = state.copy(rulesHash = it) }
-            val g = stream(c, ic["rng_u32_before"].big().toInt())
+            val g = stream(c, ic["rng_u32_before"].big().intValueExact())
             val rngBefore = g.state
-            val hashBefore = codec.stateHash(state)
-            val textBefore = codec.canonicalText(state)
             val label = "illegal $k (${ic["case"]} after ${ic["after_step"]}, ${enc(ic["command"])})"
+            // The state is immutable, so "unchanged" is checked where it can fail: the state the
+            // command is applied to is the recorded one, and the engine makes no draw call at all.
+            if (ic["rules_hash"] == null && codec.canonicalText(state) != stateBefore(c, ic["after_step"].big().intValueExact())) {
+                bad += "$label: parsed state is not the recorded state"
+            }
+            var draws = 0
+            val counting = object : DrawSource {
+                override fun randint(lo: Long, hi: Long): Long { draws++; return g.randint(lo, hi) }
+                override fun chance(num: Long, den: Long): Boolean { draws++; return g.chance(num, den) }
+            }
             try {
-                battle.apply(state, BattleCodec.parseCommand(ic["command"]), g.asDrawSource())
+                battle.apply(state, BattleCodec.parseCommand(ic["command"]), counting)
                 bad += "$label: accepted"
             } catch (e: IllegalCommand) {
                 if (e::class.simpleName != ic["error"]) bad += "$label: ${e::class.simpleName} != ${ic["error"]}"
                 if (e.message != ic["message"]) bad += "$label: message '${e.message}' != '${ic["message"]}'"
             }
+            if (draws != 0) bad += "$label: $draws draw calls before the rejection"
             if (g.state != rngBefore) bad += "$label: rng advanced"
-            if (codec.stateHash(state) != hashBefore || codec.canonicalText(state) != textBefore) bad += "$label: state changed"
         }
         println("stage D: ${illegal.size - bad.size}/${illegal.size} illegal cases match")
         assertTrue(illegal.size >= 1000, "illegal=${illegal.size}")
@@ -209,5 +217,45 @@ class BattleTest {
         // battle_rng(seed, id) == derive_stream(seed, "battle:<id>"): the recorded first step of
         // every case starts from a fresh stream (zero draws consumed before Begin).
         for (c in cases) assertEquals(BigInteger.ZERO, steps(c)[0]["rng_u32_before"].big())
+    }
+    @Test
+    fun capCaseDealsMoreThanIntDamageAsALong() {
+        val c = cases.single { it["name"] == "cap" }
+        var state = parse(c["initial"].obj()["canonical"] as String)
+        val g = stream(c, 0)
+        val dmg = ArrayList<Long>()
+        for (step in steps(c)) {
+            val r = battle.apply(state, BattleCodec.parseCommand(step["command"]), g.asDrawSource())
+            r.events.filterIsInstance<BattleEvent.DamageDealt>().forEach { dmg.add(it.damage) }
+            state = r.state
+        }
+        assertTrue(dmg.isNotEmpty() && dmg.max() > Int.MAX_VALUE.toLong(), "damage=$dmg")
+        val recorded = steps(c).flatMap { it["events"].list() }.map { it.obj() }
+            .filter { it["type"] == "DamageDealt" }.map { it["damage"].big().longValueExact() }
+        assertEquals(recorded, dmg)
+    }
+
+    @Test
+    fun badMoraleTableAboveTheDieIsRefusedBeforeAnyDraw() {
+        // A pack without the morale die cannot bound the table at parse time; apply refuses it
+        // before the first draw (it used to throw inside activateNext after the strike draws).
+        val noDie = BattleCodec(BattlePolicyPack(packs["battle_policy"].obj(),
+            packs["bad_morale_numerators"].list().map { it.big().intValueExact() }))
+        // The cap case has no negative morale, so without the guard Begin would succeed.
+        val c = cases.single { it["name"] == "cap" }
+        val m = MiniJson.parse(c["initial"].obj()["canonical"] as String).obj().toMutableMap()
+        val die = packs["rules"].obj()["morale_die"].big().intValueExact()
+        m["policy"] = m["policy"].obj() + ("bad_morale_table" to listOf(1, 2, die + 1))
+        val state = noDie.parseState(m)
+        var draws = 0
+        val src = object : DrawSource {
+            override fun randint(lo: Long, hi: Long): Long { draws++; return lo }
+            override fun chance(num: Long, den: Long): Boolean { draws++; return false }
+        }
+        val e = kotlin.test.assertFailsWith<IllegalArgumentException> { battle.apply(state, BattleCommand.Begin, src) }
+        assertEquals("bad_morale_table needs 3 integers in 0..$die", e.message)
+        assertEquals(0, draws)
+        // With the die, the parse itself refuses it.
+        kotlin.test.assertFailsWith<IllegalArgumentException> { codec.parseState(m) }
     }
 }

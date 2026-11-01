@@ -229,3 +229,20 @@ Rules the Kotlin side matches:
 - Neither function takes a stream or changes the state (hash and canonical text identical before and
   after); the generator state after each step is unchanged by calling them.
 - Integers (`Int` / `Long` / `Rational`) only; reachable heads come from `Battle.reachable`.
+
+## Contract edges: caps, policy and state rejects (`battle_states.json`)
+
+Added after the Kotlin-port audit (ADR-0008 amendment, battle.md change note "state invariants and
+integer caps").
+
+- `cases` holds a `cap` playout: both big stacks at `count x dmg_max = count x hp = 2**31-1`; its
+  strikes deal more than 2**31-1 damage. Kotlin replays it like every other case, with
+  `DamageDealt.damage` as a `Long`.
+- `policy_reject_cases`: `{field, value, error, message}`, one field of the default policy replaced.
+  Python's `BattlePolicy(**kw)` raises `ValueError(message)`; Kotlin `BattlePolicyPack.policy` must
+  throw `IllegalArgumentException` with the same message.
+- `state_reject_cases`: `{label, canonical, error, message}`, mutations of the `cap` initial state,
+  including one step above each cap. Python `check_state` raises `ValueError(message)`; Kotlin
+  `BattleCodec.parseState` must throw `IllegalArgumentException` with the same message.
+- A bad-morale table entry above the morale die is refused by the parse when the policy pack has
+  the die, and otherwise by `Battle.apply` before any draw.

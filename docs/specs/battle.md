@@ -390,3 +390,31 @@ int pairs, so no pinned scenario changes.
   `(2.0, 5)`, `(True, 5)`, `[1]`, `(1, 2, 3)`, `5`, `"ab"` and `{1: 2}` with
   `IllegalCommand`, and checks that no draw happens).
 
+
+### 2026-11-01: state invariants and integer caps (no re-pin)
+
+Kotlin-port audit, findings 1, 2 and 4. `battle.check_state(state)` states the invariants of a
+battle state; `create_battle` calls it on every state it returns, and the Kotlin parser
+(`BattleCodec.parseState`) applies the same checks in the same order with the same messages.
+Python had no state parser, and `create_battle` did not bound its inputs, so these checks are new on
+the Python side (recorded here, per CLAUDE.md law 10). They only refuse input; `apply` is unchanged.
+
+- Shape: two hero slots; 1..7 stacks per side; stack `id` equals its index; `side` is 0 or 1;
+  `slot` in 0..6; every footprint cell and obstacle on the grid; `round` >= 0; `active`, `done` and
+  `waited` ids index a stack; `winner` and `last_side` are 0, 1 or None.
+- Stack values: `count` >= 0; `top_hp` is 0 for an empty stack and in 1..hp otherwise; `shots` and
+  `retaliations` >= 0; creature `hp` >= 1, `speed` >= 0, `shots` >= 0, 1 <= `dmg_min` <= `dmg_max`.
+- Every integer fits a 32-bit Int (ADR-0008).
+- Caps on the derived products (ADR-0008 amendment): `count x dmg_max` <= 2**31-1, `count x hp`
+  <= 2**31-1, creature plus hero attack within Int, creature plus hero defense within Int with and
+  without the defend bonus (the bonus is added whether or not the stack defends now, because it
+  can defend later).
+- `BattlePolicy` also bounds `defend_bonus_num`, `defend_bonus_den`, `defend_bonus_min` and
+  `range_penalty_beyond` to 0..2**31-1 (the same bounds `datapack.py` applies to the pack) and each
+  `placement_rows` entry to the Int range.
+- Damage is not capped: one strike at the caps deals more than 2**31-1 (8589934588 in the `cap`
+  vector case). `DamageDealt.damage` is a `Long` in Kotlin.
+
+No pinned hash moved: the golden hash is still `fbe9015b...`, and all 41 earlier vector cases and
+4007 earlier illegal cases are byte-identical after regeneration (`battle_states.json` gains the
+`cap` case and the reject lists).

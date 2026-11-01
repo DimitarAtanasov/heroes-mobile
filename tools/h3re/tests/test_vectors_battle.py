@@ -230,3 +230,46 @@ class TestBattleVectors(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestContractEdgeVectors(unittest.TestCase):
+    """ADR-0008 caps and policy validation, as recorded for the Kotlin parser."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.doc = VB.generate()[VB.FILE]
+
+    def test_policy_rejects_cover_every_audited_field(self):
+        cases = self.doc["policy_reject_cases"]
+        fields = {c["field"] for c in cases}
+        for f in ("speed_tie", "row_offset", "defend_bonus_den", "bad_morale_table",
+                  "range_penalty_beyond", "placement_rows", "wait_order", "range_origin",
+                  "defend_bonus_rounding", "defend_bonus_num", "defend_bonus_min"):
+            self.assertIn(f, fields)
+        base = dict(json.loads(json.dumps(__import__("dataclasses").asdict(B.DEFAULT_POLICY))))
+        for c in cases:
+            kw = dict(base)
+            kw[c["field"]] = c["value"]
+            with self.assertRaises(ValueError) as cm:
+                B.BattlePolicy(**kw)
+            self.assertEqual(str(cm.exception), c["message"])
+
+    def test_state_rejects_are_refused_with_the_recorded_message(self):
+        cases = self.doc["state_reject_cases"]
+        self.assertGreaterEqual(len(cases), 25)
+        labels = {c["label"] for c in cases}
+        self.assertIn("count x dmg_max above cap", labels)
+        self.assertIn("count x hp above cap", labels)
+        for (label, bad), c in zip(VB._state_mutations(VB.cap_setup()), cases):
+            self.assertEqual(label, c["label"])
+            self.assertEqual(B.canonical(bad).decode("ascii"), c["canonical"])
+            with self.assertRaises(ValueError) as cm:
+                B.check_state(bad)
+            self.assertEqual(str(cm.exception), c["message"])
+
+    def test_cap_case_deals_more_than_int_damage(self):
+        cap = next(c for c in self.doc["cases"] if c["name"] == "cap")
+        dmg = [e["damage"] for s in cap["steps"] for e in s["events"]
+               if e["type"] == "DamageDealt"]
+        self.assertTrue(dmg)
+        self.assertGreater(max(dmg), (1 << 31) - 1)
