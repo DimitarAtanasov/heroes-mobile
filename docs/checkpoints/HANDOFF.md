@@ -34,6 +34,11 @@ Verify the state:
 `loop-producer` (opus), `loop-runner` (haiku) in `.claude/agents/`. The three agents have NOT yet been run on a
 live task; only the evaluator is tested (41 tests, rule mutations killed). Try them on the next real round.
 
+## In flight when this was saved (results are NOT in the repo until verified and committed)
+Python suite speed-up, Kotlin scenario + replay port, board geometry + animation timeline (in :presenter), a read-only
+audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `sdlc-sandbix` repo (private copy in
+/tmp/w_sdlc; nothing pushed there). Re-run `ListAgents`; if they are gone, redo the tasks from this list.
+
 ## Next, in order
 1. (done) `:app:assembleDebug` is green in CI and the APK is uploaded. Next is real app code (see 3).
 2. Cut the Python suite time: NOT started in the repo (the agent was stopped at the usage line and had produced no changes). The suite takes about 30 minutes on a runner because several tests regenerate the vector sets (present vectors alone ~130 s, plus `vectors --check`). Memoise generation per process and keep every check; the CI `kotlin-sim` job already runs `vectors --check`. Target under about 8 minutes.
