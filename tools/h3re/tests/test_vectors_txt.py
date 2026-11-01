@@ -5,6 +5,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+import vector_cache  # noqa: E402
 from h3re import vectors_txt as V
 
 VEC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..",
@@ -17,10 +19,10 @@ def _dump(obj):
 
 class VectorsTxtTest(unittest.TestCase):
     def test_deterministic(self):
-        self.assertEqual(_dump(V.generate()["txt.json"]), _dump(V.generate()["txt.json"]))
+        vector_cache.assert_module_deterministic(self, V)
 
     def test_shape_and_coverage(self):
-        g = V.generate()
+        g = vector_cache.module_doc(V)
         self.assertEqual(set(g), {"txt.json", "content.json"})
         txt, con = g["txt.json"]["cases"], g["content.json"]["cases"]
         self.assertGreaterEqual(len(txt), 300)
@@ -36,11 +38,11 @@ class VectorsTxtTest(unittest.TestCase):
         self.assertTrue(any(c["expect"]["unknown"] for c in con if "expect" in c))
 
     def test_bare_lf_is_data_in_vectors(self):
-        c = next(c for c in V.generate()["txt.json"]["cases"] if c["name"] == "bare_lf_is_data")
+        c = next(c for c in vector_cache.module_doc(V)["txt.json"]["cases"] if c["name"] == "bare_lf_is_data")
         self.assertEqual(c["expect"]["rows"], [["a\nb", "c"], ["d"]])
 
     def test_committed_files_fresh(self):
-        for name, obj in V.generate().items():
+        for name, obj in vector_cache.module_doc(V).items():
             p = os.path.join(VEC_DIR, name)
             if not os.path.exists(p):
                 self.skipTest("vectors not generated: " + name)

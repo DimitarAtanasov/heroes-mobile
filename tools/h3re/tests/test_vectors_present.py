@@ -6,15 +6,18 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+import vector_cache  # noqa: E402
 from h3re import vectors_present as VP  # noqa: E402
 
 
 class VectorsPresentTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = VP.generate()
+        cls.out = vector_cache.module_doc(VP)
 
     def test_shape_and_determinism(self):
+        vector_cache.assert_module_deterministic(self, VP)
         self.assertEqual(list(self.out), ["present.json"])
         doc = self.out["present.json"]
         self.assertEqual(doc["view_version"], 2)

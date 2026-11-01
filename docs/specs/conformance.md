@@ -246,3 +246,15 @@ integer caps").
   `BattleCodec.parseState` must throw `IllegalArgumentException` with the same message.
 - A bad-morale table entry above the morale die is refused by the parse when the policy pack has
   the die, and otherwise by `Battle.apply` before any draw.
+
+## Test cost
+
+Vector generation is a pure function of the code and costs about 2 minutes for the full set
+(`vectors_present` alone about 130 s). `h3re.vectors.generate()` and each extra module's output
+(`module_outputs`) are memoised per process, so the `test_vectors*` tests share one generation
+through `tools/h3re/tests/vector_cache.py`. Determinism is checked against exactly one
+independent regeneration (`generate_fresh()`, via `vector_cache.fresh_all()`), computed once per
+process; the per-module determinism tests compare their cached output to that regeneration.
+Every freshness check (committed file equals fresh generation) is kept and reuses the memoised
+output. `python3 -m h3re.vectors --check` also generates once. Memoisation is per process only,
+so a changed vector function or a corrupted committed file still fails every run.

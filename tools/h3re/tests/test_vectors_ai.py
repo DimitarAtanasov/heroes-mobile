@@ -11,6 +11,7 @@ from h3re import battle_ai  # noqa: E402
 from h3re import soak  # noqa: E402
 from h3re import vectors as V  # noqa: E402
 from h3re import vectors_ai as VA  # noqa: E402
+import vector_cache  # noqa: E402
 from test_vectors_battle import state_from_json  # noqa: E402
 
 _DOC = None
@@ -19,7 +20,7 @@ _DOC = None
 def doc():
     global _DOC
     if _DOC is None:
-        _DOC = VA.generate()[VA.FILE]
+        _DOC = vector_cache.module_doc(VA)[VA.FILE]
     return _DOC
 
 
