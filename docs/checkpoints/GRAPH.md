@@ -73,4 +73,11 @@ flowchart LR
 | 44 | Kotlin `:sim` foundation (canonical JSON, SHA-256, PCG32, named streams) with Python-generated conformance vectors; `:app` scaffold behind `-PwithApp` | not recorded | done |
 | 45 | Town and hero cores (building rules, weekly growth, experience and level-up draws) with synthetic data packs and first pins; lint extended to `town.py` and `hero.py` (commit b25dfff) | not recorded | done |
 | 46 | Adventure-map encounters (`Attack`, auto-resolved battle on its own stream, survivors flow back); `dest` validation fix; `encounter.py` linted | not recorded | done |
+| 47 | Town/hero audit fixes (weight cap, input types, Capitol, growth pin, MAX_INT 2^31-1) | sim-engineer | done |
+| 48 | ADR-0005..0009, doc drift fixes, README/CLAUDE.md refresh | adr-scribe | done |
+| 49 | Kotlin damage formulas (exact Rational), 2,495 vector cases | Haiku | done (mutation-checked by lead) |
+| 50 | Kotlin hex grid + movement, 2.1 MB vectors | Sonnet | done |
+| 51 | Kotlin typed battle state + canonical codec, 586 steps | Sonnet | done |
+| ADR-0010 | License: GPL-2.0-or-later (owner decision); LICENSE added | lead | done |
+| 52 | Kotlin battle apply: stages A 257, B 157, C 1,078 steps + D 4,007 illegal cases all match Python | Opus | done (agent stopped at the usage line; its own 15 mutants killed) |
 

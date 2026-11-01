@@ -1,48 +1,45 @@
 # Handoff (resume here)
 
-Branch: `ccr-c70423ba-3alf1w`. Clean-room rule: no original assets or code; VCMI (GPL-2.0)
-is a source of functional facts only, via the cross-check reports (ADR-0003).
-Run tests: `cd tools/h3re && python3 -m unittest discover -s tests` (all must pass before a commit).
+Branch: `ccr-c70423ba-3alf1w`. Checkpoints 0-52 and ADR-0010 are committed and pushed; the working
+tree was clean at save time. License: GPL-2.0-or-later (ADR-0010). Python is the reference oracle;
+Kotlin must reproduce its hashes (ADR-0004, ADR-0007).
 
-## State
-- Checkpoints 0-46 are committed and pushed. Head: `d26e517` (checkpoint 46). No unpushed commits.
-- Tests: 557 run, OK, 4 skipped (real-file tests need `H3_DATA_DIR`). Count taken from the working
-  tree on 2026-11-01, which includes uncommitted work (below).
-- Uncommitted work by other roles is in the tree and is not checkpoint 46: `datapack.py`
-  (`MAX_INT` to 2**31-1), `town.py`, `hero.py`, `vectors.py`, their tests, spec edits to
-  `datapack.md`, `hero.md`, `town.md`, and new Kotlin files `Rational.kt`, `Rules.kt`,
-  `RulesTest.kt` and `vectors/rules.json`. Review, commit or revert each before checkpoint 47.
+Verify the state first:
+- `python3 -m unittest discover -s tools/h3re/tests` (570 tests, 4 skipped without H3_DATA_DIR)
+- `python3 tools/lint/banned_api_lint.py` (0 violations, 8 files)
+- `cd tools/h3re && python3 -m h3re.vectors --check` (vectors in sync)
+- `cd android && gradle :sim:test` (50 Kotlin tests; Maven Central can return HTTP 429: wait and retry)
 
-## Decisions in force
-ADR-0001 (canonical form, hash, re-pins), ADR-0002 (integer-only), ADR-0003 (clean-room),
-ADR-0004 (Kotlin engine, Python oracle), ADR-0005 (omit-at-default for every state module),
-ADR-0006 (stored content stands in for a pack hash), ADR-0007 (replay files and vectors are
-the cross-language contract), ADR-0008 (Kotlin pack values are `Int`, capped at 2**31-1),
-ADR-0009 (Kotlin `Rational` with one named rounding step).
+## Done
+- Python: readers (LOD, DEF, PCX, TXT, H3M incl. objects), rules, battle, adventure, encounter, town,
+  hero, replay files, presenter, content loader, determinism gate (soak, bisector, lint), data packs.
+- Kotlin `android/sim` (plain JVM, no Android deps): canonical JSON + SHA-256, PCG32 + streams,
+  Rational, damage Rules, Hex grid + movement, typed BattleState + codec, `Battle.apply`.
+  All proven equal to Python by generated vectors. The `:app` module is a 13-line stub; it builds
+  only with `-PwithApp=true` and cannot be built here (dl.google.com is blocked).
 
-## Next, in order
-1. **Kotlin port: rules, then battle, then canonical state.** Each step must pass the vectors:
-   `cd tools/h3re && python3 -m h3re.vectors --check` and the Kotlin `:sim` tests (ADR-0007).
-   The pack loader needs ADR-0008 first; formulas that use fractions need ADR-0009.
-2. **Implement the unsupported H3M object bodies** (sign, seer hut, garrison, shrine and the
-   others listed as unsupported). Each class gets a note in `docs/specs/h3m.md` and a synthetic
-   test. Until a class is implemented it keeps failing loudly with its index and offset.
-3. **Adventure constants into `data/*.json`** (the migration debt in `CLAUDE.md` law 4). If the
-   values do not change, the adventure hash does not move. If a value changes, the change is a
-   reviewed re-pin (ADR-0001) recorded in `docs/specs/adventure.md`. If adventure starts reading
-   a `rules.json` value, it also gets a `rules_hash` (ADR-0006).
-4. **Spells**, only after the `rules.md` section 9 experiments. Every spell formula is [uncertain].
-5. **Small pending items** (each needs a test in the same change):
-   - Commit the `MAX_INT` change with `test_max_int_is_the_jvm_int_max` (ADR-0008).
-   - A test that a changed stored content value changes `state_hash` for town and hero (ADR-0006).
-   - A test that `adventure.py` `Move.dest` refuses a float or bool pair (`battle.md` section 10, 2026-11-01).
-   - Optional: lazy-load the pack constants so a bare `import h3re` opens no files. Today it opens
-     `rules.json` and `battle_policy.json` (pinned by `tests/test_package.py`).
-   - Longer soak locally: `cd tools/h3re && python3 -m h3re.soak --games 200 --policy-matrix`.
+## Next (in order)
+1. Kotlin `legal_commands` and `strike_preview` (needed by UI and AI), then the greedy AI.
+2. Kotlin port of the presenter view-model (`present.py`) as the UI contract.
+3. Kotlin readers for the player's own data (LOD, DEF, PCX, TXT, H3M) via the Storage Access
+   Framework; sprite decoding per `defimg.py` and the VCMI-confirmed palette rules.
+4. Android app: Compose Canvas battle board driven by the view-model, tap-to-preview then
+   tap-to-confirm; needs a machine or CI with Google Maven access. GPL is accepted, so VCMI's client
+   rendering design may be ported with provenance headers (ADR-0010).
+5. Python: unsupported H3M object bodies (sign, seer hut, garrison, shrine ...), adventure
+   constants into data (needs a reviewed re-pin), spells after rules.md section 9 experiments.
+6. Port adventure/encounter/town/hero/replay to Kotlin after the battle app works.
 
-## Needs the user
-- A legal HoMM3 install, with `H3_DATA_DIR` set, to run the real-file tests. They have never run.
-- Real `.h3m` maps (RoE, AB, SoD) to check the H3M layouts, which are still unverified.
-- Results of the `rules.md` section 9 experiments: speed tie, wait order, bad-morale table, damage roll distribution.
-- Confirm the Kotlin `Rational` overflow behaviour in ADR-0009 (it throws; it does not wrap). That detail was proposed, not requested.
-- Whether the agent column for checkpoints 40-46 in `GRAPH.md` should be filled in. Git history does not record which role did each one.
+## Open items / caveats
+- `bad_morale_table` is not in data/battle_policy.json (comes from the rules pack); Kotlin takes it as input.
+- `_OMIT_WHEN_DEFAULT` is empty, so omit-at-default is only tested synthetically in Kotlin.
+- ADR-0009 proposes that Kotlin Rational overflow throws; the owner has not confirmed it.
+- Lead mutation check on the good-morale roll (`m > 0` -> `m >= 0`) survived; judged an equivalent
+  mutant (zero-probability chance draws nothing). Worth a proof test.
+- Missing tests: adventure `Move.dest` float/bool rejection; changing stored town/hero content
+  changes `state_hash`.
+- The ability-text table in data/txt_maps/crtraits.json is placeholder; check against a real file.
+
+## Needs the user (cannot be verified without real data)
+A legal HoMM3 install with `H3_DATA_DIR` set; real .h3m maps (RoE/AB/SoD); results of the rules.md
+section 9 experiments (speed ties, wait order, bad-morale table, damage-roll distribution, adventure costs).
