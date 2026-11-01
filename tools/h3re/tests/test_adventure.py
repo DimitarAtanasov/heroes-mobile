@@ -648,7 +648,6 @@ class CommandInputTypeTest(unittest.TestCase):
                     A.apply(s, A.Move(bad, (1, 0)), NoRng())
                 self.assertEqual(A.canonical(s), canon)
 
-    @unittest.expectedFailure   # BUG: _validate uses isinstance(cmd.hero, int); True/False pass as hero 1/0
     def test_move_bool_hero_id_rejected(self):
         # True == 1 and isinstance(True, int): hero 1 must not be reachable by True
         s = started(grid(["ggg", "ggg"]),
@@ -667,13 +666,11 @@ class CommandInputTypeTest(unittest.TestCase):
                     A.apply(s, A.EndTurn(bad), NoRng())
                 self.assertEqual(A.canonical(s), canon)
 
-    @unittest.expectedFailure   # BUG: EndTurn compares cmd.player != state.current; 0.0 == 0 passes
     def test_endturn_float_player_rejected(self):
         s = self._s()
         with self.assertRaises(A.IllegalCommand):
             A.apply(s, A.EndTurn(0.0), NoRng())
 
-    @unittest.expectedFailure   # BUG: EndTurn compares cmd.player != state.current; False == 0 passes
     def test_endturn_bool_player_rejected(self):
         s = self._s()
         with self.assertRaises(A.IllegalCommand):
@@ -695,6 +692,83 @@ class CommandInputTypeTest(unittest.TestCase):
             with self.subTest(cmd=bad):
                 with self.assertRaises(A.IllegalCommand):
                     A.apply(s, bad, NoRng())
+
+
+class IntSub(int):
+    """Stands in for numpy.int64 and friends: an int subclass, == its value."""
+
+
+class FloatSub(float):
+    pass
+
+
+# values that compare equal to a small int id or are not an int at all
+BAD_IDS = (True, False, 0.0, 1.0, FloatSub(0.0), "0", "1", b"0", None, (0,), [0],
+           IntSub(0), IntSub(1))
+
+
+class StrictIntFieldsTest(unittest.TestCase):
+    """Every integer command field must satisfy ``type(v) is int``: bool,
+    float, str, None and int subclasses raise IllegalCommand before any state
+    or RNG change. The golden adventure hash does not move."""
+
+    def _s(self):
+        return started(grid(["ggg", "ggg"]),
+                       heroes=(A.HeroSetup(0, (0, 0), army(5)), A.HeroSetup(0, (0, 1), army(5))))
+
+    def _rejected(self, s, cmd):
+        canon, h = A.canonical(s), A.state_hash(s)
+        with self.assertRaises(A.IllegalCommand):
+            A.apply(s, cmd, NoRng())
+        self.assertEqual(A.canonical(s), canon)
+        self.assertEqual(A.state_hash(s), h)
+
+    def test_move_hero(self):
+        s = self._s()
+        for bad in BAD_IDS:
+            with self.subTest(hero=bad):
+                self._rejected(s, A.Move(bad, (2, 0)))
+
+    def test_move_dest_elements(self):
+        s = self._s()
+        for bad in BAD_IDS:
+            for dest in ((bad, 0), (1, bad), [bad, 0], [1, bad]):
+                with self.subTest(dest=dest):
+                    self._rejected(s, A.Move(0, dest))
+
+    def test_endturn_player(self):
+        s = self._s()
+        for bad in BAD_IDS:
+            with self.subTest(player=bad):
+                self._rejected(s, A.EndTurn(bad))
+        # also when the bad value equals the value of a second player's turn
+        s2, _ = A.apply(started(grid(["ggg"]), players=(A.Player(), A.Player())),
+                        A.EndTurn(0), NoRng())
+        self.assertEqual(s2.current, 1)
+        for bad in (True, 1.0, IntSub(1), "1"):
+            with self.subTest(player=bad):
+                self._rejected(s2, A.EndTurn(bad))
+
+    def test_attack_hero_and_target(self):
+        s = self._s()
+        for bad in BAD_IDS:
+            with self.subTest(hero=bad):
+                self._rejected(s, A.Attack(bad, 1))
+            with self.subTest(target=bad):
+                self._rejected(s, A.Attack(0, bad))
+
+    def test_plain_ints_still_work(self):
+        s = self._s()
+        s1, _ = A.apply(s, A.Move(1, (2, 1)), NoRng())
+        self.assertEqual(s1.heroes[1].pos, (2, 1))
+        s2, _ = A.apply(s1, A.EndTurn(0), NoRng())
+        self.assertEqual(s2.day, 2)
+
+    def test_adventure_golden_unchanged(self):
+        self.assertEqual(GoldenTest.PINNED,
+                         "179c570020d05be9a53c265a76517a4bb9f398c92f37d19485d30f804f703420")
+        s, _ = play_days(golden_setup())
+        self.assertEqual(A.state_hash(s), GoldenTest.PINNED)
 
 
 if __name__ == "__main__":

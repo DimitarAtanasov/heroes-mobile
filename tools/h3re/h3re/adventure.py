@@ -677,11 +677,11 @@ def _validate(state, cmd):
     if not state.day:
         raise IllegalCommand("game not started")
     if isinstance(cmd, EndTurn):
-        if cmd.player != state.current:
+        if type(cmd.player) is not int or cmd.player != state.current:
             raise IllegalCommand("not player %r's turn" % (cmd.player,))
         return None
     if isinstance(cmd, Move):
-        if not (isinstance(cmd.hero, int) and 0 <= cmd.hero < len(state.heroes)):
+        if not (type(cmd.hero) is int and 0 <= cmd.hero < len(state.heroes)):
             raise IllegalCommand("no such hero")
         if state.heroes[cmd.hero].owner != state.current:
             raise IllegalCommand("hero does not belong to the current player")

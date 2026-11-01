@@ -420,5 +420,57 @@ class PropertyTest(unittest.TestCase):
         self.assertGreater(battles, 3)
 
 
+class StrictIntFieldsTest(unittest.TestCase):
+    """Attack.hero / Attack.target (as a hero id) need ``type(v) is int``;
+    bool, float, str-as-id-lookalikes, None and int subclasses are rejected
+    before any state or RNG change, in a game where battles are enabled."""
+
+    def test_attack_ids(self):
+        s = A.apply(golden_game(), A.Begin(), Untouchable())[0]
+        canon, h = A.canonical(s), A.state_hash(s)
+        bad_ids = TA.BAD_IDS + (TA.IntSub(2), 2.0, True)
+        cmds = [A.Attack(b, "wolves") for b in bad_ids]
+        cmds += [A.Attack(0, b) for b in bad_ids if not isinstance(b, str)]
+        cmds += [A.Attack(0, TA.IntSub(2)), A.Attack(1, TA.IntSub(2))]
+        for cmd in cmds:
+            with self.subTest(cmd=cmd):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, cmd, Untouchable())
+                self.assertEqual(A.canonical(s), canon)
+                self.assertEqual(A.state_hash(s), h)
+
+    def test_plain_int_ids_still_accepted(self):
+        s = A.apply(golden_game(), A.Begin(), Untouchable())[0]
+        s1, ev = step(s, A.Attack(0, "wolves"))
+        self.assertTrue(fought([ev]))
+        s2, ev = step(s1, A.Move(1, (5, 1)))
+        s3, ev = step(s2, A.Attack(1, 2))
+        self.assertTrue(fought([ev]))
+
+    def test_adjacent_enemy_target_needs_plain_int(self):
+        # hero 1 (player 1) stands next to hero 0, so a lenient target check
+        # (True == 1, IntSub(1) == 1) would start a real battle
+        heroes = (A.HeroSetup(0, (1, 1), army(("pike", 5))),
+                  A.HeroSetup(1, (2, 1), army(("pike", 5))))
+        g = A.create_game("adj", flat_grid(), (A.Player(), A.Player()), heroes,
+                          encounter=setup())
+        s = A.apply(g, A.Begin(), Untouchable())[0]
+        canon, h = A.canonical(s), A.state_hash(s)
+        for bad in (True, 1.0, TA.FloatSub(1.0), TA.IntSub(1), "1", None):
+            with self.subTest(target=bad):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, A.Attack(0, bad), Untouchable())
+                self.assertEqual(A.canonical(s), canon)
+                self.assertEqual(A.state_hash(s), h)
+        s1, ev = step(s, A.Attack(0, 1))
+        self.assertTrue(fought([ev]))
+
+    def test_encounter_golden_unchanged(self):
+        self.assertEqual(GoldenTest.PINNED,
+                         "512b53ca56c4c5611e718b4b23129984ab5a3c0f6e0de4a7feb48c620568bd60")
+        s, _ = play(golden_game())
+        self.assertEqual(A.state_hash(s), GoldenTest.PINNED)
+
+
 if __name__ == "__main__":
     unittest.main()
