@@ -183,8 +183,23 @@ diagonals 141/100 -> exact floor(cost x sqrt2); `last_step` `"allow_if_any"` ->
 `"forbid"` plus `diagonal_exception` and `zero_remainder`. The 14-day golden
 hash was re-pinned once, from `e859fff5...` to `179c5700...`, because the
 scripted heroes now pay different costs and so take different tiles each day.
-The policy is also part of the hashed state. The old values are reachable as
-policy options, and the property tests cover them.
+The policy is also part of the hashed state. Most old values are reachable as
+policy options, and the property tests cover them. One is not: the original
+rule "a road discount applies only if the destination tile has a road, and then
+the destination's rate is used" (with `road_needs_both=False`, a step off a
+road onto a roadless tile got no discount). Today `road_needs_both=False` also
+discounts a step that has a road only on the source tile, and
+`road_rate_from="dest"` does not change that. Decision (law 10, audit
+2026-11-01): correct the spec, do not add an option. The original rule was a
+draft guess, not a documented behaviour, and a new policy field would move the
+adventure hash for no gain. The `road_needs_both=True` old behaviour (rate
+`max` of both tiles) is reachable with `road_rate_from="max"`.
+
+`road_cost` is stored as a tuple of `(road, cost)` pairs sorted by road name;
+`AdventurePolicy` sorts it on construction and rejects a duplicate road, so one
+policy has one canonical form and one hash (this does not move the default
+hash, which was already sorted). `GameState` does not carry the rules-pack hash:
+`adventure.py` reads no `rules.json` value (see `battle.md` §10).
 
 Other unverified assumptions that have no switch (the VCMI order of road,
 Pathfinding and diagonal is as above): Pathfinding is applied before the

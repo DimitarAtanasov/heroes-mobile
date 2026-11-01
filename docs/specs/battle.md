@@ -306,3 +306,37 @@ re-derive them. A state built with `BattlePolicy(row_offset="odd",
 bad_morale_on_wait_activation=True, range_origin="any_cell")` plays like the
 old default, but its hash is still different because of the new canonical
 fields.
+
+### 2026-11-01: golden hash re-pinned a second time (rules pack in the hash)
+
+`GoldenTest.PINNED` (`tests/test_battle.py`), `GOLDEN_PINNED`
+(`tests/test_battle_cli.py`) and `battle-scenario.md` §7 moved together from
+`2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d` to
+`fbe9015bde1b6e5c165c08fc1604f98ea7c3cdf09cc38528ec2fda496f040e2b`.
+
+Reason (determinism-audit finding, HIGH): `rules.py` binds its tuning
+constants from `data/rules.json` at import (`H3_DATA_PACK_DIR` can point
+elsewhere), but the pack was not part of the hashed state. Two peers with
+different packs played different battles from the same seed yet hashed equal
+at step 0. `BattleState` now has a string field `rules_hash`, set from
+`rules.RULES_HASH` (the `datapack` content hash of the loaded `rules.json`;
+`898c9b9f…03c559e` for the shipped pack), and it is always in the canonical
+form (`_OMIT_WHEN_DEFAULT` stays empty). Peers with different packs now
+differ from the first `create_battle`.
+
+This is a pure canonical-form change. The play is unchanged: removing
+`rules_hash` from the canonical JSON of the golden final state reproduces
+`2191ae97…` exactly. The hash covers `rules.json` only; `creatures.json` is
+still passed in as `Creature` values and is already part of the state.
+`apply` does not compare `rules_hash` with the local pack; a state loaded
+under another pack is detectable by its hash but is not refused (follow-up).
+
+Adventure: `adventure.py` reads no pack value (its terrain, road and
+Logistics numbers are its own constants and policy), so a pack difference
+cannot change an adventure outcome and `GameState` does not carry
+`rules_hash`. The adventure golden hash did not move. If adventure starts
+reading the pack, add the field then, as a re-pin.
+
+Also in this change (no hash effect): `luck_chance` and `good_morale_chance`
+divide by `MORALE_DIE` instead of a literal 24. Luck shares the pack's one
+die with morale; there is no separate luck die in `rules.json`.

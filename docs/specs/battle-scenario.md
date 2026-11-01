@@ -22,7 +22,7 @@ one command per block, then the winner, the round count and the state hash:
 ...
 winner: defender
 rounds: 4
-state hash: 2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d
+state hash: fbe9015bde1b6e5c165c08fc1604f98ea7c3cdf09cc38528ec2fda496f040e2b
 ```
 
 Exit status: 0 on success. 1 for a malformed scenario, an unreadable file,
@@ -156,9 +156,11 @@ hash pinned there:
 ```
 
 Pinned state hash for this scenario with seed 12345 and the scripted chooser:
-`2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d`.
-It was re-pinned on 2026-11-01 (previously `cd969e37…a95d`) when the default
-row parity became `"even"`. The reason is recorded in `battle.md` §10.
+`fbe9015bde1b6e5c165c08fc1604f98ea7c3cdf09cc38528ec2fda496f040e2b`.
+It was re-pinned twice on 2026-11-01. First (previously `cd969e37…a95d`) when
+the default row parity became `"even"`; then (previously `2191ae97…7d`) when
+the state gained `rules_hash`, the content hash of the rules pack. The play is
+identical across the second re-pin. Both reasons are recorded in `battle.md` §10.
 
 ## 8. Pretty output (`--pretty`)
 

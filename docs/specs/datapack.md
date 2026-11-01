@@ -56,3 +56,14 @@ A missing or invalid pack raises `DataPackError` at import. The simulation modul
 themselves; the read happens in `datapack.py`. `test_package.py` pins that importing `h3re` opens
 only `rules.json`. `test_datapack.py::test_json_equals_code` compares both the loaded pack and the
 `rules.py` constants with an independent literal copy inside the test, so drift in either fails.
+
+## Pack directory and rules hash (determinism audit)
+- `H3_DATA_PACK_DIR` is made absolute once, at `datapack` import (`DEFAULT_DIR`, also exported as
+  `LOADED_DIR`), so a later `chdir` cannot change which pack is read. A relative value resolves
+  against the working directory at import time.
+- `resolve_dir(dir)` makes a path absolute and raises `DataPackError` if it is not an existing
+  directory; `load_dir`, `load_rules_dir` and `load_rules_pack_dir` use it, so an unusable
+  `H3_DATA_PACK_DIR` fails with one clear message at `rules` import.
+- `rules.RULES_DIR` and `rules.RULES_HASH` expose the directory and the content hash
+  (`DataPack.content_hash` of the validated `rules.json`, no creatures) that `rules.py` loaded.
+  `BattleState.rules_hash` carries `RULES_HASH` into the state hash (`battle.md` §10, ADR-0001).

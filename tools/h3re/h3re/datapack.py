@@ -16,13 +16,18 @@ from types import MappingProxyType
 
 
 __all__ = ["DataPackError", "DataPack", "load", "load_dir", "parse", "DEFAULT_DIR", "ENV_DIR",
-           "load_rules", "load_rules_dir"]
+           "LOADED_DIR", "load_rules", "load_rules_dir", "load_rules_pack",
+           "load_rules_pack_dir", "resolve_dir"]
 
 ENV_DIR = "H3_DATA_PACK_DIR"
 _REPO_DIR = os.path.abspath(os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "data"))
 # H3_DATA_PACK_DIR (if set and non-empty) overrides the repo-relative data/ dir.
-DEFAULT_DIR = os.environ.get(ENV_DIR) or _REPO_DIR
+# It is made absolute once, here, so a later chdir cannot change which pack a
+# lazy loader sees. LOADED_DIR is the directory ``rules.py`` read its constants
+# from (the same value; a documented, importable name for logs and tests).
+DEFAULT_DIR = os.path.abspath(os.environ.get(ENV_DIR) or _REPO_DIR)
+LOADED_DIR = DEFAULT_DIR
 SCHEMA_VERSION = 1
 MAX_INT = 1 << 31
 
@@ -235,15 +240,35 @@ def load(rules_path, creatures_path):
     return parse(*_read((rules_path, creatures_path)))
 
 
+def load_rules_pack(rules_path):
+    """Validate only rules.json; return a DataPack with no creatures. Its
+    ``content_hash`` is the rules-pack content hash that battle state carries."""
+    return DataPack(_check_rules(_read((rules_path,))[0]), [])
+
+
 def load_rules(rules_path):
     """Validate only rules.json; return the read-only constants mapping."""
-    return DataPack(_check_rules(_read((rules_path,))[0]), []).rules
+    return load_rules_pack(rules_path).rules
+
+
+def resolve_dir(directory=None):
+    """Absolute path of a pack directory (default: DEFAULT_DIR); raises
+    DataPackError if it is not an existing directory."""
+    path = os.path.abspath(directory or DEFAULT_DIR)
+    if not os.path.isdir(path):
+        raise DataPackError("data pack directory %s is not a directory (check %s)"
+                            % (path, ENV_DIR))
+    return path
+
+
+def load_rules_pack_dir(directory=None):
+    return load_rules_pack(os.path.join(resolve_dir(directory), "rules.json"))
 
 
 def load_rules_dir(directory=None):
-    return load_rules(os.path.join(directory or DEFAULT_DIR, "rules.json"))
+    return load_rules_pack_dir(directory).rules
 
 
-def load_dir(directory=DEFAULT_DIR):
-    return load(os.path.join(directory, "rules.json"),
-                os.path.join(directory, "creatures.json"))
+def load_dir(directory=None):
+    d = resolve_dir(directory)
+    return load(os.path.join(d, "rules.json"), os.path.join(d, "creatures.json"))

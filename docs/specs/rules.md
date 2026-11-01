@@ -332,6 +332,9 @@ Total experience required [documented for levels 1–12]:
 ### 6.5 Morale and luck
 
 - Morale and luck values are clamped to −3..+3. [documented]
+  Implementation note: the "24" in the luck and morale chances below is the
+  pack's single `morale_die` (`rules.MORALE_DIE`); good morale, bad morale and
+  luck all derive from it, so changing it changes all three consistently.
 - **Good morale:** at the start of a turn with morale M > 0, there is a
   M/24 chance (M=1 → 1/24, 2 → 2/24, 3 → 3/24) of an extra action
   immediately after this one. [documented]

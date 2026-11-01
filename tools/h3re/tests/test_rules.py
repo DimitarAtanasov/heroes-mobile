@@ -3,6 +3,7 @@ import random
 import sys
 import unittest
 from fractions import Fraction
+from unittest import mock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -310,6 +311,21 @@ class LuckMoraleTest(unittest.TestCase):
         self.assertEqual([rules.luck_chance(x) for x in (-2, 0, 1, 2, 3, 5)],
                          [0, 0, Fraction(1, 24), Fraction(2, 24), Fraction(3, 24),
                           Fraction(3, 24)])
+
+    def test_one_die_for_luck_and_morale(self):
+        # luck, good morale and bad morale all divide by MORALE_DIE
+        d = rules.MORALE_DIE
+        self.assertEqual(rules.luck_chance(1), Fraction(1, d))
+        self.assertEqual(rules.good_morale_chance(1), Fraction(1, d))
+        self.assertEqual(rules.bad_morale_chance(-1), Fraction(rules.BAD_MORALE_NUMERATORS[0], d))
+        for m in (1, 2, 3):
+            self.assertEqual(rules.luck_chance(m), rules.good_morale_chance(m))
+        # changing the die changes all three consistently
+        for new in (20, 30):
+            with mock.patch.object(rules, "MORALE_DIE", new):
+                self.assertEqual(rules.luck_chance(3), Fraction(3, new))
+                self.assertEqual(rules.good_morale_chance(3), Fraction(3, new))
+                self.assertEqual(rules.bad_morale_chance(-3), Fraction(3, new))
 
     def test_morale(self):
         self.assertEqual(rules.good_morale_chance(2), Fraction(1, 12))

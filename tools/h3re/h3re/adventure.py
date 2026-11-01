@@ -156,9 +156,19 @@ class AdventurePolicy:
         if len(self.pathfinding_pct) != 4 or not all(
                 0 <= p <= 100 for p in self.pathfinding_pct):
             raise ValueError("pathfinding_pct needs 4 values in 0..100")
-        roads = dict(self.road_cost)
-        if sorted(roads) != sorted(ROADS[1:]) or any(c <= 0 for c in roads.values()):
+        # Canonical form: a tuple of (road, cost) pairs sorted by road name, so
+        # equal policies hash equal whatever order the caller gave. A duplicate
+        # road is rejected (dict() would silently keep the last one).
+        pairs = tuple(sorted((tuple(e) for e in self.road_cost), key=lambda e: e[0]))
+        if any(len(e) != 2 for e in pairs):
+            raise ValueError("road_cost entries must be (road, cost) pairs")
+        names = [e[0] for e in pairs]
+        if len(set(names)) != len(names):
+            raise ValueError("road_cost has a duplicate road type")
+        if names != sorted(ROADS[1:]) or any(
+                type(c) is not int or c <= 0 for _, c in pairs):
             raise ValueError("road_cost needs a positive cost for each road type")
+        object.__setattr__(self, "road_cost", pairs)
 
 
 DEFAULT_POLICY = AdventurePolicy()

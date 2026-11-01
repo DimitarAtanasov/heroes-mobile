@@ -93,6 +93,22 @@ class LoadTest(unittest.TestCase):
         c3["creatures"][0]["hp"] += 1
         self.assertNotEqual(D.parse(r, c3).content_hash, a.content_hash)
 
+    def test_resolve_dir_and_loaded_dir(self):
+        self.assertTrue(os.path.isabs(D.DEFAULT_DIR))
+        self.assertEqual(D.LOADED_DIR, D.DEFAULT_DIR)
+        self.assertEqual(R.RULES_DIR, D.LOADED_DIR)
+        self.assertEqual(R.RULES_HASH, D.load_rules_pack_dir().content_hash)
+        rel = os.path.relpath(D.DEFAULT_DIR)
+        self.assertEqual(D.resolve_dir(rel), D.DEFAULT_DIR)
+        with tempfile.TemporaryDirectory() as d:
+            for bad in (os.path.join(d, "nope"), __file__):
+                with self.assertRaisesRegex(D.DataPackError, "not a directory"):
+                    D.resolve_dir(bad)
+                with self.assertRaisesRegex(D.DataPackError, "not a directory"):
+                    D.load_dir(bad)
+                with self.assertRaisesRegex(D.DataPackError, "not a directory"):
+                    D.load_rules_dir(bad)
+
     def test_file_errors(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaisesRegex(D.DataPackError, "cannot read"):

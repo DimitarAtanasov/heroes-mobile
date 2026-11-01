@@ -32,7 +32,7 @@ __all__ = [
     "resolve_damage", "preview_damage",
     "apply_damage", "luck_chance", "good_morale_chance", "bad_morale_chance",
     "BAD_MORALE_NUMERATORS", "VCMI_BAD_MORALE_NUMERATORS", "MORALE_DIE",
-    "check_bad_morale_table",
+    "check_bad_morale_table", "RULES_HASH", "RULES_DIR",
 ]
 
 # Tuning constants come from data/rules.json (Forge law: balance numbers live
@@ -45,7 +45,12 @@ __all__ = [
 # bad-morale chance numerators for morale -1, -2, -3. (1, 2, 3) is the
 # community-documented table; VCMI configures (2, 4, 6). Which one the
 # original uses is open (rules.md 9.13).
-_PACK = _datapack.load_rules_dir()
+_PACK_OBJ = _datapack.load_rules_pack_dir()
+_PACK = _PACK_OBJ.rules
+# Content hash of the loaded rules pack and the directory it came from. Battle
+# state carries RULES_HASH, so peers with different packs diverge at step 0.
+RULES_HASH = _PACK_OBJ.content_hash
+RULES_DIR = _datapack.LOADED_DIR
 AD_BONUS_PER_POINT = _PACK["ad_bonus_per_point"]
 AD_BONUS_CAP = _PACK["ad_bonus_cap"]
 DA_PENALTY_PER_POINT = _PACK["da_penalty_per_point"]
@@ -309,13 +314,15 @@ def _clamp3(v):
 
 
 def luck_chance(luck):
-    """Chance of good luck (double damage) per attack: L/24 for L in 1..3."""
-    return Fraction(max(0, _clamp3(luck)), 24)
+    """Chance of good luck (double damage) per attack: L/MORALE_DIE for L in 1..3.
+
+    Luck shares the pack's one die with morale (rules.md 6.5)."""
+    return Fraction(max(0, _clamp3(luck)), MORALE_DIE)
 
 
 def good_morale_chance(morale):
-    """Chance of an extra action: M/24 for M in 1..3."""
-    return Fraction(max(0, _clamp3(morale)), 24)
+    """Chance of an extra action: M/MORALE_DIE for M in 1..3."""
+    return Fraction(max(0, _clamp3(morale)), MORALE_DIE)
 
 
 def check_bad_morale_table(table):
@@ -332,8 +339,8 @@ def check_bad_morale_table(table):
 def bad_morale_chance(morale, table=BAD_MORALE_NUMERATORS):
     """Chance of freezing (losing the turn) for M in -3..-1.
 
-    ``table[i]`` is the numerator over 24 for morale -(i+1). The default
-    (1, 2, 3) gives |M|/24; VCMI_BAD_MORALE_NUMERATORS is the alternative.
+    ``table[i]`` is the numerator over MORALE_DIE for morale -(i+1). The default
+    (1, 2, 3) gives |M|/MORALE_DIE; VCMI_BAD_MORALE_NUMERATORS is the alternative.
     """
     m = -_clamp3(morale)
     if m <= 0:

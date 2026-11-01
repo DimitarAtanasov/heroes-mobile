@@ -275,6 +275,9 @@ class BattleState:
     bonus_turn: bool = False
     morale_pending: bool = False
     winner: int = None
+    # Content hash of the rules pack the state was built under (ADR-0001). Part
+    # of the canonical form, so peers with different packs differ at step 0.
+    rules_hash: str = rules.RULES_HASH
     # Side of the most recently activated stack (None before the first
     # activation). Carries across rounds; used by the last-mover tie rules.
     last_side: int = None

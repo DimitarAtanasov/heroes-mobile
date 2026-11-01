@@ -30,7 +30,7 @@ SCENARIO_DOC = REPO_ROOT / "docs" / "specs" / "battle-scenario.md"
 
 # Same value as GoldenTest.PINNED in tests/test_battle.py.
 # Re-pinned with it on 2026-11-01 (battle.md section 10).
-GOLDEN_PINNED = "2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d"
+GOLDEN_PINNED = "fbe9015bde1b6e5c165c08fc1604f98ea7c3cdf09cc38528ec2fda496f040e2b"
 
 
 def golden_scenario() -> dict:

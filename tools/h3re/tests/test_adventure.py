@@ -296,6 +296,41 @@ class PolicyTest(unittest.TestCase):
                 A.AdventurePolicy(**kw)
 
 
+class RoadCostCanonicalTest(unittest.TestCase):
+    def test_order_is_normalised_so_hash_is_stable(self):
+        a = A.AdventurePolicy(road_cost=(("cobblestone", 50), ("dirt", 75), ("gravel", 65)))
+        b = A.AdventurePolicy(road_cost=(("gravel", 65), ("cobblestone", 50), ("dirt", 75)))
+        c = A.AdventurePolicy(road_cost=[["dirt", 75], ["gravel", 65], ["cobblestone", 50]])
+        self.assertEqual(a, b)
+        self.assertEqual(a, c)
+        self.assertEqual(b.road_cost, tuple(sorted(b.road_cost)))
+        self.assertEqual(a, A.DEFAULT_POLICY)
+        sa = started(grid(["g"]), policy=a)
+        sb = started(grid(["g"]), policy=b)
+        self.assertEqual(A.state_hash(sa), A.state_hash(sb))
+
+    def test_duplicate_road_rejected(self):
+        for cost in (
+                (("cobblestone", 50), ("dirt", 75), ("gravel", 65), ("dirt", 10)),
+                (("cobblestone", 50), ("dirt", 75), ("dirt", 75)),
+                (("cobblestone", 50), ("cobblestone", 50), ("dirt", 75), ("gravel", 65))):
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                A.AdventurePolicy(road_cost=cost)
+
+    def test_malformed_entries_rejected(self):
+        for cost in ((("cobblestone", 50), ("dirt", 75), ("gravel", 65, 1)),
+                     (("cobblestone", 50), ("dirt", 75), ("gravel", 0)),
+                     (("cobblestone", 50), ("dirt", 75), ("gravel", "65")),
+                     (("cobblestone", 50), ("dirt", 75), ("mud", 65))):
+            with self.assertRaises(ValueError, msg=cost):
+                A.AdventurePolicy(road_cost=cost)
+
+    def test_different_costs_still_change_the_hash(self):
+        other = A.AdventurePolicy(road_cost=(("dirt", 50), ("gravel", 65), ("cobblestone", 50)))
+        self.assertNotEqual(A.state_hash(started(grid(["g"]), policy=other)),
+                            A.state_hash(started(grid(["g"]))))
+
+
 class TickTest(unittest.TestCase):
     def setUp(self):
         self.players = (

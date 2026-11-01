@@ -477,7 +477,9 @@ class GoldenTest(unittest.TestCase):
     # Re-pinned 2026-11-01 (one reviewed change, see battle.md section 10):
     # row_offset "odd" -> "even", the wait-activation morale split, and the
     # canonical form now carrying every policy field plus ``last_side``.
-    PINNED = "2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d"
+    # Re-pinned again (one reviewed change, battle.md section 10): the state now
+    # carries ``rules_hash``; 2191ae97... -> fbe9015b..., no play change.
+    PINNED = "fbe9015bde1b6e5c165c08fc1604f98ea7c3cdf09cc38528ec2fda496f040e2b"
 
     def test_replay_is_deterministic(self):
         s1, t1 = play(golden_setup(), B.battle_rng(12345, "golden"), scripted_choice)
