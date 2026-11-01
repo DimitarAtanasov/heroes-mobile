@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application android:label="Heroes" android:theme="@android:style/Theme.Material.NoActionBar">
-        <activity android:name="h3.app.MainActivity" android:exported="true">
+        <!-- configChanges: rotation must not recreate the activity (the running battle lives in it). -->
+        <activity
+            android:name="h3.app.MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|density|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
