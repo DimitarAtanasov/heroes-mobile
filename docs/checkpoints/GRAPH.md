@@ -6,18 +6,18 @@ documentation of the formats and observable game mechanics.
 
 ```mermaid
 flowchart LR
-    S[Scope target] --> R{Complexity}
-    R -->|mechanical, well-documented| H[Haiku agent]
-    R -->|format parsing, moderate logic| So[Sonnet agent]
-    R -->|architecture, combat/AI rules, ambiguity| O[Opus agent]
-    H --> V[Verify: tests on synthetic fixtures]
+    A[Opus advisor: review state, pick next targets, assign model + file ownership] --> R{Complexity}
+    R -->|mechanical, well-documented| H[Haiku worker]
+    R -->|format parsing, moderate logic| So[Sonnet worker]
+    R -->|architecture, ambiguity| O[Opus worker]
+    H --> V[Lead verifies: full test suite]
     So --> V
     O --> V
-    V -->|fail| R
-    V -->|pass| C[Checkpoint: commit + update this graph]
-    C --> N{More targets?}
-    N -->|yes| S
-    N -->|no| D[Done]
+    V -->|fail| A
+    V -->|pass| C[Checkpoint: commit + push + update log]
+    C --> N{Backlog empty or stop?}
+    N -->|no| A
+    N -->|yes| D[Done]
 ```
 
 ## Checkpoint log
