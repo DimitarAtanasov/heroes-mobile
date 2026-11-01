@@ -24,13 +24,12 @@ Verify the state:
 ## CI facts (seen on GitHub, run for checkpoint 63)
 - kotlin-sim: green. determinism (both lints + soak under two hash seeds): green.
 - unittest: green but about 30 minutes. A test-speed task was started (memoise vector generation; keep every check).
-- android-app: first run FAILED: Kotlin plugin version declared in two places. Fixed in 86755dc by declaring
-  versions once in `settings.gradle.kts`; the result of the next run is not yet seen. Read it with
-  `actions_list` / `get_job_logs` before doing anything else on the app.
+- android-app: GREEN since 1a34df1 (two build-config fixes, see memory `android-gradle-setup`). The job is now
+  blocking and uploads the debug APK as artifact `heroes-mobile-debug-apk` (run 41336051621: 8.4 MB). It is
+  still the 13-line stub app. GitHub artifacts need a login to download.
 
 ## Next, in order
-1. Read the android-app CI result; fix build errors until `:app:assembleDebug` is green; then upload the APK as
-   an artifact and remove `continue-on-error`.
+1. (done) `:app:assembleDebug` is green in CI and the APK is uploaded. Next is real app code (see 3).
 2. Land the test-speed change (suite under about 8 minutes) and keep CI green.
 3. 0.1 plan is `docs/specs/mvp-0.1.md`: `:presenter`/`BattleSession`, scenario and replay ports (a Kotlin replay must
    pass `python3 -m h3re replay verify`), app shell (screens, Compose board, hit-testing, tap reducer), autosave/resume,

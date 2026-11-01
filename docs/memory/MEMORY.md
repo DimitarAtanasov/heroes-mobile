@@ -10,3 +10,4 @@ named command or file before relying on it. See `.claude/skills/second-brain/SKI
 - [owner-preferences](owner-preferences.md) - Kotlin + GPL, usage lines 95/98, commit verified pieces only
 - [vcmi-is-evidence](vcmi-is-evidence.md) - VCMI facts and ported code: evidence, provenance, policies
 - [golden-hash-discipline](golden-hash-discipline.md) - re-pin rule and the Python/Kotlin contract
+- [android-gradle-setup](android-gradle-setup.md) - plugin versions once in settings; AGP on root classpath; verify via CI
