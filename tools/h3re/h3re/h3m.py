@@ -15,10 +15,12 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 
 __all__ = ["H3mError", "H3mHeader", "Tile", "PlayerInfo", "parse_h3m", "parse_h3m_bytes",
-           "ROE", "AB", "SOD", "WOG"]
+           "ROE", "AB", "SOD", "CHR", "WOG", "HOTA"]
 
-ROE, AB, SOD, WOG = 0x0E, 0x15, 0x1C, 0x33
-VERSION_NAMES = {ROE: "RoE", AB: "AB", SOD: "SoD", WOG: "WoG"}
+ROE, AB, SOD, CHR, WOG, HOTA = 0x0E, 0x15, 0x1C, 0x1D, 0x33, 0x20
+# CHR (Chronicles) and WoG share the SoD layout; all comparisons use `>= SOD`
+# or `!= ROE`, and HOTA (0x20) is deliberately absent from this table.
+VERSION_NAMES = {ROE: "RoE", AB: "AB", SOD: "SoD", CHR: "Chronicles", WOG: "WoG"}
 MAX_DECOMPRESSED = 64 * 1024 * 1024
 MAX_STRING = 1 << 20
 NO_CONDITION = 0xFF
@@ -170,6 +172,7 @@ def _read_victory(r: _Reader, ver: int):
         pass
     elif t == 10:
         v["artifact"] = r.u8()
+        v["pos"] = r.pos3()
     else:
         raise H3mError(f"unknown victory condition type {t}")
     return v
@@ -227,7 +230,7 @@ MAX_RUMORS = 4096
 HERO_COUNT = {ROE: 128}  # AB and later: 156
 HERO_BYTES = {ROE: 16}
 ARTIFACT_BYTES = {AB: 17}  # SoD and later: 18
-ARTIFACT_COUNT = {AB: 129}  # SoD and later: 141
+ARTIFACT_COUNT = {AB: 129}  # SoD and later: 144 (mask is 18 bytes, all bits meaningful)
 SPELL_BYTES, SPELL_COUNT = 9, 70
 SKILL_BYTES, SKILL_COUNT = 4, 28
 PREDEFINED_HEROES = 156
@@ -268,7 +271,7 @@ def _read_extra(r: _Reader, h: H3mHeader, ver: int) -> None:
     if ver != ROE:
         m = _read_mask(r, ARTIFACT_BYTES.get(ver, 18), "allowed artifacts")
         h.allowed_artifacts_mask = m
-        h.banned_artifacts = _bits(m, ARTIFACT_COUNT.get(ver, 141), True)
+        h.banned_artifacts = _bits(m, ARTIFACT_COUNT.get(ver, 144), True)
     if sodplus:
         m = _read_mask(r, SPELL_BYTES, "allowed spells")
         h.allowed_spells_mask = m
@@ -329,6 +332,9 @@ def parse_h3m_bytes(raw: bytes) -> H3mHeader:
     """Parse an .H3M given its *decompressed* contents."""
     r = _Reader(raw)
     fmt = r.u32("format")
+    if fmt == HOTA:
+        raise H3mError("unsupported map format 0x20 (HotA): it uses an "
+                       "extended header this parser does not implement")
     if fmt not in VERSION_NAMES:
         raise H3mError(f"unsupported map format 0x{fmt:X}")
     has_hero = bool(r.u8("has hero"))

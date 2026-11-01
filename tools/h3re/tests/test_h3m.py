@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from h3re.h3m import H3mError, Tile, parse_h3m, parse_h3m_bytes, ROE, AB, SOD
+from h3re.h3m import H3mError, Tile, parse_h3m, parse_h3m_bytes, ROE, AB, SOD, CHR
 
 
 def s(t):
@@ -193,6 +193,41 @@ class H3mTests(unittest.TestCase):
         h = parse_h3m_bytes(build(ROE, b"\x00\x00\x01\x07", b"\x00\x0a\x0b\x00"))
         self.assertEqual(h.victory["artifact"], 7)
         self.assertEqual(h.loss["pos"], (10, 11, 0))
+
+    def test_victory_transport_artifact_has_position(self):
+        vic = b"\x0a\x01\x00" + b"\x2a" + bytes([5, 6, 1])
+        loss = b"\x02" + struct.pack("<H", 30)
+        teams = b"\x02" + bytes([0, 0, 1, 1, 0, 0, 0, 0])
+        for ver in (ROE, AB, SOD):
+            h = parse_h3m_bytes(build(ver, vic, loss, teams))
+            self.assertEqual(h.victory["artifact"], 0x2A)
+            self.assertEqual(h.victory["pos"], (5, 6, 1))
+            self.assertEqual(h.loss, {"type": 2, "days": 30})
+            self.assertEqual(h.teams[2], 1)
+            self.assertEqual(h.rumors, [("Tavern", "Dragons!")])
+            self.assertEqual(h.size, 36)
+
+    def test_sod_artifact_ids_141_to_143_banned(self):
+        tail = extra(SOD)
+        old = bytes([0x01] + [0] * 17)
+        new = bytes([0x01] + [0] * 16 + [0xE0])
+        self.assertIn(old, tail)
+        h = parse_h3m_bytes(build(SOD, tail=tail.replace(old, new)))
+        self.assertEqual(h.banned_artifacts, [0, 141, 142, 143])
+        self.assertEqual(len(h.allowed_artifacts_mask), 18)
+
+    def test_chronicles_uses_sod_layout(self):
+        h = parse_h3m_bytes(build(CHR))
+        self.assertEqual(h.version, "Chronicles")
+        self.assertEqual(h.banned_spells, [1])
+        self.assertEqual(len(h.allowed_artifacts_mask), 18)
+
+    def test_hota_explicitly_unsupported(self):
+        raw = struct.pack("<I", 0x20) + bytes(64)
+        with self.assertRaises(H3mError) as cm:
+            parse_h3m_bytes(raw)
+        self.assertIn("HotA", str(cm.exception))
+        self.assertIn("unsupported map format", str(cm.exception))
 
     def test_errors(self):
         good = build(SOD)

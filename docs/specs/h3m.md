@@ -8,13 +8,17 @@ gzip files are rejected with `H3mError` (real maps are one gzip member).
 ## Header
 | Field | Type |
 |---|---|
-| format | u32: 0x0E RoE, 0x15 AB, 0x1C SoD, 0x33 WoG |
+| format | u32: 0x0E RoE, 0x15 AB, 0x1C SoD, 0x1D Chronicles (SoD layout), 0x33 WoG (SoD layout) |
 | has hero | u8 |
 | map size | u32 (square side); see note below |
 | two levels | u8 |
 | name, description | strings |
 | difficulty | u8 (0-4) |
 | max hero level | u8, only if not RoE |
+
+HotA (0x20) is explicitly unsupported: it has a version number and an extended
+header (4 more zero bytes after the 31 reserved bytes, plus version-gated
+fields), so the parser raises `H3mError("unsupported map format 0x20 (HotA)...")`.
 
 Map size note: real sizes are 36/72/108/144 (S/M/L/XL), and newer editions
 (e.g. HotA) allow others. The parser only checks the permissive range
@@ -32,7 +36,7 @@ name); non-RoE: u8 placeholder, u32 count, then (u8 id, string name) pairs.
 Victory: u8 type (0xFF none) else u8 allow-normal-victory, u8 applies-to-AI,
 then by type: 0 artifact (u8 RoE / u16 else), 1 creatures (u8/u16 id + u32
 count), 2 resources (u8 type + u32 amount), 3 build city (pos, u8 hall,
-u8 castle), 4-7 pos, 8-9 none, 10 transport artifact (u8).
+u8 castle), 4-7 pos, 8-9 none, 10 transport artifact (u8 id, then 3-byte pos).
 Loss: u8 type (0xFF none); 0/1 pos; 2 u16 days.
 Teams: u8 count; if nonzero, 8 u8 team ids.
 
@@ -46,7 +50,8 @@ In order. "Mask" = little-endian bit order (bit i = byte i//8, bit i%8).
 4. 31 reserved bytes (all versions).
 5. AB+: allowed artifacts mask, 17 bytes (AB) / 18 (SoD). Set bit = BANNED
    (inverted vs heroes) -> `allowed_artifacts_mask`, `banned_artifacts`
-   (ids < 129 AB, < 141 SoD).
+   (ids < 129 AB, < 144 SoD/Chronicles; WoG's count is 171 but the mask is still
+   18 bytes, so ids 144+ cannot be represented).
 6. SoD+: spells mask 9 bytes (70 spells), skills mask 4 bytes (28 skills);
    set bit = banned -> `*_mask`, `banned_spells`, `banned_skills`.
 7. Rumors: u32 count (cap 4096), each (string name, string text) -> `rumors`.
@@ -65,17 +70,16 @@ In order. "Mask" = little-endian bit order (bit i = byte i//8, bit i%8).
    14 MiB). Parsing stops here: bytes after the tiles (objects) are ignored.
 New `H3mHeader` fields default to empty/None, so older construction still works.
 
-## Unverified against real files
-No real maps were used; layouts come from recollection of community docs and
-synthetic fixtures only. Especially uncertain:
-- Bit polarity of artifacts/spells/skills masks (assumed set = banned).
-- The 31 reserved bytes being present in RoE/AB, and their position.
-- Exact mask byte lengths and id limits per version (AB artifacts 17 bytes).
-- Predefined hero record layout, 19 artifact slots, u16 artifact ids.
-- WoG (0x33) is parsed with the SoD layout; its extras are unknown.
-- Tile layout (7 bytes/tile, field order, level-major then row-major order) is
-  UNVERIFIED against real files; the flags byte meaning is not interpreted.
-- RoE/AB hero-count details (RoE 16-byte mask assumed).
+## Verification status
+Confirmed against VCMI source (functional facts only; no code copied): mask
+polarity (heroes set = allowed; artifacts/spells/skills set = banned), mask
+byte lengths and id limits, the 31 reserved bytes in every version, tile layout
+and field order (level, row, column; 7 bytes), the SoD predefined hero record
+(including 19 u16 artifact slots), and WoG/Chronicles using the SoD header.
+Notes: VCMI expects at most 8 secondary skills per predefined hero (we allow
+28), masks road/river type bytes with 0x07 (we keep raw bytes), and the tile
+flags byte is kept raw (low bits are terrain/river/road mirroring).
+Still unverified against real files: RoE/AB hero-count details.
 
 ## Not implemented
 Objects (object templates, object instances), events. Errors raise `H3mError`.
