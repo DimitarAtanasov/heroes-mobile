@@ -1,0 +1,16 @@
+{
+  "ad_bonus_per_point": [1, 20],
+  "ad_bonus_cap": [3, 1],
+  "armorer": [[0, 1], [1, 20], [1, 10], [3, 20]],
+  "archery": [[0, 1], [1, 10], [1, 4], [1, 2]],
+  "bad_morale_numerators": [1, 2, 3],
+  "da_penalty_cap": [7, 10],
+  "da_penalty_per_point": [1, 40],
+  "half": [1, 2],
+  "hate_bonus": [1, 2],
+  "luck_bonus": [1, 1],
+  "morale_die": 24,
+  "offense": [[0, 1], [1, 10], [2, 10], [3, 10]],
+  "schema_version": 1,
+  "vcmi_bad_morale_numerators": [2, 4, 6]
+}

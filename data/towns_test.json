@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "factions": [
+    {
+      "id": "faction.fernwood",
+      "buildings": [
+        {"id": "hall.1", "cost": {}, "requires": [], "income": {"gold": 500}},
+        {"id": "hall.2", "cost": {"gold": 2500}, "requires": ["hall.1", "market"],
+         "upgrades": "hall.1", "income": {"gold": 1000}},
+        {"id": "hall.3", "cost": {"gold": 5000, "wood": 5, "ore": 5}, "requires": ["hall.2", "keep.1"],
+         "upgrades": "hall.2", "income": {"gold": 2000}},
+        {"id": "hall.4", "cost": {"gold": 10000, "crystal": 2}, "requires": ["hall.3", "keep.3"],
+         "upgrades": "hall.3", "income": {"gold": 4000}, "player_unique": "capital"},
+        {"id": "market", "cost": {"gold": 500, "wood": 5}, "requires": ["hall.1"]},
+        {"id": "keep.1", "cost": {"gold": 5000, "wood": 20, "ore": 20}, "requires": [], "fort": true},
+        {"id": "keep.2", "cost": {"gold": 2500, "ore": 5}, "requires": ["keep.1"],
+         "upgrades": "keep.1", "fort": true, "growth_bonus": [1, 2]},
+        {"id": "keep.3", "cost": {"gold": 5000, "wood": 10, "ore": 10}, "requires": ["keep.2"],
+         "upgrades": "keep.2", "fort": true, "growth_bonus": [1, 1]},
+        {"id": "den.1", "cost": {"gold": 400, "wood": 5}, "requires": ["keep.1"],
+         "dwelling": {"level": 1, "creature": "cr.bramblet", "base_growth": 13}},
+        {"id": "den.1u", "cost": {"gold": 900, "wood": 5}, "requires": ["den.1", "market"],
+         "upgrades": "den.1",
+         "dwelling": {"level": 1, "creature": "cr.bramblet_elder", "base_growth": 13}},
+        {"id": "nest.2", "cost": {"gold": 1000, "ore": 5}, "requires": ["den.1"],
+         "dwelling": {"level": 2, "creature": "cr.glimmerwing", "base_growth": 7}},
+        {"id": "grove.3", "cost": {"gold": 1500, "wood": 10, "gems": 1}, "requires": ["nest.2"],
+         "dwelling": {"level": 3, "creature": "cr.oakhorn", "base_growth": 5}},
+        {"id": "hive", "cost": {"gold": 1000, "mercury": 2}, "requires": ["den.1"],
+         "horde": {"level": 1, "bonus": 4}}
+      ]
+    },
+    {
+      "id": "faction.saltmarsh",
+      "buildings": [
+        {"id": "hall.1", "cost": {}, "requires": [], "income": {"gold": 500}},
+        {"id": "hall.2", "cost": {"gold": 2500}, "requires": ["hall.1"],
+         "upgrades": "hall.1", "income": {"gold": 1000}},
+        {"id": "hall.3", "cost": {"gold": 5000, "sulfur": 3}, "requires": ["hall.2", "wall.1"],
+         "upgrades": "hall.2", "income": {"gold": 2000}},
+        {"id": "hall.4", "cost": {"gold": 10000, "sulfur": 5}, "requires": ["hall.3", "wall.3"],
+         "upgrades": "hall.3", "income": {"gold": 4000}, "player_unique": "capital"},
+        {"id": "wall.1", "cost": {"gold": 5000, "ore": 20}, "requires": [], "fort": true},
+        {"id": "wall.2", "cost": {"gold": 2500, "ore": 5}, "requires": ["wall.1"],
+         "upgrades": "wall.1", "fort": true, "growth_bonus": [1, 2]},
+        {"id": "wall.3", "cost": {"gold": 5000, "ore": 10}, "requires": ["wall.2"],
+         "upgrades": "wall.2", "fort": true, "growth_bonus": [1, 1]},
+        {"id": "pool.1", "cost": {"gold": 300}, "requires": ["wall.1"],
+         "dwelling": {"level": 1, "creature": "cr.mudling", "base_growth": 9}},
+        {"id": "reef.2", "cost": {"gold": 800, "ore": 3}, "requires": ["pool.1"],
+         "dwelling": {"level": 2, "creature": "cr.shellback", "base_growth": 6}}
+      ]
+    }
+  ]
+}

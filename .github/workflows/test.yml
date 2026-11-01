@@ -1,0 +1,58 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run h3re tests
+        run: python3 -m unittest discover -s tools/h3re/tests
+
+  determinism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Banned-API lint (simulation modules)
+        run: python3 tools/lint/banned_api_lint.py
+
+      - name: Determinism soak (default policies)
+        working-directory: tools/h3re
+        run: python3 -m h3re.soak --games 30 --max-steps 120 -q
+
+      - name: Soak policy matrix under two PYTHONHASHSEED values
+        # The trace digest (SHA-256 over per-step state hashes and events) must
+        # be identical; the second run exits 1 on a digest mismatch.
+        working-directory: tools/h3re
+        run: |
+          PYTHONHASHSEED=0 python3 -m h3re.soak --games 10 --max-steps 120 \
+            --policy-matrix -q --digest-out "$RUNNER_TEMP/digest-a.txt"
+          PYTHONHASHSEED=12345 python3 -m h3re.soak --games 10 --max-steps 120 \
+            --policy-matrix -q --expect-digest-file "$RUNNER_TEMP/digest-a.txt"
+
+  real-files:
+    # Optional: runs only when dispatched manually, on a self-hosted runner
+    # that has the game data. The runner variable H3_DATA_DIR gives its path.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    env:
+      H3_DATA_DIR: ${{ vars.H3_DATA_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run h3re tests against real game files
+        run: python3 -m unittest discover -s tools/h3re/tests -v
