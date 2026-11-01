@@ -222,3 +222,36 @@ of the day; heroes block tiles; `water`/`rock` cannot be passed on land.
   negative and never above the maximum; a move subtracts exactly its cost;
   heroes stay on distinct, passable tiles; illegal commands leave the state
   unchanged; identical inputs give identical state and events.
+
+## 8. Encounters (battles on the map)
+
+Battles between a hero and an enemy hero or a neutral guard are specified in
+`docs/specs/encounter.md`. This section lists what they change here. It
+amends the scope line (battles were out of scope) and the §2 note "hero
+meetings and battles are out of scope": attacking is now possible, meeting
+an own hero still is not.
+
+- Command `Attack(hero, target)` (target: hero id `int` or guard id `str`).
+  `apply` hands it to `encounter.validate` / `encounter.resolve`. For this
+  command only, `rng` is the battle stream `battle:<game_id>:<n>`
+  (`encounter.stream_for`); every other command still never draws.
+- `Guard(id, pos, army)`: a neutral army on a passable tile. Guards block
+  their tile like heroes (they cannot be entered or crossed). [engine]
+- `GameState` gains `guards=()`, `encounter=None` and `battles=0`.
+  `create_game(..., guards=(), encounter=None)` validates guards (string id,
+  unique, 1..7 valid slots, passable tile not shared with a hero or guard)
+  and, if `encounter` is set, that every army has content in it.
+- Canonical form: those three fields are left out while at their default
+  (`_OMIT_WHEN_DEFAULT`, ADR-0001). The 14-day golden `179c5700...` is
+  unchanged.
+- A hero removed after a lost battle keeps its id with `pos=None` and
+  `army=()`. It gets no `MovementReset`, cannot `Move` or `Attack`, does
+  not block its old tile, and `reachable`/`find_path` return `{}`/`None`.
+- Malformed `Move.dest` (fix): `dest` must be a tuple or list of two `int`s
+  (not `bool`); anything else raises `IllegalCommand` before any work.
+  Before, a non-iterable raised `TypeError`, and a float or bool pair was
+  accepted because it compares equal to the integer tile (the state was
+  still built from the path, so no float reached it). `battle.py` had the
+  same bug in `Move.dest` and `Attack.from_hex`, where `(2.0, 5)` *was*
+  stored as the stack position; it is fixed the same way. Neither golden
+  hash moved: legal commands always use int pairs.

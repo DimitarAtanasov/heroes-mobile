@@ -584,5 +584,25 @@ class PropertyTest(unittest.TestCase):
             s.heroes[0].mp = 5
 
 
+class MalformedDestTest(unittest.TestCase):
+    """A Move dest that is not a pair of ints is an IllegalCommand, not a
+    TypeError; the state is untouched and the RNG is never used."""
+
+    def test_bad_dest(self):
+        s = started(grid(["ggg", "ggg"]))
+        canon = A.canonical(s)
+        for bad in (5, None, "ab", (1,), (1, 0, 0), ([1], 0), (1.0, 0), (True, 0), {1: 0}):
+            with self.subTest(dest=bad):
+                with self.assertRaises(A.IllegalCommand):
+                    A.apply(s, A.Move(0, bad), NoRng())
+                self.assertEqual(A.canonical(s), canon)
+
+    def test_list_still_accepted(self):
+        s = started(grid(["ggg", "ggg"]))
+        a, _ = A.apply(s, A.Move(0, [1, 0]), NoRng())
+        b, _ = A.apply(s, A.Move(0, (1, 0)), NoRng())
+        self.assertEqual(A.canonical(a), A.canonical(b))
+
+
 if __name__ == "__main__":
     unittest.main()

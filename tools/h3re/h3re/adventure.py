@@ -20,7 +20,7 @@ Design (same as battle.py):
 import hashlib
 import heapq
 import json
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from math import isqrt
 
 from .rng import derive_stream
@@ -28,8 +28,8 @@ from .rng import derive_stream
 __all__ = [
     "TERRAIN_COST", "IMPASSABLE", "ROADS", "MINE_OUTPUT", "LOGISTICS_PCT",
     "AdventurePolicy", "DEFAULT_POLICY", "Resources", "Tile", "Grid",
-    "ArmySlot", "HeroSetup", "Hero", "Player", "GrowthPool", "GameState",
-    "IllegalCommand", "Begin", "Move", "EndTurn",
+    "ArmySlot", "HeroSetup", "Hero", "Player", "GrowthPool", "Guard", "GameState",
+    "IllegalCommand", "Begin", "Move", "EndTurn", "Attack",
     "DayStarted", "WeekStarted", "PoolGrew", "TurnStarted", "IncomeReceived",
     "MovementReset", "HeroMoved", "TurnEnded",
     "adventure_rng", "base_movement", "max_movement", "step_cost",
@@ -243,7 +243,7 @@ class HeroSetup:
 class Hero:
     id: int
     owner: int
-    pos: tuple
+    pos: tuple                # None once removed from the map (army is then ())
     army: tuple
     logistics: int
     pathfinding: int
@@ -269,6 +269,15 @@ class GrowthPool:
 
 
 @dataclass(frozen=True)
+class Guard:
+    """A neutral army standing on a tile (encounter.md). It blocks the tile
+    and can be attacked from a neighbouring one."""
+    id: str
+    pos: tuple
+    army: tuple               # 1..7 ArmySlot
+
+
+@dataclass(frozen=True)
 class GameState:
     game_id: str
     policy: AdventurePolicy
@@ -278,6 +287,11 @@ class GameState:
     pools: tuple
     day: int = 0              # 0 = not started
     current: int = 0          # index of the player whose turn it is
+    # Added after the 14-day golden was pinned: left out of the canonical
+    # form while at their default (_OMIT_WHEN_DEFAULT), so that hash holds.
+    guards: tuple = ()        # Guard, sorted by id
+    encounter: object = None  # encounter.EncounterSetup; None = no battles
+    battles: int = 0          # encounters fought so far (names battle ids)
 
 
 class IllegalCommand(ValueError):
@@ -300,6 +314,14 @@ class Move:
 @dataclass(frozen=True)
 class EndTurn:
     player: int
+
+
+@dataclass(frozen=True)
+class Attack:
+    """Hero ``hero`` attacks a neighbouring enemy: ``target`` is a hero id
+    (int) or a guard id (str). Resolved by ``encounter.resolve``."""
+    hero: int
+    target: object
 
 
 # Events ----------------------------------------------------------------
@@ -472,7 +494,8 @@ def _search(state, hero, budget):
     smallest label wins (deterministic tie-break). ``budget`` None = no
     movement-point limit (planning). Returns tile -> (spent, path)."""
     grid, pol = state.grid, state.policy
-    occupied = set(h.pos for h in state.heroes if h.id != hero.id)
+    occupied = set(h.pos for h in state.heroes if h.id != hero.id and h.pos is not None)
+    occupied.update(g.pos for g in state.guards)
     start = hero.pos
     best = {start: (0, 0, (start,))}
     heap = [(0, 0, (start,))]
@@ -509,12 +532,16 @@ def find_path(state, hero_id, dest):
     """Cheapest path ignoring today's points (UI planning): (cost, path) with
     the start tile first, or None. Ends of day are not modelled."""
     hero = state.heroes[hero_id]
+    if hero.pos is None:
+        return None
     return _search(state, hero, None).get(tuple(dest))
 
 
 def reachable(state, hero_id):
     """tile -> (cost, path) for every tile the hero can reach today."""
     hero = state.heroes[hero_id]
+    if hero.pos is None:          # removed from the map (encounter.md)
+        return {}
     return _search(state, hero, hero.mp)
 
 
@@ -529,8 +556,16 @@ def daily_income(player):
 # Setup, canonical form, hash
 # --------------------------------------------------------------------------
 
-def create_game(game_id, grid, players, heroes, pools=(), policy=DEFAULT_POLICY):
-    """Build the initial (not yet started) state. Apply ``Begin()`` next."""
+def _check_army(army, what):
+    if not 1 <= len(army) <= 7 or any(s.count <= 0 or s.speed < 0 for s in army):
+        raise ValueError("%s: invalid army" % what)
+
+
+def create_game(game_id, grid, players, heroes, pools=(), policy=DEFAULT_POLICY,
+                guards=(), encounter=None):
+    """Build the initial (not yet started) state. Apply ``Begin()`` next.
+    ``guards`` (``Guard``) and ``encounter`` (``encounter.EncounterSetup``)
+    enable battles (docs/specs/encounter.md); both are optional."""
     if not players:
         raise ValueError("need at least one player")
     for p in players:
@@ -546,8 +581,7 @@ def create_game(game_id, grid, players, heroes, pools=(), policy=DEFAULT_POLICY)
         pos = tuple(h.pos)
         if not 0 <= h.owner < len(players):
             raise ValueError("hero %d: no such owner" % i)
-        if not 1 <= len(h.army) <= 7 or any(s.count <= 0 or s.speed < 0 for s in h.army):
-            raise ValueError("hero %d: invalid army" % i)
+        _check_army(h.army, "hero %d" % i)
         if not (0 <= h.logistics <= 3 and 0 <= h.pathfinding <= 3):
             raise ValueError("hero %d: skill level out of range" % i)
         if not grid.passable(pos) or pos in seen:
@@ -556,13 +590,42 @@ def create_game(game_id, grid, players, heroes, pools=(), policy=DEFAULT_POLICY)
         built.append(Hero(id=i, owner=h.owner, pos=pos, army=tuple(h.army),
                           logistics=h.logistics, pathfinding=h.pathfinding,
                           mp=0, mp_max=0, moved_today=False))
-    return GameState(game_id=str(game_id), policy=policy, grid=grid,
-                     players=tuple(players), heroes=tuple(built), pools=tuple(pools))
+    gs = []
+    for g in guards:
+        pos = tuple(g.pos)
+        if type(g.id) is not str:
+            raise ValueError("guard id must be a string")
+        _check_army(g.army, "guard %r" % (g.id,))
+        if not grid.passable(pos) or pos in seen:
+            raise ValueError("guard %r cannot stand at %r" % (g.id, pos))
+        seen.add(pos)
+        gs.append(Guard(g.id, pos, tuple(g.army)))
+    gs.sort(key=lambda g: g.id)
+    if len(set(g.id for g in gs)) != len(gs):
+        raise ValueError("duplicate guard id")
+    state = GameState(game_id=str(game_id), policy=policy, grid=grid,
+                      players=tuple(players), heroes=tuple(built), pools=tuple(pools),
+                      guards=tuple(gs), encounter=encounter)
+    if encounter is not None:
+        from . import encounter as _enc
+        _enc.check_game(state)
+    return state
+
+
+# GameState fields added after the adventure golden hash was pinned. Each is
+# left out of the canonical form while it holds its default, so states that do
+# not use encounters keep their hash (ADR-0001; same mechanism as battle.py).
+_OMIT_WHEN_DEFAULT = ("guards", "encounter", "battles")
+_GAME_DEFAULTS = {f.name: f.default for f in fields(GameState)}
 
 
 def canonical(state):
     """Canonical byte form of the state (used for hashing, saves, sync)."""
-    return json.dumps(asdict(state), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    data = asdict(state)
+    for name in _OMIT_WHEN_DEFAULT:
+        if data[name] == _GAME_DEFAULTS[name]:
+            data.pop(name)
+    return json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def state_hash(state):
@@ -599,7 +662,7 @@ def _start_turn(state, events):
         events.append(IncomeReceived(pid, inc))
     heroes = list(state.heroes)
     for h in state.heroes:
-        if h.owner == pid:
+        if h.owner == pid and h.pos is not None:     # removed heroes do not act
             mp = max_movement(h, state.policy)
             heroes[h.id] = replace(h, mp=mp, mp_max=mp, moved_today=False)
             events.append(MovementReset(h.id, mp))
@@ -622,18 +685,36 @@ def _validate(state, cmd):
             raise IllegalCommand("no such hero")
         if state.heroes[cmd.hero].owner != state.current:
             raise IllegalCommand("hero does not belong to the current player")
+        if state.heroes[cmd.hero].pos is None:
+            raise IllegalCommand("hero is not on the map")
+        dest = _as_tile(cmd.dest)
         reach = reachable(state, cmd.hero)
-        dest = tuple(cmd.dest)
         if dest not in reach:
             raise IllegalCommand("destination not reachable today")
         return reach[dest]
+    if isinstance(cmd, Attack):
+        from . import encounter     # lazy: encounter imports this module
+        return encounter.validate(state, cmd)
     raise IllegalCommand("unknown command %r" % (cmd,))
+
+
+def _as_tile(v):
+    """A command tile as an ``(x, y)`` tuple of ints, else IllegalCommand
+    (a non-pair would raise TypeError; floats/bools compare equal to a tile)."""
+    if isinstance(v, (tuple, list)) and len(v) == 2 and all(type(c) is int for c in v):
+        return tuple(v)
+    raise IllegalCommand("not a tile: %r" % (v,))
 
 
 def apply(state, cmd, rng=None):
     """Apply one command. Returns (new_state, events). Pure; ``rng`` (the
-    ``adventure:<id>`` stream) is reserved and not drawn from."""
+    ``adventure:<id>`` stream) is reserved and not drawn from, except for
+    ``Attack``: there it must be the battle stream ``battle:<battle id>``
+    (``encounter.stream_for``), which the battle draws from."""
     data = _validate(state, cmd)
+    if isinstance(cmd, Attack):
+        from . import encounter
+        return encounter.resolve(state, cmd, rng, data)
     events = []
     if isinstance(cmd, Begin):
         state = _start_day(replace(state, day=1, current=0), events)

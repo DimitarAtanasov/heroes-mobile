@@ -903,5 +903,40 @@ class PreviewLawTest(unittest.TestCase):
             n += self._check(golden_setup(), seed, lambda s: r.choice(B.legal_commands(s)))
         self.assertGreater(n, 20)
 
+
+class MalformedHexTest(unittest.TestCase):
+    """A dest/from_hex that is not a pair of ints is an IllegalCommand (not a
+    TypeError), raised before any draw; floats and bools never reach state."""
+
+    BAD = (5, None, "ab", (1,), (1, 2, 3), ([1], 2), (2.0, 5), (True, 5), {1: 2})
+
+    def setUp(self):
+        self.st, _ = begin(B.create_battle("h", [ss(cr("a", speed=6))], [ss(cr("b"))]))
+
+    def test_move_dest(self):
+        canon = B.canonical(self.st)
+        for bad in self.BAD:
+            with self.subTest(dest=bad):
+                rng = ScriptRng()
+                with self.assertRaises(B.IllegalCommand):
+                    B.apply(self.st, B.Move(self.st.active, bad), rng)
+                self.assertEqual(rng.calls, 0)
+                self.assertEqual(B.canonical(self.st), canon)
+
+    def test_attack_from_hex(self):
+        for bad in self.BAD:
+            with self.subTest(from_hex=bad):
+                rng = ScriptRng()
+                with self.assertRaises(B.IllegalCommand):
+                    B.apply(self.st, B.Attack(self.st.active, 1, bad), rng)
+                self.assertEqual(rng.calls, 0)
+
+    def test_list_still_accepted(self):
+        dest = B.reachable(self.st, self.st.active)[0]
+        s1, _ = B.apply(self.st, B.Move(self.st.active, list(dest)), ScriptRng())
+        s2, _ = B.apply(self.st, B.Move(self.st.active, dest), ScriptRng())
+        self.assertEqual(B.canonical(s1), B.canonical(s2))
+
+
 if __name__ == "__main__":
     unittest.main()

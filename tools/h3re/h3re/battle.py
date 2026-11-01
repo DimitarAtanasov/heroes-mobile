@@ -855,6 +855,15 @@ def _finish_turn(state, kind, rng, events):
     return _activate_next(state, rng, events)
 
 
+def _as_hex(v):
+    """A command hex as a ``(col, row)`` tuple of ints, else IllegalCommand.
+    Rejects non-pairs (no TypeError) and floats/bools (they would compare
+    equal to a reachable hex and then reach the state)."""
+    if isinstance(v, (tuple, list)) and len(v) == 2 and all(type(c) is int for c in v):
+        return tuple(v)
+    raise IllegalCommand("not a hex: %r" % (v,))
+
+
 def _validate(state, cmd):
     """Raise IllegalCommand, or return precomputed data for the command."""
     if state.rules_hash != rules.RULES_HASH:
@@ -880,8 +889,8 @@ def _validate(state, cmd):
     if isinstance(cmd, Defend):
         return None
     if isinstance(cmd, Move):
+        dest = _as_hex(cmd.dest)
         reach = _reach(state, st)
-        dest = tuple(cmd.dest)
         if dest not in reach:
             raise IllegalCommand("destination not reachable")
         return reach[dest]
@@ -897,11 +906,11 @@ def _validate(state, cmd):
             if _enemy_adjacent(state, st):
                 raise IllegalCommand("enemy adjacent: must melee")
             return None
-        if cmd.from_hex is None or tuple(cmd.from_hex) == st.pos:
-            head, path = st.pos, ()
+        head = st.pos if cmd.from_hex is None else _as_hex(cmd.from_hex)
+        if head == st.pos:
+            path = ()
         else:
             reach = _reach(state, st)
-            head = tuple(cmd.from_hex)
             if head not in reach:
                 raise IllegalCommand("attack hex not reachable")
             path = reach[head]
