@@ -35,7 +35,7 @@ import json
 import os
 import sys
 
-SIM_MODULES = ("battle.py", "adventure.py", "rules.py", "rng.py")
+SIM_MODULES = ("battle.py", "adventure.py", "rules.py", "rng.py", "town.py", "hero.py")
 # Not simulation modules, but they run at import and feed constants to the
 # sim, so the same rules apply (their necessary I/O is allowlisted line by line).
 IMPORT_TIME_MODULES = ("datapack.py",)
