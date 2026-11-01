@@ -241,8 +241,9 @@ hand (in tests and callers), not loaded from a content database.
 
 ## 4. Open architecture questions
 
-- Engine language: Rust (core) + a thin platform UI, or Kotlin/Swift with a
-  shared C++ core. Either way, `sim` must compile headless for tests.
+- Engine language: **decided** in ADR-0004. The target is an Android app with a Kotlin
+  engine; the Python implementation stays as the reference oracle and conformance suite.
+  `sim` must still compile headless for tests.
 - Shipping our own replacement placeholder art (CC0) so the engine runs
   without game data, for development and CI screenshots.
 - Multiplayer: lockstep over command logs works directly because of the
