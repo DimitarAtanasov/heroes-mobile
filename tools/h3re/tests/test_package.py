@@ -81,7 +81,7 @@ class TestImportSideEffects(unittest.TestCase):
         self.assertEqual(proc.stdout, "")
         self.assertEqual(proc.stderr, "")
 
-    def test_fresh_import_opens_only_the_rules_pack(self):
+    def test_fresh_import_opens_only_the_pack_files(self):
         code = (
             "import builtins, io\n"
             "opened = []\n"
@@ -94,7 +94,7 @@ class TestImportSideEffects(unittest.TestCase):
             "import h3re\n"
             "import os\n"
             "names = [os.path.basename(str(p)) for p in opened]\n"
-            "assert names == ['rules.json'], opened\n"
+            "assert names == ['rules.json', 'battle_policy.json'], opened\n"
         )
         proc = _run_isolated(code)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -213,6 +213,30 @@ class TestRulesPackIdentity(unittest.TestCase):
         proc = _probe({"H3_DATA_PACK_DIR": afile})
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("not a directory", proc.stderr)
+
+    def test_policy_defaults_follow_the_pack_dir(self):
+        d = self._pack("pol")
+        path = os.path.join(d, "battle_policy.json")
+        with open(path, encoding="utf-8") as f:
+            pol = json.load(f)
+        pol["range_penalty_beyond"] = 7
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(pol, f)
+        code = (
+            "import json\n"
+            "from h3re import battle as B\n"
+            "cr = B.Creature(name='a', attack=4, defense=4, dmg_min=1, dmg_max=3, hp=10, speed=4)\n"
+            "s = B.create_battle('p', [B.StackSetup(cr, 5)], [B.StackSetup(cr, 5)])\n"
+            "print(json.dumps([B.BattlePolicy().range_penalty_beyond, B.state_hash(s),"
+            " B.POLICY_HASH]))\n"
+        )
+        base = json.loads(_run_isolated(code).stdout)
+        proc = _run_isolated(code, {"H3_DATA_PACK_DIR": d})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        other = json.loads(proc.stdout)
+        self.assertEqual((base[0], other[0]), (10, 7))
+        self.assertNotEqual(other[1], base[1])
+        self.assertNotEqual(other[2], base[2])
 
     def test_adventure_reads_no_pack_value(self):
         # adventure.py is independent of rules.json, which is why GameState

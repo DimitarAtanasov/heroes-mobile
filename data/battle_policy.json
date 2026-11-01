@@ -1,0 +1,28 @@
+{
+  "bad_luck": false,
+  "bad_morale_on_wait_activation": false,
+  "defend_bonus_den": 5,
+  "defend_bonus_min": 1,
+  "defend_bonus_num": 1,
+  "defend_bonus_rounding": "floor",
+  "edge_columns_walkable": false,
+  "good_morale_after_defend": false,
+  "good_morale_after_wait": false,
+  "good_morale_on_wait_activation": true,
+  "placement_rows": [
+    [5],
+    [2, 8],
+    [2, 5, 8],
+    [0, 4, 6, 10],
+    [0, 2, 5, 8, 10],
+    [0, 2, 4, 6, 8, 10],
+    [0, 2, 4, 5, 6, 8, 10]
+  ],
+  "range_origin": "head",
+  "range_penalty_beyond": 10,
+  "repeat_good_morale": false,
+  "row_offset": "even",
+  "schema_version": 1,
+  "speed_tie": "attacker_first",
+  "wait_order": "reverse_speed"
+}

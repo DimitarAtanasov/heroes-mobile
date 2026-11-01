@@ -16,6 +16,11 @@ Decision:
   content hash of the loaded `rules.json` (`rules.RULES_HASH`) and is always in the canonical
   form, so peers with different packs diverge at step 0. A sim module that starts reading pack
   values must carry the hash too (`adventure.py` reads none today and does not).
+- `apply` refuses a battle state whose `rules_hash` differs from the local pack
+  (`battle.PackMismatch`, an `IllegalCommand`), before any RNG draw.
+- `BattlePolicy` defaults come from `data/battle_policy.json`. The policy values are in
+  the state, so that file needs no hash field of its own (`battle.POLICY_HASH` is for logs
+  and tests); moving the defaults out of code was not a re-pin.
 - Battle only: fields added after a pin may be listed in `_OMIT_WHEN_DEFAULT` and are left out
   of the canonical form while they hold their default. This keeps older hashes valid. The list
   is empty right after a re-pin.

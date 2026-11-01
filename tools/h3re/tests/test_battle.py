@@ -3,11 +3,12 @@ import random
 import sys
 import unittest
 from collections import deque
-from dataclasses import replace
+from dataclasses import fields, replace
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from h3re import battle as B  # noqa: E402
+from h3re import datapack as D  # noqa: E402
 from h3re import rules  # noqa: E402
 
 
@@ -626,6 +627,62 @@ class IllegalCommandNoRngTest(unittest.TestCase):
         dead = replace(state, stacks=tuple(stacks))
         self.assert_illegal(dead, B.Attack(me.id, enemy.id))
         self.assert_illegal(dead, B.Shoot(me.id, enemy.id))
+
+
+class PackMismatchTest(unittest.TestCase):
+    """apply refuses a state built under another rules pack (battle.md section 10)."""
+
+    def other_pack_state(self):
+        c = cr("pm", speed=5)
+        st = B.create_battle("pm", [ss(c, 5)], [ss(c, 5)])
+        self.assertEqual(st.rules_hash, rules.RULES_HASH)
+        return replace(st, rules_hash="0" * 64)
+
+    def test_refused_before_any_draw_or_change(self):
+        for started in (False, True):
+            st = self.other_pack_state()
+            if started:
+                st = replace(st, started=True, round=1, active=0)
+            before = B.state_hash(st)
+            for cmd in (B.Begin(), B.Wait(0), B.Defend(0), B.Move(0, (3, 3))):
+                probe = ScriptRng()
+                with self.assertRaises(B.PackMismatch) as ctx:
+                    B.apply(st, cmd, probe)
+                self.assertEqual(probe.calls, 0)
+                self.assertIn(rules.RULES_HASH, str(ctx.exception))
+            self.assertEqual(B.state_hash(st), before)
+
+    def test_is_an_illegal_command(self):
+        self.assertTrue(issubclass(B.PackMismatch, B.IllegalCommand))
+        with self.assertRaises(B.IllegalCommand):
+            B.apply(self.other_pack_state(), B.Begin(), ScriptRng())
+
+    def test_matching_pack_still_applies(self):
+        c = cr("pm", speed=5)
+        st = B.create_battle("pm", [ss(c, 5)], [ss(c, 5)])
+        state, events = B.apply(st, B.Begin(), ScriptRng())
+        self.assertTrue(state.started)
+
+
+class PolicyDefaultsFromPackTest(unittest.TestCase):
+    """BattlePolicy() defaults come from data/battle_policy.json."""
+
+    def test_defaults_equal_the_pack(self):
+        pack = D.load_policy_pack_dir()
+        self.assertEqual(B.POLICY_HASH, pack.content_hash)
+        p = B.BattlePolicy()
+        for name in pack.values:
+            if name != "schema_version":
+                self.assertEqual(getattr(p, name), pack.values[name], name)
+        self.assertEqual(B.DEFAULT_ROW_OFFSET, pack.values["row_offset"])
+        self.assertEqual(p.bad_morale_table, rules.BAD_MORALE_NUMERATORS)
+
+    def test_every_policy_field_is_covered(self):
+        # a policy field missing from the pack would silently keep a code default
+        names = {f.name for f in fields(B.BattlePolicy)}
+        pack = set(D.load_policy_pack_dir().values) - {"schema_version"}
+        self.assertEqual(names - pack, {"bad_morale_table"})
+        self.assertEqual(pack - names, set())
 
 
 class RecordingRng(ScriptRng):

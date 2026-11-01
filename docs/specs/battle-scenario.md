@@ -99,7 +99,8 @@ hash reflects that.
 ## 5. Policy
 
 `policy` overrides fields of `BattlePolicy` in `battle.py`. Any field that is
-left out keeps its default. The fields are `row_offset`, `edge_columns_walkable`,
+left out keeps its default (defaults come from `data/battle_policy.json`, see
+`datapack.md`). The fields are `row_offset`, `edge_columns_walkable`,
 `placement_rows`, `speed_tie`, `wait_order`, `defend_bonus_num`,
 `defend_bonus_den`, `defend_bonus_min`, `defend_bonus_rounding`,
 `good_morale_after_wait`, `good_morale_after_defend`, `repeat_good_morale`,

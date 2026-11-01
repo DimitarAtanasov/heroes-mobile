@@ -177,6 +177,106 @@ class ValidationTest(unittest.TestCase):
         self.assertTrue(issubclass(D.DataPackError, ValueError))
 
 
+def raw_policy():
+    with open(os.path.join(D.DEFAULT_DIR, "battle_policy.json")) as f:
+        return json.load(f)
+
+
+# Independent literal copy of the shipped data/battle_policy.json (rule choices
+# that BattlePolicy() defaults to). Editing the file or the loader without
+# updating this copy fails the test.
+POLICY_LITERAL = {
+    "row_offset": "even", "edge_columns_walkable": False,
+    "placement_rows": ((5,), (2, 8), (2, 5, 8), (0, 4, 6, 10), (0, 2, 5, 8, 10),
+                       (0, 2, 4, 6, 8, 10), (0, 2, 4, 5, 6, 8, 10)),
+    "speed_tie": "attacker_first", "wait_order": "reverse_speed",
+    "defend_bonus_num": 1, "defend_bonus_den": 5, "defend_bonus_min": 1,
+    "defend_bonus_rounding": "floor",
+    "good_morale_after_wait": False, "good_morale_after_defend": False,
+    "repeat_good_morale": False,
+    "bad_morale_on_wait_activation": False, "good_morale_on_wait_activation": True,
+    "bad_luck": False, "range_penalty_beyond": 10, "range_origin": "head",
+}
+
+
+class PolicyPackTest(unittest.TestCase):
+    def test_json_equals_literal_and_battle_defaults(self):
+        pack = D.load_policy_pack_dir()
+        self.assertEqual(dict(pack.values), dict(POLICY_LITERAL, schema_version=1))
+        p = B.BattlePolicy()
+        for k in POLICY_LITERAL:
+            self.assertEqual(getattr(p, k), POLICY_LITERAL[k], k)
+            self.assertIs(type(getattr(p, k)), type(POLICY_LITERAL[k]), k)
+        self.assertEqual(p.bad_morale_table, (1, 2, 3))
+        self.assertEqual(B.DEFAULT_POLICY, p)
+
+    def test_choices_match_battle_validation(self):
+        for k, allowed in D.POLICY_CHOICES.items():
+            for v in allowed:
+                B.BattlePolicy(**{k: v})
+            with self.assertRaises(ValueError):
+                B.BattlePolicy(**{k: "bogus"})
+
+    def test_max_row_is_the_grid_height(self):
+        d = raw_policy()
+        d["placement_rows"][0] = [B.HEIGHT - 1]
+        D.parse_policy(d)
+        d["placement_rows"][0] = [B.HEIGHT]
+        with self.assertRaisesRegex(D.DataPackError, "out of range"):
+            D.parse_policy(d)
+
+    def test_hash_stable_and_order_independent(self):
+        a = D.load_policy_pack_dir()
+        d = raw_policy()
+        rev = dict(reversed(list(d.items())))
+        self.assertEqual(D.parse_policy(rev).content_hash, a.content_hash)
+        self.assertEqual(a.content_hash,
+                         hashlib.sha256(a.canonical_json.encode()).hexdigest())
+        d["range_penalty_beyond"] += 1
+        self.assertNotEqual(D.parse_policy(d).content_hash, a.content_hash)
+        with self.assertRaises(TypeError):
+            a.values["row_offset"] = "odd"
+
+    def test_failures(self):
+        def bad(pattern, mut):
+            d = raw_policy()
+            mut(d)
+            with self.assertRaisesRegex(D.DataPackError, pattern):
+                D.parse_policy(d)
+        bad("unknown key", lambda d: d.update(extra=1))
+        bad("missing key", lambda d: d.pop("bad_luck"))
+        bad("expected boolean", lambda d: d.update(bad_luck=0))
+        bad("expected boolean", lambda d: d.update(repeat_good_morale="no"))
+        bad("expected integer", lambda d: d.update(range_penalty_beyond=10.0))
+        bad("expected integer", lambda d: d.update(range_penalty_beyond=True))
+        bad("out of range", lambda d: d.update(defend_bonus_den=0))
+        bad("out of range", lambda d: d.update(defend_bonus_num=-1))
+        bad("expected one of", lambda d: d.update(row_offset="left"))
+        bad("expected one of", lambda d: d.update(speed_tie=3))
+        bad("expected 7 items", lambda d: d.update(placement_rows=d["placement_rows"][:6]))
+        bad("expected 3 items", lambda d: d["placement_rows"].__setitem__(2, [2, 5]))
+        bad("distinct", lambda d: d["placement_rows"].__setitem__(1, [2, 2]))
+        bad("out of range", lambda d: d["placement_rows"].__setitem__(0, [-1]))
+        bad("expected array", lambda d: d.update(placement_rows=5))
+        bad("unsupported", lambda d: d.update(schema_version=2))
+        with self.assertRaisesRegex(D.DataPackError, "expected object"):
+            D.parse_policy([])
+
+    def test_file_errors(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(D.DataPackError, "cannot read"):
+                D.load_policy_pack_dir(d)
+            path = os.path.join(d, "battle_policy.json")
+            with open(path, "w") as f:
+                f.write('{"schema_version": 1, "schema_version": 1}')
+            with self.assertRaisesRegex(D.DataPackError, "duplicate key"):
+                D.load_policy_pack_dir(d)
+            with open(path, "w") as f:
+                f.write('{"range_penalty_beyond": 1.5}')
+            with self.assertRaisesRegex(D.DataPackError, "floats"):
+                D.load_policy_pack_dir(d)
+
+
 def army(pack):
     names = pack.creature_names
     return lambda: [B.StackSetup(pack.creature(n), 12 + 3 * i, morale=i % 2, luck=1)

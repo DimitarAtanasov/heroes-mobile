@@ -22,6 +22,10 @@ the same as in that file: **[documented]**, **[uncertain]** and **[engine]**.
 - An illegal command raises `IllegalCommand`. All validation runs before any
   RNG draw, so a rejected command touches neither the state nor the stream.
   [engine]
+- `apply` refuses a state whose `rules_hash` differs from the local rules pack
+  (`rules.RULES_HASH`) by raising `PackMismatch`, a subclass of
+  `IllegalCommand`, as the first check of validation (every command, `Begin`
+  included): no RNG draw and no state change. [engine]
 - `rng` is the `rng.py` named stream `battle:<battle_id>`. Get it with
   `battle_rng(master_seed, battle_id)`, which is
   `derive_stream(master_seed, "battle:<id>")`. [engine]
@@ -229,6 +233,13 @@ emitted, the state keeps `winner` and stops accepting commands.
 
 ## 8. Uncertain policy summary
 
+The defaults below are not in `battle.py`: they are read from
+`data/battle_policy.json` (validated by `datapack.py`, `datapack.md`), except
+`bad_morale_table`, whose default is `rules.BAD_MORALE_NUMERATORS` from
+`data/rules.json`. A drift test compares the file and `BattlePolicy()` with a
+literal copy. The state still carries the whole policy, so the hash is
+unchanged by this move.
+
 | Policy field | Default | rules.md |
 |---|---|---|
 | `row_offset` | `"even"` (was `"odd"`) | §6.1 [uncertain]; VCMI #1 clear |
@@ -328,8 +339,8 @@ This is a pure canonical-form change. The play is unchanged: removing
 `rules_hash` from the canonical JSON of the golden final state reproduces
 `2191ae97…` exactly. The hash covers `rules.json` only; `creatures.json` is
 still passed in as `Creature` values and is already part of the state.
-`apply` does not compare `rules_hash` with the local pack; a state loaded
-under another pack is detectable by its hash but is not refused (follow-up).
+`apply` did not compare `rules_hash` with the local pack at this point; that
+follow-up is done, see the next change note.
 
 Adventure: `adventure.py` reads no pack value (its terrain, road and
 Logistics numbers are its own constants and policy), so a pack difference
@@ -340,3 +351,19 @@ reading the pack, add the field then, as a re-pin.
 Also in this change (no hash effect): `luck_chance` and `good_morale_chance`
 divide by `MORALE_DIE` instead of a literal 24. Luck shares the pack's one
 die with morale; there is no separate luck die in `rules.json`.
+
+### Later: policy defaults moved to data, `apply` checks the pack (no re-pin)
+
+The golden hash did **not** move (`fbe9015b...` stays pinned).
+
+- `BattlePolicy` defaults now come from `data/battle_policy.json` (see section 8
+  and `datapack.md`) instead of literals in `battle.py`. The values are the same,
+  and the policy was already in the canonical form, so no state field was added.
+  `_OMIT_WHEN_DEFAULT` stays empty. `battle.POLICY_HASH` exposes the file's
+  content hash for logs and tests; it is not part of the state.
+- `apply` now raises `PackMismatch` (an `IllegalCommand`) when
+  `state.rules_hash != rules.RULES_HASH`, before any RNG draw or state change.
+  Only `rules.json` is covered by `rules_hash`; a state saved under another
+  `battle_policy.json` keeps playing by the policy stored in it, which is what
+  its hash already commits to.
+

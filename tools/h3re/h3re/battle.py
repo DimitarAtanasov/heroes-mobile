@@ -27,6 +27,7 @@ import json
 from collections import deque
 from dataclasses import asdict, dataclass, replace
 
+from . import datapack as _datapack
 from . import rules
 from .rng import derive_stream
 
@@ -42,34 +43,30 @@ __all__ = [
     "battle_rng", "create_battle", "apply", "cells", "reachable",
     "turn_order", "round_order", "legal_commands", "canonical", "state_hash",
     "defend_bonus", "effective_morale", "DEFAULT_ROW_OFFSET",
-    "strike_context", "strike_preview",
+    "strike_context", "strike_preview", "PackMismatch", "POLICY_HASH",
 ]
 
 WIDTH = 17
 HEIGHT = 11
 ATTACKER = 0
 DEFENDER = 1
+
+# BattlePolicy defaults are rule choices, so they live in data/battle_policy.json
+# (validated by datapack.py), not here. POLICY_HASH is the content hash of that
+# file. It is not a state field: the policy itself is already in the state hash.
+_POLICY_PACK = _datapack.load_policy_pack_dir()
+POLICY_HASH = _POLICY_PACK.content_hash
+_P = _POLICY_PACK.values
 # Default row parity for the geometry helpers; equals BattlePolicy().row_offset.
-DEFAULT_ROW_OFFSET = "even"
+DEFAULT_ROW_OFFSET = _P["row_offset"]
 
 
 # --------------------------------------------------------------------------
 # Policy: every [uncertain] rule of rules.md section 6 that is in scope.
 # --------------------------------------------------------------------------
 
-_DEFAULT_PLACEMENT = (
-    (5,),
-    (2, 8),
-    (2, 5, 8),
-    (0, 4, 6, 10),
-    (0, 2, 5, 8, 10),
-    (0, 2, 4, 6, 8, 10),
-    (0, 2, 4, 5, 6, 8, 10),
-)
-
-
-_SPEED_TIES = ("attacker_first", "alternate", "alternate_last_mover")
-_WAIT_ORDERS = ("reverse_speed", "speed", "fifo", "slow_first_alternate")
+_SPEED_TIES = _datapack.POLICY_CHOICES["speed_tie"]
+_WAIT_ORDERS = _datapack.POLICY_CHOICES["wait_order"]
 
 
 @dataclass(frozen=True)
@@ -81,61 +78,62 @@ class BattlePolicy:
 
     # 6.1 geometry: which rows are shifted half a hex to the right.
     # "even" since the VCMI cross-check (#1, clear); "odd" was the old default.
-    row_offset: str = DEFAULT_ROW_OFFSET   # "odd" | "even"
+    row_offset: str = _P["row_offset"]   # "odd" | "even"
     # 6.1 geometry: may ordinary stacks use the war-machine edge columns?
-    edge_columns_walkable: bool = False
+    edge_columns_walkable: bool = _P["edge_columns_walkable"]
     # 6.1 initial placement: rows per army size (index = n_stacks - 1).
-    placement_rows: tuple = _DEFAULT_PLACEMENT
+    placement_rows: tuple = _P["placement_rows"]
     # 6.3 speed ties: "attacker_first" (side, then slot) | "alternate"
     # (interleave, attacker first in every tie group) | "alternate_last_mover"
     # (the side that did not act last goes first; carries across rounds;
     # VCMI behaviour, pending rules.md 9.4).
-    speed_tie: str = "attacker_first"
+    speed_tie: str = _P["speed_tie"]
     # 6.3 order within the wait phase: "reverse_speed" | "speed" | "fifo" |
     # "slow_first_alternate" (ascending speed, ties by the last-mover rule,
     # lower slot first; VCMI behaviour, pending rules.md 9.4).
-    wait_order: str = "reverse_speed"
+    wait_order: str = _P["wait_order"]
     # 6.3 defend bonus: num/den of Defense, at least ``min``, rounding mode.
-    defend_bonus_num: int = 1
-    defend_bonus_den: int = 5
-    defend_bonus_min: int = 1
-    defend_bonus_rounding: str = "floor"   # "floor" | "ceil"
+    defend_bonus_num: int = _P["defend_bonus_num"]
+    defend_bonus_den: int = _P["defend_bonus_den"]
+    defend_bonus_min: int = _P["defend_bonus_min"]
+    defend_bonus_rounding: str = _P["defend_bonus_rounding"]   # "floor" | "ceil"
     # 6.5 good morale after Wait / Defend, repeated triggers.
-    good_morale_after_wait: bool = False
-    good_morale_after_defend: bool = False
-    repeat_good_morale: bool = False
+    good_morale_after_wait: bool = _P["good_morale_after_wait"]
+    good_morale_after_defend: bool = _P["good_morale_after_defend"]
+    repeat_good_morale: bool = _P["repeat_good_morale"]
     # 6.5 morale rolls at a stack's wait-phase activation (VCMI cross-check
     # #4): no bad-morale roll, the good-morale roll still happens.
     # These two replace the deprecated ``morale_roll_on_wait_activation``
     # (old True == both True, old False == both False).
-    bad_morale_on_wait_activation: bool = False
-    good_morale_on_wait_activation: bool = True
+    bad_morale_on_wait_activation: bool = _P["bad_morale_on_wait_activation"]
+    good_morale_on_wait_activation: bool = _P["good_morale_on_wait_activation"]
     # 6.5 bad-morale chance numerators over 24 for morale -1, -2, -3.
     # (1, 2, 3) is the community-documented value; VCMI uses (2, 4, 6).
-    # Pending rules.md 9.13.
+    # Pending rules.md 9.13. Both tables are in data/rules.json; the default
+    # is the documented one, so it is not repeated in battle_policy.json.
     bad_morale_table: tuple = rules.BAD_MORALE_NUMERATORS
     # 6.5 bad luck (|L|/24 chance to halve damage, after the final floor).
-    bad_luck: bool = False
+    bad_luck: bool = _P["bad_luck"]
     # 6.6 R_range: penalty when distance > this many hexes.
-    range_penalty_beyond: int = 10
+    range_penalty_beyond: int = _P["range_penalty_beyond"]
     # 6.6 R_range distance origin: "head" (shooter head hex to any target
     # cell; VCMI cross-check #12, clear) | "any_cell" (minimum over all
     # shooter cells; the old default). Only matters for two-hex shooters.
-    range_origin: str = "head"
+    range_origin: str = _P["range_origin"]
 
     def __post_init__(self):
-        if self.row_offset not in ("odd", "even"):
+        if self.row_offset not in _datapack.POLICY_CHOICES["row_offset"]:
             raise ValueError("row_offset must be 'odd' or 'even'")
         if self.speed_tie not in _SPEED_TIES:
             raise ValueError("bad speed_tie")
         if self.wait_order not in _WAIT_ORDERS:
             raise ValueError("bad wait_order")
-        if self.range_origin not in ("head", "any_cell"):
+        if self.range_origin not in _datapack.POLICY_CHOICES["range_origin"]:
             raise ValueError("bad range_origin")
         table = tuple(self.bad_morale_table)
         object.__setattr__(self, "bad_morale_table", table)
         rules.check_bad_morale_table(table)
-        if self.defend_bonus_rounding not in ("floor", "ceil"):
+        if self.defend_bonus_rounding not in _datapack.POLICY_CHOICES["defend_bonus_rounding"]:
             raise ValueError("bad defend_bonus_rounding")
         if self.defend_bonus_den <= 0 or self.defend_bonus_num < 0:
             raise ValueError("bad defend bonus fraction")
@@ -285,6 +283,10 @@ class BattleState:
 
 class IllegalCommand(ValueError):
     """Command rejected; state and RNG are untouched."""
+
+
+class PackMismatch(IllegalCommand):
+    """The state was built under a different rules pack than the local one."""
 
 
 # --------------------------------------------------------------------------
@@ -855,6 +857,9 @@ def _finish_turn(state, kind, rng, events):
 
 def _validate(state, cmd):
     """Raise IllegalCommand, or return precomputed data for the command."""
+    if state.rules_hash != rules.RULES_HASH:
+        raise PackMismatch("state rules_hash %s differs from the local rules pack %s"
+                           % (state.rules_hash, rules.RULES_HASH))
     if isinstance(cmd, Begin):
         if state.started:
             raise IllegalCommand("battle already started")

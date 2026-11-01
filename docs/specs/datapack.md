@@ -19,6 +19,21 @@ Reference implementation: `tools/h3re/h3re/datapack.py` (stdlib only).
   `battle.Creature` (`flyer`, `double_wide`, ...), `hates` (list of roster
   names).
 
+- `data/battle_policy.json`: the `BattlePolicy` defaults (rule choices).
+  Keys: `schema_version`, `row_offset`, `edge_columns_walkable`,
+  `placement_rows` (7 arrays of size 1..7, distinct row indices 0..10),
+  `speed_tie`, `wait_order`, `defend_bonus_num`, `defend_bonus_den` (>= 1),
+  `defend_bonus_min`, `defend_bonus_rounding`, `good_morale_after_wait`,
+  `good_morale_after_defend`, `repeat_good_morale`,
+  `bad_morale_on_wait_activation`, `good_morale_on_wait_activation`,
+  `bad_luck`, `range_penalty_beyond`, `range_origin`. Integers, booleans and
+  enumerated strings only (`datapack.POLICY_CHOICES` lists the allowed
+  strings; `battle.BattlePolicy` validates against the same tuples). Unknown
+  or missing keys, floats, wrong types and out-of-range values raise
+  `DataPackError` (`battle_policy.<key>: ...`). `bad_morale_table` is not in
+  this file: its default is `rules.BAD_MORALE_NUMERATORS`, already in
+  `rules.json`, and is not repeated.
+
 ## Validation
 
 Any problem raises `DataPackError` (a `ValueError`) naming the path, e.g.
@@ -56,6 +71,20 @@ A missing or invalid pack raises `DataPackError` at import. The simulation modul
 themselves; the read happens in `datapack.py`. `test_package.py` pins that importing `h3re` opens
 only `rules.json`. `test_datapack.py::test_json_equals_code` compares both the loaded pack and the
 `rules.py` constants with an independent literal copy inside the test, so drift in either fails.
+
+## Battle policy pack
+`datapack.load_policy_pack_dir()` (same `H3_DATA_PACK_DIR` rules as `rules.json`)
+returns a `PolicyPack`: `.values` (read-only mapping, `placement_rows` as nested
+tuples), `.canonical_json` and `.content_hash` (SHA-256 of the canonical JSON,
+`sort_keys`, so formatting and key order do not matter). `battle.py` reads it
+at import and exposes `battle.POLICY_HASH`. Importing `h3re` opens exactly two
+files, `rules.json` then `battle_policy.json` (pinned by `test_package.py`).
+`POLICY_HASH` is **not** a `BattleState` field: the policy values themselves are
+already in the state (and so in its hash), so a different pack shows up as a
+different hash at step 0 without adding a field. `tests/test_datapack.py::
+PolicyPackTest` compares the loaded values and `BattlePolicy()` against an
+independent literal copy. Moving the defaults out of code did not change the
+golden hash (`fbe9015b...`).
 
 ## Pack directory and rules hash (determinism audit)
 - `H3_DATA_PACK_DIR` is made absolute once, at `datapack` import (`DEFAULT_DIR`, also exported as

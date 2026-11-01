@@ -3,7 +3,8 @@
 Spec: docs/specs/datapack.md. Stdlib only. Strict validation (types, ranges,
 unknown keys rejected), integer-only values (floats rejected), deterministic
 ordering (creatures sorted by name) and a SHA-256 content hash of the
-canonical JSON of the validated pack. ``rules.py`` derives its constants from
+canonical JSON of the validated pack. ``battle_policy.json`` (the
+``BattlePolicy`` defaults) is validated and hashed the same way. ``rules.py`` derives its constants from
 this module at import (``load_rules_dir``), so this module must not import
 ``rules`` or ``battle`` at module load (``battle`` is imported lazily).
 """
@@ -17,7 +18,8 @@ from types import MappingProxyType
 
 __all__ = ["DataPackError", "DataPack", "load", "load_dir", "parse", "DEFAULT_DIR", "ENV_DIR",
            "LOADED_DIR", "load_rules", "load_rules_dir", "load_rules_pack",
-           "load_rules_pack_dir", "resolve_dir"]
+           "load_rules_pack_dir", "resolve_dir", "PolicyPack", "POLICY_CHOICES",
+           "load_policy_pack", "load_policy_pack_dir", "parse_policy"]
 
 ENV_DIR = "H3_DATA_PACK_DIR"
 _REPO_DIR = os.path.abspath(os.path.join(
@@ -99,6 +101,81 @@ def _check_rules(d):
             raise DataPackError("rules.%s: must be non-decreasing" % k)
         out[k] = tab
     return out
+
+
+# --------------------------------------------------------------------------
+# Battle policy defaults (data/battle_policy.json). Spec: docs/specs/datapack.md.
+# --------------------------------------------------------------------------
+
+# Allowed values of the string-valued policy fields (battle.py validates its own
+# fields against these same tuples, so the two cannot drift).
+POLICY_CHOICES = {
+    "row_offset": ("odd", "even"),
+    "speed_tie": ("attacker_first", "alternate", "alternate_last_mover"),
+    "wait_order": ("reverse_speed", "speed", "fifo", "slow_first_alternate"),
+    "defend_bonus_rounding": ("floor", "ceil"),
+    "range_origin": ("head", "any_cell"),
+}
+_POLICY_BOOLS = ("edge_columns_walkable", "good_morale_after_wait", "good_morale_after_defend",
+                 "repeat_good_morale", "bad_morale_on_wait_activation",
+                 "good_morale_on_wait_activation", "bad_luck")
+_POLICY_INTS = (("defend_bonus_num", 0, MAX_INT), ("defend_bonus_den", 1, MAX_INT),
+                ("defend_bonus_min", 0, MAX_INT), ("range_penalty_beyond", 0, 1000))
+_POLICY_ENUMS = ("row_offset", "speed_tie", "wait_order", "defend_bonus_rounding",
+                 "range_origin")
+_POLICY_KEYS = (_POLICY_BOOLS + tuple(k for k, _, _ in _POLICY_INTS) + _POLICY_ENUMS
+                + ("placement_rows", "schema_version"))
+# Largest row index of a placement table: the battle grid has 11 rows.
+_MAX_ROW = 10
+
+
+def _check_policy(d):
+    _obj(d, "battle_policy", _POLICY_KEYS)
+    if _int(d["schema_version"], "battle_policy.schema_version", 0, MAX_INT) != SCHEMA_VERSION:
+        raise DataPackError("battle_policy.schema_version: unsupported")
+    out = {"schema_version": SCHEMA_VERSION}
+    for k in _POLICY_BOOLS:
+        if type(d[k]) is not bool:
+            raise DataPackError("battle_policy.%s: expected boolean" % k)
+        out[k] = d[k]
+    for k, lo, hi in _POLICY_INTS:
+        out[k] = _int(d[k], "battle_policy." + k, lo, hi)
+    for k in _POLICY_ENUMS:
+        if type(d[k]) is not str or d[k] not in POLICY_CHOICES[k]:
+            raise DataPackError("battle_policy.%s: expected one of %s"
+                                % (k, ", ".join(POLICY_CHOICES[k])))
+        out[k] = d[k]
+    rows = _list(d["placement_rows"], "battle_policy.placement_rows", 7)
+    table = []
+    for i, r in enumerate(rows):
+        p = "battle_policy.placement_rows[%d]" % i
+        cells = tuple(_int(x, "%s[%d]" % (p, j), 0, _MAX_ROW)
+                      for j, x in enumerate(_list(r, p, i + 1)))
+        if len(set(cells)) != len(cells):
+            raise DataPackError("%s: rows must be distinct" % p)
+        table.append(cells)
+    out["placement_rows"] = tuple(table)
+    return out
+
+
+class PolicyPack:
+    """Validated ``BattlePolicy`` defaults. ``values`` is read-only; tuples are
+    nested tuples (no lists). ``content_hash`` is the SHA-256 of the canonical
+    JSON, so file formatting and key order do not affect it."""
+
+    def __init__(self, values):
+        canon = {"battle_policy": {
+            k: ([list(r) for r in values[k]] if k == "placement_rows" else values[k])
+            for k in _POLICY_KEYS}}
+        self.canonical_json = json.dumps(canon, sort_keys=True, separators=(",", ":"),
+                                         ensure_ascii=True)
+        self.content_hash = hashlib.sha256(self.canonical_json.encode("ascii")).hexdigest()
+        self.values = MappingProxyType(dict(values))
+
+
+def parse_policy(obj):
+    """Validate an already-decoded battle_policy.json object."""
+    return PolicyPack(_check_policy(obj))
 
 
 _CR_REQ = ("name", "attack", "defense", "dmg_min", "dmg_max", "hp", "speed")
@@ -272,3 +349,12 @@ def load_rules_dir(directory=None):
 def load_dir(directory=None):
     d = resolve_dir(directory)
     return load(os.path.join(d, "rules.json"), os.path.join(d, "creatures.json"))
+
+
+def load_policy_pack(path):
+    """Validate only battle_policy.json; return a PolicyPack."""
+    return parse_policy(_read((path,))[0])
+
+
+def load_policy_pack_dir(directory=None):
+    return load_policy_pack(os.path.join(resolve_dir(directory), "battle_policy.json"))
