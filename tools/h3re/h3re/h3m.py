@@ -1,7 +1,9 @@
 """Clean-room parser for HoMM3 .H3M map headers (stdlib only).
 
 Parses: format version, size, name, description, difficulty, player slots,
-victory/loss conditions and teams.  Everything after is not parsed.
+victory/loss conditions, teams, then (per version) allowed heroes,
+placeholder heroes, disposed heroes, allowed artifacts/spells/skills, rumors
+and predefined hero data.  Parsing stops before terrain/objects.
 See docs/specs/h3m.md.  Malformed data raises H3mError.
 """
 from __future__ import annotations
@@ -99,6 +101,18 @@ class H3mHeader:
     victory: dict | None
     loss: dict | None
     teams: list  # team index per player (empty when no teams)
+    allowed_heroes_mask: bytes = b""  # raw bitmask (16 bytes RoE, 20 AB+)
+    allowed_heroes: list = field(default_factory=list)  # hero ids, bit set = allowed
+    placeholder_heroes: list = field(default_factory=list)  # AB+ hero ids
+    disposed_heroes: list = field(default_factory=list)  # SoD: dicts
+    allowed_artifacts_mask: bytes | None = None  # AB+ raw (17 AB, 18 SoD)
+    banned_artifacts: list | None = None  # AB+: ids whose bit is set
+    allowed_spells_mask: bytes | None = None  # SoD raw, 9 bytes
+    banned_spells: list | None = None
+    allowed_skills_mask: bytes | None = None  # SoD raw, 4 bytes
+    banned_skills: list | None = None
+    rumors: list = field(default_factory=list)  # (name, text)
+    predefined_heroes: dict = field(default_factory=dict)  # SoD: hero id -> dict
 
 
 def _read_victory(r: _Reader, ver: int):
@@ -178,6 +192,99 @@ def _read_player(r: _Reader, ver: int, idx: int) -> PlayerInfo:
     return p
 
 
+MAX_RUMORS = 4096
+HERO_COUNT = {ROE: 128}  # AB and later: 156
+HERO_BYTES = {ROE: 16}
+ARTIFACT_BYTES = {AB: 17}  # SoD and later: 18
+ARTIFACT_COUNT = {AB: 129}  # SoD and later: 141
+SPELL_BYTES, SPELL_COUNT = 9, 70
+SKILL_BYTES, SKILL_COUNT = 4, 28
+PREDEFINED_HEROES = 156
+ARTIFACT_SLOTS = 19  # 16 worn + catapult + spellbook + misc5
+NO_ARTIFACT = 0xFFFF
+
+
+def _bits(raw: bytes, limit: int, value: bool) -> list:
+    return [i for i in range(min(limit, len(raw) * 8))
+            if bool(raw[i >> 3] >> (i & 7) & 1) == value]
+
+
+def _read_mask(r: _Reader, n: int, what: str) -> bytes:
+    p = r._take(n, what)
+    return bytes(r.data[p:p + n])
+
+
+def _read_extra(r: _Reader, h: H3mHeader, ver: int) -> None:
+    sodplus = ver >= SOD
+    hb = HERO_BYTES.get(ver, 20)
+    h.allowed_heroes_mask = _read_mask(r, hb, "allowed heroes")
+    h.allowed_heroes = _bits(h.allowed_heroes_mask, HERO_COUNT.get(ver, 156), True)
+    if ver != ROE:
+        n = r.u32("placeholder hero count")
+        if n > 256:
+            raise H3mError(f"implausible placeholder hero count {n}")
+        h.placeholder_heroes = [r.u8("placeholder hero id") for _ in range(n)]
+    if sodplus:
+        n = r.u8("disposed hero count")
+        for _ in range(n):
+            h.disposed_heroes.append({
+                "id": r.u8("disposed hero id"),
+                "portrait": r.u8("disposed hero portrait"),
+                "name": r.string("disposed hero name"),
+                "players": r.u8("disposed hero players"),
+            })
+    r.skip(31, "reserved block")
+    if ver != ROE:
+        m = _read_mask(r, ARTIFACT_BYTES.get(ver, 18), "allowed artifacts")
+        h.allowed_artifacts_mask = m
+        h.banned_artifacts = _bits(m, ARTIFACT_COUNT.get(ver, 141), True)
+    if sodplus:
+        m = _read_mask(r, SPELL_BYTES, "allowed spells")
+        h.allowed_spells_mask = m
+        h.banned_spells = _bits(m, SPELL_COUNT, True)
+        m = _read_mask(r, SKILL_BYTES, "allowed skills")
+        h.allowed_skills_mask = m
+        h.banned_skills = _bits(m, SKILL_COUNT, True)
+    n = r.u32("rumor count")
+    if n > MAX_RUMORS:
+        raise H3mError(f"implausible rumor count {n}")
+    for _ in range(n):
+        h.rumors.append((r.string("rumor name"), r.string("rumor text")))
+    if sodplus:
+        for hid in range(PREDEFINED_HEROES):
+            d = _read_predefined(r)
+            if d is not None:
+                h.predefined_heroes[hid] = d
+
+
+def _read_predefined(r: _Reader):
+    if not r.u8("predefined hero flag"):
+        return None
+    d: dict = {}
+    if r.u8("has experience"):
+        d["experience"] = r.u32("experience")
+    if r.u8("has secondary skills"):
+        n = r.u32("secondary skill count")
+        if n > 28:
+            raise H3mError(f"implausible secondary skill count {n}")
+        d["secondary_skills"] = [(r.u8("skill"), r.u8("skill level")) for _ in range(n)]
+    if r.u8("has artifacts"):
+        slots = [r.u16("artifact") for _ in range(ARTIFACT_SLOTS)]
+        d["artifacts"] = [None if a == NO_ARTIFACT else a for a in slots]
+        n = r.u16("backpack count")
+        d["backpack"] = [r.u16("backpack artifact") for _ in range(n)]
+    if r.u8("has biography"):
+        d["biography"] = r.string("biography")
+    g = r.u8("gender")
+    if g != 0xFF:
+        d["gender"] = g
+    if r.u8("has spells"):
+        d["spells_mask"] = _read_mask(r, SPELL_BYTES, "hero spells")
+    if r.u8("has primary skills"):
+        d["primary_skills"] = tuple(r.u8("primary skill") for _ in range(4))
+    return d
+
+
 def parse_h3m_bytes(raw: bytes) -> H3mHeader:
     """Parse an .H3M given its *decompressed* contents."""
     r = _Reader(raw)
@@ -202,8 +309,10 @@ def parse_h3m_bytes(raw: bytes) -> H3mHeader:
     nt = r.u8("team count")
     if nt:
         teams = [r.u8("team") for _ in range(8)]
-    return H3mHeader(fmt, VERSION_NAMES[fmt], has_hero, size, two, name, desc,
-                     diff, mhl, players, victory, loss, teams)
+    h = H3mHeader(fmt, VERSION_NAMES[fmt], has_hero, size, two, name, desc,
+                  diff, mhl, players, victory, loss, teams)
+    _read_extra(r, h, fmt)
+    return h
 
 
 def parse_h3m(data: bytes) -> H3mHeader:

@@ -37,14 +37,37 @@ def player(ver, active=True, town=True, hero=True):
     return b
 
 
-def build(ver, victory=b"\xff", loss=b"\xff", teams=b"\x00", inactive_from=2):
+def extra(ver, rumors=(("Tavern", "Dragons!"),), disposed=True, predefined=None):
+    """Synthetic post-teams sections for the given version."""
+    b = bytes([0xFF] * 16) if ver == ROE else bytes([0xFF] * 19 + [0x0F])
+    if ver != ROE:
+        b += struct.pack("<I", 2) + b"\x05\x06"
+    if ver >= SOD:
+        b += b"\x01\x0a\x0b" + s("Dis") + b"\x03"
+    b += bytes(31)
+    if ver != ROE:
+        b += bytes([0x01] + [0] * (16 if ver == AB else 17))
+    if ver >= SOD:
+        b += bytes([0x02] + [0] * 8) + bytes([0, 0x80, 0, 0])
+    b += struct.pack("<I", len(rumors))
+    for n, t in rumors:
+        b += s(n) + s(t)
+    if ver >= SOD:
+        pre = predefined or {}
+        for i in range(156):
+            b += pre.get(i, b"\x00")
+    return b
+
+
+def build(ver, victory=b"\xff", loss=b"\xff", teams=b"\x00", inactive_from=2,
+          tail=None):
     b = struct.pack("<I", ver) + b"\x01" + struct.pack("<I", 36) + b"\x00"
     b += s("Test Map") + s("A description") + b"\x02"
     if ver != ROE:
         b += b"\x00"
     for i in range(8):
         b += player(ver, active=i < inactive_from, hero=(i == 0))
-    return b + victory + loss + teams
+    return b + victory + loss + teams + (extra(ver) if tail is None else tail)
 
 
 class H3mTests(unittest.TestCase):
@@ -70,6 +93,70 @@ class H3mTests(unittest.TestCase):
         self.assertIsNone(h.victory)
         self.assertIsNone(h.loss)
         self.assertEqual(h.teams, [])
+
+    def test_extra_sections(self):
+        for ver in (ROE, AB, SOD):
+            h = parse_h3m_bytes(build(ver))
+            self.assertEqual(h.rumors, [("Tavern", "Dragons!")])
+            self.assertEqual(len(h.allowed_heroes_mask), 16 if ver == ROE else 20)
+            self.assertIn(0, h.allowed_heroes)
+            if ver == ROE:
+                self.assertEqual(len(h.allowed_heroes), 128)
+                self.assertEqual(h.placeholder_heroes, [])
+                self.assertIsNone(h.banned_artifacts)
+            else:
+                self.assertEqual(len(h.allowed_heroes), 156)
+                self.assertEqual(h.placeholder_heroes, [5, 6])
+                self.assertEqual(h.banned_artifacts, [0])
+            if ver >= SOD:
+                self.assertEqual(h.disposed_heroes, [
+                    {"id": 10, "portrait": 11, "name": "Dis", "players": 3}])
+                self.assertEqual(h.banned_spells, [1])
+                self.assertEqual(h.banned_skills, [15])
+                self.assertEqual(h.predefined_heroes, {})
+            else:
+                self.assertEqual(h.disposed_heroes, [])
+                self.assertIsNone(h.banned_spells)
+
+    def test_predefined_heroes(self):
+        full = (b"\x01" + b"\x01" + struct.pack("<I", 1000)
+                + b"\x01" + struct.pack("<I", 2) + b"\x03\x02\x05\x01"
+                + b"\x01" + struct.pack("<H", 7) * 1 + struct.pack("<H", 0xFFFF) * 18
+                + struct.pack("<H", 1) + struct.pack("<H", 9)
+                + b"\x01" + s("Bio") + b"\x01"
+                + b"\x01" + bytes([1] + [0] * 8)
+                + b"\x01" + bytes([1, 2, 3, 4]))
+        raw = build(SOD, tail=extra(SOD, predefined={3: full, 155: b"\x01" + b"\x00" * 4 + b"\xff" + b"\x00" * 2}))
+        h = parse_h3m_bytes(raw)
+        d = h.predefined_heroes[3]
+        self.assertEqual(d["experience"], 1000)
+        self.assertEqual(d["secondary_skills"], [(3, 2), (5, 1)])
+        self.assertEqual(d["artifacts"][0], 7)
+        self.assertIsNone(d["artifacts"][1])
+        self.assertEqual(d["backpack"], [9])
+        self.assertEqual(d["biography"], "Bio")
+        self.assertEqual(d["gender"], 1)
+        self.assertEqual(d["spells_mask"][0], 1)
+        self.assertEqual(d["primary_skills"], (1, 2, 3, 4))
+        self.assertEqual(h.predefined_heroes[155], {})
+
+    def test_extra_errors(self):
+        for ver in (ROE, AB, SOD):
+            good = build(ver)
+            start = len(build(ver, tail=b""))
+            for cut in range(start, len(good), 7):
+                with self.assertRaises(H3mError, msg=f"{ver} {cut}"):
+                    parse_h3m_bytes(good[:cut])
+            with self.assertRaises(H3mError):
+                parse_h3m_bytes(good[:-1])
+        base = build(AB, tail=b"")
+        with self.assertRaises(H3mError):  # huge placeholder count
+            parse_h3m_bytes(base + bytes(20) + struct.pack("<I", 1 << 30))
+        with self.assertRaises(H3mError):  # huge rumor count
+            parse_h3m_bytes(build(ROE, tail=bytes(16 + 31) + struct.pack("<I", 1 << 30)))
+        with self.assertRaises(H3mError):  # bad skill count
+            pre = b"\x01\x00\x01" + struct.pack("<I", 99)
+            parse_h3m_bytes(build(SOD, tail=extra(SOD, predefined={0: pre})))
 
     def test_roe(self):
         self.check_ver(ROE, "RoE")
