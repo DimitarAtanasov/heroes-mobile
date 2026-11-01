@@ -30,7 +30,13 @@ cd tools/h3re && python3 -m h3re <lod-list|lod-extract|def-to-png|h3m-info>
 
 ## Status and limitations
 
-- Early stage; the CLI is still being written.
-- File format readers are unverified against real game files. Tests use synthetic data only.
-- The H3M parser stops after the teams section and is not yet verified.
-- Combat/economy rules and engine design are in progress (checkpoint 3 in `docs/checkpoints/GRAPH.md`).
+- Early stage. Implemented:
+  - LOD archive reader (list, extract, lazy access).
+  - DEF sprite reader, hardened against malformed input.
+  - H3M reader from the header through the post-teams sections. Terrain and objects are not yet parsed.
+  - PCX and TXT table readers.
+  - PCG32 deterministic RNG.
+  - Battle damage rules.
+  - CLI (`lod-list`, `lod-extract`, `def-to-png`, `h3m-info`).
+- All formats are verified only against synthetic fixtures. None has been checked against real game files.
+- Engine design is in progress (checkpoint 3 in `docs/checkpoints/GRAPH.md`).

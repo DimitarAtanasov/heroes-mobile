@@ -13,7 +13,7 @@ Implemented in `tools/h3re/h3re/defimg.py`. All integers little-endian.
 
 Special palette indices (UNCERTAIN): the low palette entries are reserved for
 effects, but sources disagree on the range. This spec previously said 0-9;
-`engine-design.md` says 0-7. Only index 0 (transparent) is certain; 1 and 4 are
+`engine-design.md` now uses the same 0-9 wording. Only index 0 (transparent) is certain; 1 and 4 are
 believed shadow-like. Treat 0-9 as the conservative reserved range (a superset
 of 0-7) until verified against real assets; indices 8 and 9 in particular are
 unconfirmed. The renderer treats 0 as transparent and 1/4 as approximate

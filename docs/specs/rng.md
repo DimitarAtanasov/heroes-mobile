@@ -23,9 +23,8 @@ bfa4784b cbed606e` (verified by the tests).
 - `Pcg32(seed, seq=0)`, `next_u32()`.
 - `range(lo, hi)`: uniform in the **half-open** interval `[lo, hi)`, span at
   most 2^32. Rejection sampling: with `span = hi - lo`, draws `r <
-  (2^32 - span) mod span` are discarded; the result is `lo + r mod span`. Note
-  that engine-design names this call `range(lo, hi_inclusive)`; the inclusive
-  form is `randint`, so the spec text should be read accordingly.
+  (2^32 - span) mod span` are discarded; the result is `lo + r mod span`. The
+  inclusive form is `randint`; engine-design uses the same naming.
 - `randint(lo, hi)`: inclusive `[lo, hi]` (= `range(lo, hi + 1)`); matches the
   `rng.randint(a, b)` contract that `rules.base_damage` consumes.
 - `chance(num, den)`: true with probability exactly `num/den`

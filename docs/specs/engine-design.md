@@ -77,8 +77,9 @@ same synthetic fixtures.
   access. Names are matched case-insensitively.
 - **DEF sprites.** Palette (256 RGB), groups, then frames. A frame has a
   size, a full width/height, a margin, and one of several RLE compressions.
-  Indices 0–7 are special (transparency/shadow/selection) and are mapped to
-  alpha in `render`. The output is an indexed image plus palette, and `render`
+  Indices 0–9 are reserved (conservative); only index 0 (transparent) is
+  certain. See `def.md` for the details and the open questions. `render` maps
+  the special indices to alpha. The output is an indexed image plus palette, and `render`
   builds atlases from that.
 - **PCX / bitmap** (in LOD): 8-bit palettized or 24-bit images.
 - **TXT tables** (`CRTRAITS.TXT`, `SPTRAITS.TXT`, `HCTRAITS.TXT`, …):
@@ -146,8 +147,9 @@ same synthetic fixtures.
   `"battle:<battle_id>"`, `"map-gen"`, `"weekly"` and `"ai:<player>"`.
   Adding a new random call in one subsystem then cannot shift the outcomes of
   another.
-- API: `next_u32()`, `range(lo, hi_inclusive)` using rejection sampling (no
-  modulo bias), and `chance(num, den)`.
+- API: `next_u32()`, `range(lo, hi)` for the half-open interval `[lo, hi)`
+  using rejection sampling (no modulo bias), `randint(lo, hi)` for the
+  inclusive interval `[lo, hi]`, and `chance(num, den)`. See `rng.md`.
 - **Draw order is part of the spec.** For each attack, `rules.md` fixes the
   order in which luck, damage rolls and so on are drawn, which keeps replays
   stable.
