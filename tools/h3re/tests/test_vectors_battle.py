@@ -144,6 +144,70 @@ class TestBattleVectors(unittest.TestCase):
             self.assertEqual(g.state, before)
             self.assertEqual(B.state_hash(state), h)
 
+    def _records(self):
+        for c in self.doc["cases"]:
+            yield c, c["initial"], None
+            prev = c["initial"]
+            for s in c["steps"]:
+                yield c, s, prev
+                prev = s
+
+    def test_legal_lists_and_previews_match_the_oracle(self):
+        n = 0
+        for c, rec, _ in self._records():
+            state = state_from_json(rec["canonical"])
+            g = stream_at(c, 0)
+            before = g.state
+            legal = B.legal_commands(state)
+            self.assertEqual(rec["legal"], [VB._jsonable(soak.encode_command(x)) for x in legal])
+            self.assertEqual(rec["legal"], VB._legal_block(state)["legal"])
+            self.assertEqual(g.state, before)
+            self.assertEqual(B.state_hash(state), rec["sha256"])
+            seen = []
+            for p in rec["previews"]:
+                pv = B.strike_preview(state, p["attacker"], p["target"], p["ranged"])
+                self.assertEqual((p["floor"], p["expected"], p["ceiling"]),
+                                 (pv.floor, pv.expected, pv.ceiling))
+                self.assertLessEqual(pv.floor, pv.expected)
+                self.assertLessEqual(pv.expected, pv.ceiling)
+                ctx = B.strike_context(state, state.stacks[p["attacker"]],
+                                       state.stacks[p["target"]], p["ranged"])
+                self.assertEqual(p["ctx"], VB._jsonable(B.asdict(ctx)))
+                seen.append((p["attacker"], p["target"], p["ranged"]))
+                n += 1
+            want = []
+            for x in legal:
+                if isinstance(x, (B.Attack, B.Shoot)):
+                    k = (x.stack, x.target, isinstance(x, B.Shoot))
+                    if k not in want:
+                        want.append(k)
+            self.assertEqual(seen, want)
+        self.assertGreaterEqual(n, 3000)
+
+    def test_every_recorded_command_is_in_the_previous_legal_list(self):
+        checked = 0
+        for c, rec, prev in self._records():
+            if prev is None:
+                continue
+            self.assertIn(rec["command"], prev["legal"], c["name"])
+            checked += 1
+        self.assertGreaterEqual(checked, 1400)
+
+    def test_illegal_cases_are_absent_from_the_legal_list(self):
+        for x in self.doc["illegal_cases"]:
+            if x["rules_hash"] is not None:
+                continue
+            c = self.cases[x["case"]]
+            rec = c["initial"] if x["after_step"] < 0 else c["steps"][x["after_step"]]
+            self.assertNotIn(x["command"], rec["legal"])
+
+    def test_legal_lists_cover_every_command_kind(self):
+        kinds = {x["type"] for _, r, _ in self._records() for x in r["legal"]}
+        self.assertEqual(kinds, {c.__name__ for c in VB.COMMANDS})
+        self.assertTrue(any(x["type"] == "Attack" and x["from_hex"] is not None
+                            for _, r, _ in self._records() for x in r["legal"]))
+        self.assertTrue(any(p["ranged"] for _, r, _ in self._records() for p in r["previews"]))
+
     def test_unit_shapes_covered(self):
         two_hex = shooter = flyer = one_hex = False
         flags = set()

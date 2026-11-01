@@ -141,6 +141,30 @@ def _stage(cmd, calls, events):
     return "B" if isinstance(cmd, (B.Attack, B.Shoot)) else "A"
 
 
+def _legal_block(state):
+    """Slice 4: the full ordered ``legal_commands(state)`` (encoded) and, for every
+    Attack / Shoot candidate, its strike_preview triple and DamageCtx fields.
+    Previews are deduplicated per (attacker, target, ranged) in first-seen order
+    (melee previews are the same for every attack hex)."""
+    legal = B.legal_commands(state)
+    previews, seen = [], set()
+    for c in legal:
+        if not isinstance(c, (B.Attack, B.Shoot)):
+            continue
+        ranged = isinstance(c, B.Shoot)
+        key = (c.stack, c.target, ranged)
+        if key in seen:
+            continue
+        seen.add(key)
+        ctx = B.strike_context(state, state.stacks[c.stack], state.stacks[c.target], ranged)
+        p = B.strike_preview(state, c.stack, c.target, ranged)
+        previews.append({"attacker": c.stack, "target": c.target, "ranged": ranged,
+                         "floor": p.floor, "expected": p.expected, "ceiling": p.ceiling,
+                         "ctx": _jsonable(dataclasses.asdict(ctx))})
+    return {"legal": [_jsonable(soak.encode_command(c)) for c in legal],
+            "previews": previews}
+
+
 def _driver_step(state, ai, drv, any_legal=False, wait_first=False):
     if state.winner is not None:
         return None
@@ -198,6 +222,7 @@ def _play(state, rng, chooser, max_steps):
             "rng_state_after": rng.state,
             "rng_calls": calls,
             "stage": _stage(cmd, calls, events),
+            **_legal_block(state),
         })
         states.append(state)
         cmd = None if state.winner is not None else chooser(state)
@@ -205,7 +230,7 @@ def _play(state, rng, chooser, max_steps):
 
 
 def _case(name, seed, policy_name, policy_kwargs, state, rng, chooser, max_steps=MAX_STEPS):
-    initial = {"canonical": _text(state), "sha256": B.state_hash(state)}
+    initial = {"canonical": _text(state), "sha256": B.state_hash(state), **_legal_block(state)}
     steps, states = _play(state, rng, chooser, max_steps)
     return {
         "name": name,
