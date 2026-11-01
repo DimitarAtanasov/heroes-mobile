@@ -12,4 +12,5 @@ named command or file before relying on it. See `.claude/skills/second-brain/SKI
 - [golden-hash-discipline](golden-hash-discipline.md) - re-pin rule and the Python/Kotlin contract
 - [android-gradle-setup](android-gradle-setup.md) - plugin versions once in settings; AGP on root classpath; verify via CI
 - [evaluator-is-the-judge](evaluator-is-the-judge.md) - loop_eval.py decides; fix the loop, not the evaluator
+- [codebase-index](codebase-index.md) - Graphify code graph in docs/codebase-index; rebuild with tools/graphify/index.sh
 
