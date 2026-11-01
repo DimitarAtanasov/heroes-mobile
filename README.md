@@ -72,8 +72,8 @@ explains the `--pretty` report: a hex board, an aligned event log and a summary.
 
 ## Project laws
 
-[`CLAUDE.md`](CLAUDE.md) is the project constitution. It sets out the clean-room
-rule, the determinism rules (integer-only simulation, no clocks, no I/O in the
+[`CLAUDE.md`](CLAUDE.md) is the project constitution. It sets out the licensing and
+provenance rule, the determinism rules (integer-only simulation, no clocks, no I/O in the
 simulation modules), the golden re-pin rule, and the rule that tests must pass
 before any commit.
 
@@ -112,3 +112,10 @@ Progress is logged in [`docs/checkpoints/GRAPH.md`](docs/checkpoints/GRAPH.md) a
 - `docs/adr/` - architecture decisions.
 - `docs/checkpoints/` - workflow graph and handoff notes.
 - `.github/workflows/test.yml` - CI running the test suite on push and pull request.
+
+## License
+
+GPL-2.0-or-later (see [`LICENSE`](LICENSE) and `docs/adr/ADR-0010-license-gpl-2-or-later.md`).
+The license covers the code and docs of this repository only. Original game files, art and
+sound are never included; the app reads the player's own legally owned install. This project
+is not affiliated with the rights holders of Heroes of Might and Magic.

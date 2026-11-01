@@ -8,8 +8,10 @@ Specs live in `docs/specs/`, decisions in `docs/adr/`, progress in `docs/checkpo
 
 ## Laws
 
-1. **Clean-room.** Specs come from public documentation and observed mechanics. VCMI
-   (GPL) is a source of facts only: no code, comments or paraphrase of its code (ADR-0003).
+1. **Licensing and provenance.** The project is GPL-2.0-or-later (ADR-0010). Specs and
+   cross-check reports use VCMI as a source of facts, written in our own words (ADR-0003). Reusing
+   VCMI code is allowed only with a provenance header naming its path and commit, and as a port
+   into Kotlin or Python under the project's laws.
    Original game files, assets and binaries never enter the repo. Tests use synthetic
    fixtures; real-file tests are gated on `H3_DATA_DIR`.
 2. **Determinism.** Simulation modules (`rules.py`, `rng.py`, `battle.py`, `adventure.py`,
