@@ -9,8 +9,9 @@ an RNG, never mutates the state and uses ints, bools, strings, lists and dicts
 import json
 
 from . import battle as B
+from . import rules as R
 
-VIEW_VERSION = 1
+VIEW_VERSION = 2
 
 __all__ = ["VIEW_VERSION", "view", "view_json", "command_to_dict",
            "candidate_commands", "candidate_actions"]
@@ -44,10 +45,19 @@ def _total_hp(s):
 
 def _stack_view(state, s):
     c = s.creature
+    hero = state.heroes[s.side]
     return {
         "id": s.id, "side": s.side, "slot": s.slot,
         "creature": c.name, "count": s.count, "alive": s.alive,
         "top_hp": s.top_hp, "unit_hp": c.hp, "hp": _total_hp(s),
+        "attack": c.attack + (hero.attack if hero else 0),
+        "defense": c.defense + (hero.defense if hero else 0),
+        "defend_bonus": B.defend_bonus(state, s) if s.defending else 0,
+        "dmg_min": c.dmg_min, "dmg_max": c.dmg_max,
+        "retaliations": s.retaliations,
+        "strikes_twice": c.strikes_twice, "shoots_twice": c.shoots_twice,
+        "no_enemy_retaliation": c.no_enemy_retaliation,
+        "unlimited_retaliation": c.unlimited_retaliation,
         "speed": c.speed, "shots": s.shots, "shooter": c.shooter,
         "double_wide": c.double_wide, "flyer": c.flyer,
         "defending": s.defending, "morale": s.morale, "luck": s.luck,
@@ -99,11 +109,22 @@ def _queue(state):
 
 def _preview(state, att, tgt, ranged):
     p = B.strike_preview(state, att, tgt, ranged)
-    return {"floor": p.floor, "expected": p.expected, "ceiling": p.ceiling}
+    t = state.stacks[tgt]
+
+    def kills(dmg):
+        return R.apply_damage(t.count, t.top_hp, t.creature.hp, dmg)[2] if t.count > 0 else 0
+
+    return {"floor": p.floor, "expected": p.expected, "ceiling": p.ceiling,
+            "kills": {"floor": kills(p.floor), "expected": kills(p.expected),
+                      "ceiling": kills(p.ceiling)}}
 
 
 def _actions(state):
     cmds = B.legal_commands(state)
+    paths = {}
+    if state.started and state.winner is None and state.active is not None:
+        paths = {h: [_hx(x) for x in p]
+                 for h, p in B._reach(state, state.stacks[state.active]).items()}
     global_cmds = []
     by_hex = {}
 
@@ -121,7 +142,7 @@ def _actions(state):
         if isinstance(cmd, (B.Begin, B.Wait, B.Defend)):
             global_cmds.append({"command": d})
         elif isinstance(cmd, B.Move):
-            slot(cmd.dest)["move"] = {"command": d}
+            slot(cmd.dest)["move"] = {"command": d, "path": paths[cmd.dest]}
         elif isinstance(cmd, B.Shoot):
             target_slot(cmd.target)["shoot"] = {
                 "command": d, "preview": _preview(state, cmd.stack, cmd.target, True)}
@@ -130,6 +151,7 @@ def _actions(state):
             frm = st.pos if cmd.from_hex is None else tuple(cmd.from_hex)
             target_slot(cmd.target)["attacks"].append({
                 "from_hex": _hx(frm), "command": d,
+                "path": [] if cmd.from_hex is None else paths[frm],
                 "preview": _preview(state, cmd.stack, cmd.target, False)})
     return {"global": global_cmds,
             "by_hex": [by_hex[h] for h in sorted(by_hex)]}
@@ -152,7 +174,9 @@ def view(state):
         "active": state.active if phase == "active" else None,
         "bonus_turn": state.bonus_turn,
         "morale_pending": state.morale_pending,
-        "grid": {"width": B.WIDTH, "height": B.HEIGHT, "rows": _grid(state)},
+        "grid": {"width": B.WIDTH, "height": B.HEIGHT, "rows": _grid(state),
+                 "row_offset": state.policy.row_offset,
+                 "edge_columns_walkable": state.policy.edge_columns_walkable},
         "stacks": [_stack_view(state, s) for s in state.stacks],
         "queue": _queue(state),
         "actions": _actions(state),

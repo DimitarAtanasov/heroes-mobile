@@ -685,7 +685,7 @@ def _hex_vectors():
 
 
 # Vector modules that expose generate() -> {file name: JSON-serialisable content}.
-EXTRA_VECTOR_MODULES = ("vectors_battle", "vectors_def", "vectors_lodpcx", "vectors_pack", "vectors_txt", "vectors_ai")
+EXTRA_VECTOR_MODULES = ("vectors_battle", "vectors_def", "vectors_lodpcx", "vectors_pack", "vectors_txt", "vectors_ai", "vectors_present")
 
 
 def generate():
