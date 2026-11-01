@@ -94,9 +94,17 @@ class DamageFromBaseTest(unittest.TestCase):
     def test_range_and_wall_penalty(self):
         self.assertEqual(rules.damage_from_base(100, 0, 0, ranged=True, range_penalty=True), 50)
         self.assertEqual(rules.damage_from_base(100, 0, 0, ranged=True, wall_penalty=True), 50)
-        with self.assertRaises(NotImplementedError):
-            rules.damage_from_base(100, 0, 0, ranged=True, range_penalty=True,
-                                   wall_penalty=True)
+        # Range and wall penalties are separate factors: they multiply.
+        self.assertEqual(rules.damage_from_base(100, 0, 0, ranged=True, range_penalty=True,
+                                                wall_penalty=True), 25)
+        # 77 * 1.5 (archery expert) * 0.5 * 0.5 = 28.875 -> 28 (one floor).
+        self.assertEqual(rules.damage_from_base(77, 0, 0, ranged=True, archery=3,
+                                                range_penalty=True, wall_penalty=True), 28)
+        # 3 * 0.25 = 0.75 -> minimum 1.
+        self.assertEqual(rules.damage_from_base(3, 0, 0, ranged=True, range_penalty=True,
+                                                wall_penalty=True), 1)
+        self.assertEqual(rules.damage_range(10, 2, 4, 0, 0, ranged=True, range_penalty=True,
+                                            wall_penalty=True), (5, 10))
 
     def test_flag_validation(self):
         with self.assertRaises(ValueError):
@@ -179,6 +187,18 @@ class LuckMoraleTest(unittest.TestCase):
         self.assertEqual(rules.bad_morale_chance(-3), Fraction(1, 8))
         self.assertEqual(rules.bad_morale_chance(-9), Fraction(1, 8))
         self.assertEqual(rules.bad_morale_chance(1), 0)
+
+    def test_bad_morale_table_parameter(self):
+        self.assertEqual(rules.BAD_MORALE_NUMERATORS, (1, 2, 3))
+        self.assertEqual([rules.bad_morale_chance(m) for m in (-1, -2, -3, -7)],
+                         [Fraction(1, 24), Fraction(2, 24), Fraction(3, 24), Fraction(3, 24)])
+        vcmi = rules.VCMI_BAD_MORALE_NUMERATORS
+        self.assertEqual(vcmi, (2, 4, 6))
+        self.assertEqual([rules.bad_morale_chance(m, vcmi) for m in (-1, -2, -3, 0, 2)],
+                         [Fraction(2, 24), Fraction(4, 24), Fraction(6, 24), 0, 0])
+        for bad in ((1, 2), (1, 2, 25), (2, 1, 3), (0, 1, "2")):
+            with self.assertRaises(ValueError, msg=bad):
+                rules.bad_morale_chance(-1, bad)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,10 @@
 
 Spec: docs/specs/rules.md sections 6.5-6.6. Clean-room: implemented from the
 written spec only. Items the spec marks [uncertain] are deliberately absent
-(spells, specialties, bad luck, defend bonus, wall+range stacking, ...).
+(spells, specialties, bad luck, defend bonus, ...), or are parameters whose
+default is the documented value (the bad-morale table, rules.md 9.13).
+Wall + range penalty stacking is multiplicative (VCMI cross-check #11, see
+docs/specs/vcmi-crosscheck-rules.md; still listed in rules.md 9.3).
 
 All arithmetic is exact (fractions.Fraction) with a single floor at the end,
 so results are deterministic across platforms.
@@ -16,6 +19,8 @@ __all__ = [
     "OFFENSE", "ARCHERY", "ARMORER", "HATE_BONUS", "LUCK_BONUS", "HALF",
     "attack_defense_factor", "base_damage", "damage_from_base", "damage_range",
     "apply_damage", "luck_chance", "good_morale_chance", "bad_morale_chance",
+    "BAD_MORALE_NUMERATORS", "VCMI_BAD_MORALE_NUMERATORS", "MORALE_DIE",
+    "check_bad_morale_table",
 ]
 
 # Attack > Defense: +5% per point, capped at +300% (difference 60).
@@ -29,6 +34,13 @@ DA_PENALTY_CAP = Fraction(7, 10)
 OFFENSE = (Fraction(0), Fraction(1, 10), Fraction(2, 10), Fraction(3, 10))
 ARCHERY = (Fraction(0), Fraction(1, 10), Fraction(1, 4), Fraction(1, 2))
 ARMORER = (Fraction(0), Fraction(1, 20), Fraction(1, 10), Fraction(3, 20))
+
+# Morale/luck die size, and the bad-morale chance numerators for morale
+# -1, -2, -3. (1, 2, 3) is the community-documented table; VCMI configures
+# (2, 4, 6). Which one the original uses is open (rules.md 9.13).
+MORALE_DIE = 24
+BAD_MORALE_NUMERATORS = (1, 2, 3)
+VCMI_BAD_MORALE_NUMERATORS = (2, 4, 6)
 
 HATE_BONUS = Fraction(1, 2)
 LUCK_BONUS = Fraction(1)
@@ -79,7 +91,8 @@ def damage_from_base(base, attack, defense, *, ranged=False, offense=0,
 
     ``ranged`` selects Archery vs Offense. ``range_penalty`` / ``wall_penalty``
     apply only to ranged attacks; ``melee_penalty`` (shooter in melee) only to
-    melee. Combining range and wall penalties is [uncertain] and rejected.
+    melee. Range and wall penalties are separate factors and multiply
+    (a long shot over a wall deals 1/4), per the VCMI cross-check.
     """
     if base <= 0:
         return 0
@@ -87,9 +100,6 @@ def damage_from_base(base, attack, defense, *, ranged=False, offense=0,
         raise ValueError("melee_penalty applies only to melee attacks")
     if not ranged and (range_penalty or wall_penalty):
         raise ValueError("range/wall penalty applies only to ranged attacks")
-    if range_penalty and wall_penalty:
-        raise NotImplementedError(
-            "range+wall penalty stacking is [uncertain]; see rules.md 9.3")
 
     inc_ad, red_da = attack_defense_factor(attack, defense)
     inc = inc_ad + (_skill(ARCHERY, archery) if ranged else _skill(OFFENSE, offense))
@@ -101,7 +111,9 @@ def damage_from_base(base, attack, defense, *, ranged=False, offense=0,
     dmg = Fraction(base) * (1 + inc)
     dmg *= 1 - red_da
     dmg *= 1 - _skill(ARMORER, armorer)
-    if range_penalty or wall_penalty:
+    if range_penalty:
+        dmg *= 1 - HALF
+    if wall_penalty:
         dmg *= 1 - HALF
     if melee_penalty:
         dmg *= 1 - HALF
@@ -156,6 +168,24 @@ def good_morale_chance(morale):
     return Fraction(max(0, _clamp3(morale)), 24)
 
 
-def bad_morale_chance(morale):
-    """Chance of freezing (losing the turn): |M|/24 for M in -3..-1."""
-    return Fraction(max(0, -_clamp3(morale)), 24)
+def check_bad_morale_table(table):
+    """Validate a bad-morale table: 3 ints in 0..MORALE_DIE, non-decreasing."""
+    table = tuple(table)
+    if len(table) != 3 or any(type(n) is not int or not 0 <= n <= MORALE_DIE
+                              for n in table):
+        raise ValueError("bad_morale_table needs 3 integers in 0..%d" % MORALE_DIE)
+    if list(table) != sorted(table):
+        raise ValueError("bad_morale_table must be non-decreasing")
+    return table
+
+
+def bad_morale_chance(morale, table=BAD_MORALE_NUMERATORS):
+    """Chance of freezing (losing the turn) for M in -3..-1.
+
+    ``table[i]`` is the numerator over 24 for morale -(i+1). The default
+    (1, 2, 3) gives |M|/24; VCMI_BAD_MORALE_NUMERATORS is the alternative.
+    """
+    m = -_clamp3(morale)
+    if m <= 0:
+        return Fraction(0)
+    return Fraction(check_bad_morale_table(table)[m - 1], MORALE_DIE)

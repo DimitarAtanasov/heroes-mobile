@@ -41,6 +41,11 @@ def begin(state, rng=None):
 
 
 class GeometryTest(unittest.TestCase):
+    def test_default_parity_is_even(self):
+        # VCMI cross-check #1 (clear): even rows sit half a hex to the right.
+        self.assertEqual(B.DEFAULT_POLICY.row_offset, "even")
+        self.assertEqual(B.DEFAULT_ROW_OFFSET, "even")
+
     def test_neighbour_table_odd_rows_shifted(self):
         table = {
             (5, 4): ((4, 3), (4, 4), (4, 5), (5, 3), (5, 5), (6, 4)),
@@ -51,11 +56,21 @@ class GeometryTest(unittest.TestCase):
             (16, 1): ((15, 1), (16, 0), (16, 2)),
         }
         for h, expected in table.items():
-            self.assertEqual(B.neighbours(h), expected, h)
+            self.assertEqual(B.neighbours(h, "odd"), expected, h)
 
     def test_neighbour_table_even_rows_shifted(self):
-        self.assertEqual(B.neighbours((5, 4), "even"),
-                         ((4, 4), (5, 3), (5, 5), (6, 3), (6, 4), (6, 5)))
+        # Even row: upper neighbours at col and col+1; odd row: col-1 and col.
+        table = {
+            (5, 4): ((4, 4), (5, 3), (5, 5), (6, 3), (6, 4), (6, 5)),
+            (5, 5): ((4, 4), (4, 5), (4, 6), (5, 4), (5, 6), (6, 5)),
+            (0, 0): ((0, 1), (1, 0), (1, 1)),
+            (16, 10): ((15, 10), (16, 9)),
+            (0, 1): ((0, 0), (0, 2), (1, 1)),
+            (16, 1): ((15, 0), (15, 1), (15, 2), (16, 0), (16, 2)),
+        }
+        for h, expected in table.items():
+            self.assertEqual(B.neighbours(h), expected, h)
+            self.assertEqual(B.neighbours(h, "even"), expected, h)
 
     def test_neighbours_symmetric(self):
         for off in ("odd", "even"):
@@ -67,16 +82,26 @@ class GeometryTest(unittest.TestCase):
                         self.assertIn((c, r), B.neighbours(n, off))
 
     def test_distance_table(self):
-        table = [
+        odd = [
             ((0, 0), (0, 0), 0), ((0, 0), (1, 0), 1), ((0, 0), (0, 1), 1),
             ((0, 0), (1, 1), 2), ((0, 0), (1, 2), 2), ((0, 0), (0, 10), 10),
             ((0, 0), (5, 10), 10), ((0, 0), (6, 10), 11), ((0, 0), (16, 0), 16),
             ((0, 0), (16, 10), 21), ((0, 10), (16, 0), 21), ((5, 5), (6, 4), 1), ((5, 5), (4, 4), 2),
             ((1, 5), (15, 5), 14),
         ]
-        for a, b, d in table:
+        even = [
+            ((0, 0), (0, 0), 0), ((0, 0), (1, 0), 1), ((0, 0), (0, 1), 1),
+            ((0, 0), (1, 1), 1), ((0, 0), (1, 2), 2), ((0, 0), (0, 10), 10),
+            ((0, 0), (5, 10), 10), ((0, 0), (6, 10), 11), ((0, 0), (16, 0), 16),
+            ((0, 0), (16, 10), 21), ((0, 10), (16, 0), 21), ((5, 5), (6, 4), 2), ((5, 5), (4, 4), 1),
+            ((1, 5), (15, 5), 14), ((1, 4), (2, 3), 1), ((2, 5), (1, 4), 1),
+        ]
+        for off, table in (("odd", odd), ("even", even)):
+            for a, b, d in table:
+                self.assertEqual(B.hex_distance(a, b, off), d, (off, a, b))
+                self.assertEqual(B.hex_distance(b, a, off), d, (off, b, a))
+        for a, b, d in even:
             self.assertEqual(B.hex_distance(a, b), d, (a, b))
-            self.assertEqual(B.hex_distance(b, a), d, (b, a))
 
     def test_distance_matches_bfs(self):
         for off in ("odd", "even"):
@@ -157,7 +182,7 @@ class MovementTest(unittest.TestCase):
         reach = B.reachable(st, 0)
         # head (5,4) would put the tail on the obstacle (4,4)
         self.assertNotIn((5, 4), reach)
-        self.assertIn((6, 4), reach)
+        self.assertIn((5, 6), reach)   # even parity: (5,5)'s lower-right neighbour
         self.assertIn((4, 5), reach)  # step back: tail onto (3,5)
         st = self.state(cr(speed=1, double_wide=True), pos=(2, 5))
         self.assertNotIn((1, 5), B.reachable(st, 0))  # tail in edge column
@@ -449,7 +474,10 @@ def play(state, rng, chooser, limit=400):
 class GoldenTest(unittest.TestCase):
     # Pinned: changing rules, draw order, policy defaults or the canonical
     # form changes this hash and must be a deliberate, reviewed change.
-    PINNED = "cd969e37b84f2c1dde88ad5cf2b3d8e0f11f211ace9ccfe2226405a6c06da95d"
+    # Re-pinned 2026-11-01 (one reviewed change, see battle.md section 10):
+    # row_offset "odd" -> "even", the wait-activation morale split, and the
+    # canonical form now carrying every policy field plus ``last_side``.
+    PINNED = "2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d"
 
     def test_replay_is_deterministic(self):
         s1, t1 = play(golden_setup(), B.battle_rng(12345, "golden"), scripted_choice)
@@ -501,9 +529,15 @@ class PropertyTest(unittest.TestCase):
                                    good_morale_after_wait=True,
                                    good_morale_after_defend=True,
                                    repeat_good_morale=True, bad_luck=True,
-                                   row_offset="even", edge_columns_walkable=True)]
+                                   row_offset="odd", edge_columns_walkable=True),
+                    B.BattlePolicy(speed_tie="alternate_last_mover",
+                                   wait_order="slow_first_alternate",
+                                   bad_morale_on_wait_activation=True,
+                                   good_morale_on_wait_activation=False,
+                                   bad_morale_table=rules.VCMI_BAD_MORALE_NUMERATORS,
+                                   range_origin="any_cell")]
         for seed in range(12):
-            pol = policies[seed % 2]
+            pol = policies[seed % 3]
             base = replace(golden_setup(), policy=pol)
             chooser_rng = random.Random(seed)
             rng = B.battle_rng(seed, "prop")
@@ -592,32 +626,184 @@ class IllegalCommandNoRngTest(unittest.TestCase):
         self.assert_illegal(dead, B.Shoot(me.id, enemy.id))
 
 
-class WaitMoraleRollPolicyTest(unittest.TestCase):
-    def test_no_roll_at_wait_activation_when_disabled(self):
-        c = cr("m", speed=5)
-        for flag, expect in ((True, 1), (False, 0)):
-            pol = B.BattlePolicy(morale_roll_on_wait_activation=flag)
-            st = B.create_battle("wm", [ss(c, 5, morale=-1)], [ss(c, 5)], policy=pol)
-            rng = ScriptRng()
-            state, _ = B.apply(st, B.Begin(), rng)
-            if state.active != 0:
-                state, _ = B.apply(state, B.Defend(state.active), rng)
-            self.assertEqual(state.active, 0)
-            state, _ = B.apply(state, B.Wait(0), rng)
-            other = state.active
-            self.assertEqual(other, 1)
-            before = rng.calls
-            state, _ = B.apply(state, B.Defend(other), rng)
-            self.assertEqual(state.active, 0)
-            self.assertIn(0, state.waited)
-            self.assertEqual(rng.calls - before, expect, flag)
+class RecordingRng(ScriptRng):
+    """ScriptRng that also records every chance(num, den) asked."""
 
-    def test_default_hash_unchanged_and_flag_distinguished(self):
+    def __init__(self, chances=()):
+        super().__init__(chances)
+        self.asked = []
+
+    def chance(self, num, den):
+        self.asked.append((num, den))
+        return super().chance(num, den)
+
+
+class WaitActivationMoraleTest(unittest.TestCase):
+    """bad_/good_morale_on_wait_activation (replace the deprecated
+    morale_roll_on_wait_activation; VCMI cross-check #4)."""
+
+    def calls_at_wait_activation(self, morale, **pol):
+        c = cr("m", speed=5)
+        st = B.create_battle("wm", [ss(c, 5, morale=morale)], [ss(c, 5)],
+                             policy=B.BattlePolicy(**pol))
+        rng = ScriptRng()
+        state, _ = B.apply(st, B.Begin(), rng)
+        self.assertEqual(state.active, 0)
+        state, _ = B.apply(state, B.Wait(0), rng)
+        self.assertEqual(state.active, 1)
+        before = rng.calls
+        state, _ = B.apply(state, B.Defend(1), rng)
+        self.assertEqual(state.active, 0)
+        self.assertIn(0, state.waited)
+        return rng.calls - before
+
+    def test_defaults(self):
+        self.assertFalse(B.DEFAULT_POLICY.bad_morale_on_wait_activation)
+        self.assertTrue(B.DEFAULT_POLICY.good_morale_on_wait_activation)
+        self.assertFalse(hasattr(B.DEFAULT_POLICY, "morale_roll_on_wait_activation"))
+
+    def test_bad_roll_skipped_by_default(self):
+        self.assertEqual(self.calls_at_wait_activation(-1), 0)
+        self.assertEqual(self.calls_at_wait_activation(
+            -1, bad_morale_on_wait_activation=True), 1)
+
+    def test_good_roll_kept_by_default(self):
+        self.assertEqual(self.calls_at_wait_activation(1), 1)
+        self.assertEqual(self.calls_at_wait_activation(
+            1, good_morale_on_wait_activation=False), 0)
+
+    def test_good_morale_fires_after_wait_phase_action(self):
+        c = cr("m", speed=5)
+        st = B.create_battle("wm", [ss(c, 5, morale=3)], [ss(c, 5)])
+        state, _ = B.apply(st, B.Begin(), ScriptRng([False]))
+        state, _ = B.apply(state, B.Wait(0), ScriptRng())
+        state, ev = B.apply(state, B.Defend(1), ScriptRng([True]))
+        self.assertEqual(ev[-1], B.TurnStarted(0, "wait", False))
+        self.assertTrue(state.morale_pending)
+        self.assertEqual(state.stacks[0].pos, (1, 5))
+        state, ev = B.apply(state, B.Move(0, (1, 6)), ScriptRng())
+        self.assertIn(B.MoraleBoost(0), ev)
+        self.assertTrue(state.bonus_turn)
+
+    def test_canonical_carries_new_fields(self):
         a = B.create_battle("h", [ss(cr(), 3)], [ss(cr(), 3)])
         b = B.create_battle("h", [ss(cr(), 3)], [ss(cr(), 3)],
-                            policy=B.BattlePolicy(morale_roll_on_wait_activation=False))
+                            policy=B.BattlePolicy(bad_morale_on_wait_activation=True))
+        c = B.create_battle("h", [ss(cr(), 3)], [ss(cr(), 3)],
+                            policy=B.BattlePolicy(bad_morale_on_wait_activation=False,
+                                                  good_morale_on_wait_activation=True,
+                                                  bad_morale_table=[1, 2, 3]))
         self.assertNotEqual(B.state_hash(a), B.state_hash(b))
+        # Explicit default values (a list is normalised to a tuple) hash the same.
+        self.assertEqual(B.canonical(a), B.canonical(c))
+        for key in (b'"bad_morale_on_wait_activation":false',
+                    b'"good_morale_on_wait_activation":true',
+                    b'"bad_morale_table":[1,2,3]', b'"range_origin":"head"',
+                    b'"last_side":null'):
+            self.assertIn(key, B.canonical(a))
         self.assertNotIn(b"morale_roll_on_wait", B.canonical(a))
+
+
+class LastMoverOrderTest(unittest.TestCase):
+    """speed_tie="alternate_last_mover", wait_order="slow_first_alternate"
+    (VCMI cross-check #5/#6; options pending rules.md 9.4)."""
+
+    def test_tie_after_faster_attacker(self):
+        # a0 (speed 7, attacker) acts first; then the speed-6 tie a1/d0.
+        # Last-mover rule: the attacker acted last, so d0 leads. The old
+        # "alternate" mode re-ranks the remaining stacks and gives a1 first.
+        for tie, expected in (("attacker_first", (1, 2, 3)),
+                              ("alternate", (1, 2, 3)),
+                              ("alternate_last_mover", (2, 1, 3))):
+            st, _ = begin(four([7, 6, 6, 5], B.BattlePolicy(speed_tie=tie)))
+            self.assertEqual(st.active, 0)
+            st, _ = B.apply(st, B.Defend(0), ScriptRng())
+            self.assertEqual(B.turn_order(st), expected, tie)
+
+    def play_round(self, st):
+        seen = []
+        start = st.round
+        while st.round == start:
+            seen.append(st.active)
+            st, _ = B.apply(st, B.Defend(st.active), ScriptRng())
+        return st, tuple(seen)
+
+    def test_alternation_carries_across_rounds(self):
+        c = cr("x", speed=6)
+        pol = B.BattlePolicy(speed_tie="alternate_last_mover")
+        st = B.create_battle("lm", [ss(c), ss(c), ss(c)], [ss(c), ss(c)], policy=pol)
+        st, _ = begin(st)
+        self.assertEqual(st.last_side, B.ATTACKER)
+        predicted = B.turn_order(st)
+        self.assertEqual(predicted, (0, 3, 1, 4, 2))
+        st, seen = self.play_round(st)
+        self.assertEqual(seen, predicted)
+        # Round 1 ended with an attacker, so the defender leads round 2.
+        self.assertEqual(B.turn_order(st), (3, 0, 4, 1, 2))
+        st, seen = self.play_round(st)
+        self.assertEqual(seen, (3, 0, 4, 1, 2))
+
+    def wait_phase(self, policy):
+        st, _ = begin(four([6, 6, 6, 5], policy))
+        rng = ScriptRng()
+        st, _ = B.apply(st, B.Wait(0), rng)
+        st, _ = B.apply(st, B.Defend(1), rng)
+        st, _ = B.apply(st, B.Wait(2), rng)
+        st, _ = B.apply(st, B.Defend(3), rng)  # defender acted last
+        return B.turn_order(st)
+
+    def test_slow_first_alternate(self):
+        self.assertEqual(self.wait_phase(B.DEFAULT_POLICY), (2, 0))
+        pol = B.BattlePolicy(wait_order="slow_first_alternate")
+        self.assertEqual(self.wait_phase(pol), (0, 2))
+        # Ascending speed; lower slot first within a side.
+        st, _ = begin(four([7, 4, 6, 5], pol))
+        for sid in (0, 2, 3, 1):
+            st, _ = B.apply(st, B.Wait(sid), ScriptRng())
+        self.assertEqual(B.turn_order(st), (1, 3, 2, 0))
+
+    def test_validation(self):
+        with self.assertRaises(ValueError):
+            B.BattlePolicy(speed_tie="random")
+        with self.assertRaises(ValueError):
+            B.BattlePolicy(wait_order="slow_first")
+
+
+class BadMoraleTableTest(unittest.TestCase):
+    def test_default_and_vcmi_table(self):
+        self.assertEqual(B.DEFAULT_POLICY.bad_morale_table, (1, 2, 3))
+        for table, want in (((1, 2, 3), (1, 12)), ((2, 4, 6), (1, 6))):  # 2/24, 4/24
+            pol = B.BattlePolicy(bad_morale_table=table)
+            rng = RecordingRng([True])
+            st, ev = begin(four([7, 4, 6, 5], pol, morale=-2), rng)
+            self.assertEqual(rng.asked[0], want)
+            self.assertIn(B.MoraleFrozen(0), ev)
+
+    def test_validation(self):
+        for bad in ((1, 2), (1, 2, 30), (3, 2, 1), (1, -1, 2), (1, 2, True)):
+            with self.assertRaises(ValueError, msg=bad):
+                B.BattlePolicy(bad_morale_table=bad)
+
+
+class RangeOriginTest(unittest.TestCase):
+    def shot(self, origin):
+        archer = cr("arch", speed=9, dmg=(2, 2), hp=10, shots=3, double_wide=True)
+        # Attacker head (13,5), tail (12,5); target behind it at (1,5):
+        # head distance 12, tail distance 11.
+        st = B.create_battle(
+            "ro", [ss(archer, count=10, pos=(13, 5))],
+            [ss(cr("t", hp=100), count=5, pos=(1, 5))],
+            policy=B.BattlePolicy(range_penalty_beyond=11, range_origin=origin))
+        st, _ = begin(st)
+        _, ev = B.apply(st, B.Shoot(0, 1), ScriptRng())
+        return [e for e in ev if isinstance(e, B.DamageDealt)][0].damage
+
+    def test_head_vs_any_cell(self):
+        self.assertEqual(B.DEFAULT_POLICY.range_origin, "head")
+        self.assertEqual(self.shot("head"), 10)      # 12 > 11: penalty
+        self.assertEqual(self.shot("any_cell"), 20)  # tail at 11: none
+        with self.assertRaises(ValueError):
+            B.BattlePolicy(range_origin="tail")
 
 
 if __name__ == "__main__":

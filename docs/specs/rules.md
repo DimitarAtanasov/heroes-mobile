@@ -21,6 +21,20 @@ anything. Every formula and rule carries one of these tags:
   unobservable or irrelevant, for example RNG draw order or the obstacle
   placement algorithm.
 
+**VCMI cross-check annotations.** `docs/specs/vcmi-crosscheck-rules.md`
+compares this spec with the VCMI engine. Where it applies, a rule carries an
+extra note such as **VCMI #3: clear**, giving the cross-check row number and
+its confidence (**clear**, **ambiguous**, **VCMI-differs**; defined in that
+file). VCMI is a reimplementation: its behaviour is evidence of what the
+original does, not proof, and it does not change a rule's tag by itself.
+Code follows two rules:
+
+- A "clear" note on an [uncertain] item may be adopted as the engine's
+  policy default, recorded in that module's spec.
+- If the note contradicts a [documented] value, or is "ambiguous", the
+  documented value stays the default. The VCMI value becomes a switchable
+  policy option, and a §9 item is added to settle it by experiment.
+
 All numeric *content* comes from the user's data files and is **not** part
 of this spec. That includes creature attack/defense/damage/HP/speed/shots,
 growth, costs, spell power tables and class probabilities. The spec defines
@@ -61,21 +75,58 @@ creatures in the hero's army** [documented, SoD values]:
 
 ### 2.2 Terrain cost
 
-Cost to enter a tile, for an orthogonal step, with no Pathfinding
-[documented]:
+Cost of one orthogonal step, with no Pathfinding. The terrain values are
+[documented] (**VCMI, §2 row "Terrain base costs": clear**, it agrees):
 
 | Terrain | Cost |
 |---|---|
-| Any tile with a road | 50 (dirt road; gravel/cobblestone roads may be cheaper — [uncertain]) |
+| Road (see the road rows) | 75 / 65 / 50 |
 | Dirt, Grass, Lava, Subterranean | 100 |
 | Rough | 125 |
 | Sand, Snow | 150 |
 | Swamp | 175 |
 
-- Diagonal steps cost about √2 times the orthogonal cost. [uncertain:
-  the exact integer rounding, e.g. 141 vs 142 for a 100 tile]
-- Pathfinding reduces the penalty above 100: the commonly quoted figures are
-  25% / 50% / 75% reductions of the penalty portion. [uncertain]
+Road costs by type [uncertain; previously "any road = 50", documented for
+dirt roads only] (**VCMI #3: clear**, from its road config; §9.14):
+
+| Road | Cost |
+|---|---|
+| Dirt road | 75 |
+| Gravel road | 65 |
+| Cobblestone road | 50 |
+
+VCMI's dirt road costs 75. That contradicts the earlier [documented] line
+"any road = 50 (dirt road)". Under the §0 rule, a movement module takes the
+road costs as a policy table with two options: `(75, 65, 50)` from VCMI
+(clear) and a flat 50 from the earlier documentation. The module's owner
+picks the default and records it, and §9.14 settles the question.
+
+- **Which tile pays.** [uncertain; previously "cost to enter a tile"]
+  (**VCMI #2: clear**; §9.14). A step is priced by its **source** tile (the
+  tile being left), not the destination. The road rate applies only if
+  **both** the source and the destination tile have a road. The rate is
+  then that of the source tile's road. Otherwise the source tile's terrain
+  cost applies. The step-cost function must take `(src, dst)`. This
+  contradicts the earlier [documented] "cost to enter a tile", so a movement
+  module makes it a policy: `step_cost_tile = "source" | "destination"`,
+  and a road rule of "needs both tiles" or "destination only". The module's
+  owner picks the default (VCMI evidence: clear) and §9.14 settles it.
+- **Diagonal steps** cost `floor(cost × √2)`, the orthogonal cost of the
+  same step multiplied by √2 and rounded down [uncertain → **VCMI (row
+  "Adventure diagonal cost"): clear**; §9.7]: 100 → 141, 125 → 176,
+  150 → 212, 175 → 247; roads 75 → 106, 65 → 91, 50 → 70. No floats: compute
+  it as `isqrt(2 × cost²)`, which is `floor(cost·√2)` exactly for integers.
+  VCMI also allows a diagonal step that costs more than the points left if
+  those points cover the orthogonal cost of the step; the step then uses up
+  all the points (row "Diagonal exception", clear).
+- **Pathfinding** [uncertain; replaces "25/50/75 % of the penalty portion"]
+  (**VCMI #8: clear**; §9.8): a **flat** 25 / 50 / 75 movement points
+  (basic/advanced/expert) come off the step cost, but never below the base
+  cost of 100: `max(100, cost − discount)` for costs above 100. Swamp 175
+  → 150 / 125 / 100; Sand and Snow 150 → 125 / 100 / 100; Rough 125 → 100
+  at every level. Costs of 100 or less (roads, plain terrain) are unchanged.
+  Movement-module fields: `pathfinding_discount = (0, 25, 50, 75)`,
+  `move_cost_floor = 100`.
 - Native terrain: an army made only of the hero's native-terrain creatures
   (or the hero's own terrain) ignores that terrain's penalty. [uncertain:
   exact rule for mixed armies]
@@ -185,7 +236,7 @@ Total experience required [documented for levels 1–12]:
   | Leadership | +1 | +2 | +3 | morale |
   | Logistics | +10% | +20% | +30% | land movement |
   | Intelligence | +25% | +50% | +100% | max spell points |
-  | Mysticism | +2 | +3 | +4 | spell points regenerated/day |
+  | Mysticism | 2 | 3 | 4 | spell points regenerated/day (replaces the base 1; §5.4) |
 
 - Hero specialties that scale these with level (e.g. +5% of skill effect per
   level). [uncertain]
@@ -194,8 +245,16 @@ Total experience required [documented for levels 1–12]:
 
 - Maximum spell points = 10 × Knowledge × (1 + Intelligence bonus).
   [documented]. Rounding of the Intelligence product is [uncertain].
-- Regeneration per day = 1 + Mysticism bonus, capped at the maximum.
-  [documented]
+- Regeneration per day is capped at the maximum. The base rate is 1 point
+  per day. [documented] How Mysticism combines with it is [uncertain;
+  previously documented as "1 + Mysticism bonus" (3/4/5)] (**VCMI #9:
+  clear in VCMI**; §9.15). In VCMI, Mysticism **replaces** the base point,
+  so the total is 2 / 3 / 4 per day (basic/advanced/expert), plus specialty
+  or artifact sources: `regen = mysticism_regen[level]` with
+  `mysticism_regen = (1, 2, 3, 4)` (totals, not deltas). Because this
+  contradicts a documented value, a hero/economy module keeps the rule
+  switchable: a policy `mysticism_mode = "replace" | "add"`. The default
+  is for that module's owner to set; the VCMI evidence is clear.
 - A hero who starts the day in a town with a Mage Guild is fully restored.
   [documented]
 - Spell cost is per spell and school level (data), reduced by expertise in
@@ -213,6 +272,8 @@ Total experience required [documented for levels 1–12]:
   [uncertain: exact geometry and which edge hexes are usable; the engine
   stores this in a geometry table]
 - Rows are offset (odd/even). Each hex has up to 6 neighbours. [documented]
+  Which parity is shifted is a convention. `battle.py` defaults to even rows
+  shifted right (**VCMI #1: clear**; see `battle.md` §2 and §10).
 - Two-hex ("double-wide") creatures occupy their head hex plus one hex
   behind it, facing their side. [documented]
 - Initial placement: the attacker's stacks start in the leftmost playable
@@ -229,7 +290,10 @@ Total experience required [documented for levels 1–12]:
   [documented]
 - Siege walls: ranged attacks across the castle walls deal half damage,
   unless the shooter ignores this penalty (ability flag). [documented].
-  Whether the wall penalty stacks with the distance penalty is [uncertain].
+  Whether the wall penalty stacks with the distance penalty is [uncertain]
+  (**VCMI #11: clear in VCMI**: two separate factors that multiply, so a
+  long shot over the wall deals 25 %; §9.3). `rules.py` implements the
+  multiplicative form. It no longer raises on the combination.
 - The obstacle placement algorithm and the obstacle shapes are [engine]
   (seeded RNG; shapes from our own JSON keyed to obstacle IDs).
 
@@ -239,10 +303,16 @@ Total experience required [documented for levels 1–12]:
   [documented]
 - Speed ties: the commonly cited order is that the attacking side goes first
   on a tie and same-side ties are broken by slot. Whether sides alternate
-  instead is [uncertain].
+  instead is [uncertain] (**VCMI #5: clear in VCMI, ambiguous against the
+  original**: among tied stacks, the side that did not act most recently
+  goes first; this carries across rounds; §9.4). `battle.py` offers this as
+  `speed_tie="alternate_last_mover"`. The default stays attacker-first.
 - **Wait** puts the stack in a second phase of the round. Waited stacks act
   after all non-waited stacks. The order within the wait phase (reverse
-  speed?) is [uncertain].
+  speed?) is [uncertain] (**VCMI #6: clear in VCMI**: slowest first, ties
+  by the same last-mover rule, lower slot first; §9.4). `battle.py` offers
+  this as `wait_order="slow_first_alternate"`. The default stays
+  reverse-speed.
 - **Defend** ends the stack's turn and gives a Defense bonus until its next
   turn. The bonus is commonly cited as +20% of Defense (minimum +1).
   [uncertain: rounding]
@@ -265,12 +335,24 @@ Total experience required [documented for levels 1–12]:
 - **Good morale:** at the start of a turn with morale M > 0, there is a
   M/24 chance (M=1 → 1/24, 2 → 2/24, 3 → 3/24) of an extra action
   immediately after this one. [documented]
-- **Bad morale:** with morale M < 0, there is a |M|/24 chance that the
-  stack "freezes" and loses its turn. [documented]
+- **Bad morale:** with morale M < 0, there is a chance that the stack
+  "freezes" and loses its turn. The commonly documented value is |M|/24
+  (1/24, 2/24, 3/24). [uncertain: the sources conflict] (**VCMI #7:
+  ambiguous**: VCMI uses 2/24, 4/24, 6/24 for M = −1/−2/−3; §9.13).
+  `rules.bad_morale_chance(morale, table)` takes the numerator table,
+  default `BAD_MORALE_NUMERATORS = (1, 2, 3)`. The VCMI value is
+  `VCMI_BAD_MORALE_NUMERATORS = (2, 4, 6)`. `battle.py` exposes it as
+  policy `bad_morale_table`.
 - Undead and stacks with the "no morale" ability are always neutral.
   [documented]
 - Whether good morale can fire after a Wait or Defend action, and whether it
-  can fire repeatedly. [uncertain]
+  can fire repeatedly. [uncertain] (VCMI agrees with the `battle.py`
+  defaults: no roll after Wait or Defend, at most one bonus per round.)
+- Morale at a waited stack's wait-phase activation. [uncertain]
+  (**VCMI #4: clear in VCMI, original unverified**: no bad-morale roll, but
+  good morale can still fire after the wait-phase action; §9.12).
+  `battle.py` policies are `bad_morale_on_wait_activation=False` and
+  `good_morale_on_wait_activation=True`.
 - **Good luck:** each attack with luck L > 0 has an L/24 chance to
   **double** the damage. In the damage formula this is the `I_luck = +1.0`
   term. [documented]
@@ -315,9 +397,9 @@ damage = base * (1 + I_ad + I_skill + I_luck + I_special)
 | `I_luck` | 1.0 when good luck triggers, else 0 | [documented] |
 | `I_special` | e.g. "hates" target: +0.5 | [documented for hate]; other specials (elemental opposition, Death Blow, Ballista crits) [uncertain] |
 | `R_armorer` | defender hero Armorer 0.05/0.10/0.15 | [documented] |
-| `R_range` | 0.5 when the target is beyond the shooter's full-damage range (commonly "more than 10 hexes") and the shooter lacks "no range penalty" | [documented factor]; exact distance threshold/inclusivity [uncertain] |
+| `R_range` | 0.5 when the target is beyond the shooter's full-damage range (commonly "more than 10 hexes") and the shooter lacks "no range penalty" | [documented factor]; exact distance threshold/inclusivity [uncertain] (VCMI: penalty when > 10). Distance origin: the shooter's head hex to the nearest target hex (**VCMI #12: clear**; `battle.py` policy `range_origin="head"`) |
 | `R_melee` | 0.5 when a shooter attacks in melee and lacks "no melee penalty" | [documented] |
-| `R_wall` | 0.5 when shooting across siege walls, unless exempt | [documented factor]; stacking with `R_range` [uncertain] |
+| `R_wall` | 0.5 when shooting across siege walls, unless exempt | [documented factor]; stacking with `R_range` [uncertain], implemented as multiplicative (**VCMI #11: clear in VCMI**; §9.3) |
 | Shield / Air Shield / Stone Skin / Bless / Curse / Frenzy … | spell-dependent | [uncertain] — per-spell verification |
 | Hero specialty bonuses | level-scaled | [uncertain] |
 
@@ -387,7 +469,14 @@ resurrection spells are [uncertain].
   `damage_from_base`, `damage_range`, `apply_damage`, `luck_chance` and
   `good_morale_chance` and `bad_morale_chance`, plus the skill constant tables.
 
-Items marked [uncertain] stay out of it until §9 verifies them.
+Items marked [uncertain] stay out of it until §9 verifies them. There are
+two exceptions, both backed by VCMI and both still open in §9:
+
+- `R_wall` × `R_range` multiply (§9.3).
+- The bad-morale table is a parameter (`BAD_MORALE_NUMERATORS`, default
+  documented (1, 2, 3); `VCMI_BAD_MORALE_NUMERATORS` (2, 4, 6); §9.13).
+
+All arithmetic stays exact: integers and `fractions.Fraction`, no floats.
 
 ## 9. Verification checklist (to promote [uncertain] → [documented])
 
@@ -395,16 +484,59 @@ Each item is resolved by a controlled experiment in the user's own copy of
 the game, for example a custom map from the editor with fixed armies and
 many repeated trials. The observed values are recorded as test fixtures.
 
+Each item lists the VCMI evidence (`vcmi-crosscheck-rules.md`) and the
+current engine default. An experiment still decides the matter.
+
 1. Intermediate rounding in the damage formula: compare the observed
-   min/max damage for stacks whose rational product is non-integer.
-2. Range penalty distance threshold (10 vs 11 hexes).
-3. Wall and range penalty stacking.
-4. Speed tie order and wait-phase order.
-5. Defend bonus value and rounding.
-6. Bad-luck availability and its position in the formula.
+   min/max damage for stacks whose rational product is non-integer. (VCMI
+   #10, ambiguous: it builds a floored final range in floating point and
+   averages up to 10 draws inside it. `rules.py` is unchanged.)
+2. Range penalty distance threshold (10 vs 11 hexes), and the distance
+   origin for two-hex shooters. (VCMI: > 10, measured from the head hex,
+   #12 clear. `battle.py` default `range_penalty_beyond=10`,
+   `range_origin="head"`; option `"any_cell"`.)
+3. Wall and range penalty stacking. (VCMI #11, clear in VCMI:
+   multiplicative, 25 %. `rules.py` implements this. Experiment: a long
+   shot across a standing wall should deal a quarter.)
+4. Speed tie order and wait-phase order. (VCMI #5/#6: last-mover
+   alternation carrying across rounds; wait phase slowest first, lower slot
+   first. Pending experiment: `battle.py` options
+   `speed_tie="alternate_last_mover"` and
+   `wait_order="slow_first_alternate"`; defaults still `"attacker_first"`
+   and `"reverse_speed"`. Test: two equal-speed stacks per side plus one
+   faster attacker. The last-mover rule predicts the defender takes the
+   first tie slot.)
+5. Defend bonus value and rounding. (VCMI agrees: 20 %, floor, minimum 1.)
+6. Bad-luck availability and its position in the formula. (VCMI: absent in
+   SoD.)
 7. Diagonal movement cost and the last-step rule on the adventure map.
+   (VCMI: `floor(cost·√2)`, 100 → 141; diagonal exception; zero the
+   remainder when it is below the next step's cost; clear. §2.2.)
 8. Pathfinding reductions and the native-terrain rule for mixed armies.
+   (VCMI #8: flat 25/50/75, floor 100; native only if every stack is
+   native; clear. §2.2.)
 9. Experience table beyond level 12.
 10. Citadel +50% rounding for odd growth.
 11. Each spell's effect formula and cost reductions.
-12. Morale after Wait/Defend, and repeated good-morale triggers.
+12. Morale after Wait/Defend, repeated good-morale triggers, and morale at
+    a waited stack's wait-phase activation. (VCMI agrees with "no roll after
+    Wait/Defend, no repeat". VCMI #4 for the wait-phase activation: no bad
+    roll, good roll kept. `battle.py` now defaults to that,
+    `bad_morale_on_wait_activation=False`,
+    `good_morale_on_wait_activation=True`. Before 2026-11-01 both rolls
+    happened. Experiment: a stack with morale −3 that waits should never
+    freeze in the wait phase over many trials.)
+13. **Bad-morale chance per morale point** (new). Documented: |M|/24. VCMI
+    #7 (ambiguous): 2/24, 4/24, 6/24. The default stays
+    `bad_morale_table = (1, 2, 3)`. Experiment: count freezes of a morale
+    −1 and a morale −3 stack over a few hundred activations. At −3 the two
+    tables predict 12.5 % and 25 %.
+14. **Adventure step pricing and road costs** (new). Documented: the
+    destination tile pays, any road 50. VCMI #2/#3 (clear): the source tile
+    pays, the road rate needs a road on both tiles, roads cost 75/65/50
+    (dirt/gravel/cobblestone). Experiment: walk a hero one step off and one
+    step onto a dirt road and onto swamp, and compare the points left.
+15. **Mysticism regeneration** (new). Documented: 1 + 2/3/4. VCMI #9
+    (clear in VCMI): Mysticism replaces the base, 2/3/4 in total.
+    Experiment: a hero with Basic Mysticism and no other sources, away
+    from towns, regains 2 or 3 points per day.

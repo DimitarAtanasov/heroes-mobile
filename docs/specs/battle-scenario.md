@@ -21,7 +21,7 @@ one command per block, then the winner, the round count and the state hash:
 ...
 winner: defender
 rounds: 4
-state hash: cd969e37b84f2c1dde88ad5cf2b3d8e0f11f211ace9ccfe2226405a6c06da95d
+state hash: 2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d
 ```
 
 Exit status: 0 on success. 1 for a malformed scenario, an unreadable file,
@@ -101,9 +101,16 @@ left out keeps its default. The fields are `row_offset`, `edge_columns_walkable`
 `placement_rows`, `speed_tie`, `wait_order`, `defend_bonus_num`,
 `defend_bonus_den`, `defend_bonus_min`, `defend_bonus_rounding`,
 `good_morale_after_wait`, `good_morale_after_defend`, `repeat_good_morale`,
-`bad_luck` and `range_penalty_beyond`. Their values are validated by
-`BattlePolicy`. `placement_rows` is a list of 7 lists, the list of size `i+1`
-at index `i`.
+`bad_morale_on_wait_activation`, `good_morale_on_wait_activation`,
+`bad_morale_table`, `bad_luck`, `range_penalty_beyond` and `range_origin`.
+Their values are validated by `BattlePolicy`. `placement_rows` is a list of 7
+lists, the list of size `i+1` at index `i`. `bad_morale_table` is a list of 3
+integers (numerators over 24 for morale −1, −2, −3).
+
+The old field `morale_roll_on_wait_activation` was removed on 2026-11-01 and is
+now rejected as an unknown key. Write `true` as
+`"bad_morale_on_wait_activation": true, "good_morale_on_wait_activation": true`
+and `false` as both `false`. See `battle.md` §5.
 
 ## 6. Choosers
 
@@ -147,4 +154,6 @@ hash pinned there:
 ```
 
 Pinned state hash for this scenario with seed 12345 and the scripted chooser:
-`cd969e37b84f2c1dde88ad5cf2b3d8e0f11f211ace9ccfe2226405a6c06da95d`.
+`2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d`.
+It was re-pinned on 2026-11-01 (previously `cd969e37…a95d`) when the default
+row parity became `"even"`. The reason is recorded in `battle.md` §10.

@@ -29,7 +29,8 @@ from h3re.__main__ import main  # noqa: E402
 SCENARIO_DOC = REPO_ROOT / "docs" / "specs" / "battle-scenario.md"
 
 # Same value as GoldenTest.PINNED in tests/test_battle.py.
-GOLDEN_PINNED = "cd969e37b84f2c1dde88ad5cf2b3d8e0f11f211ace9ccfe2226405a6c06da95d"
+# Re-pinned with it on 2026-11-01 (battle.md section 10).
+GOLDEN_PINNED = "2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d"
 
 
 def golden_scenario() -> dict:
@@ -367,11 +368,28 @@ class MalformedScenarioTest(CliTestCase):
 class PolicyAndHeroTest(CliTestCase):
     def test_policy_override_changes_state(self):
         doc = self.base_doc()
-        doc["policy"] = {"row_offset": "even"}
-        _, even = battle_cli.parse_scenario(doc)
-        _, odd = battle_cli.parse_scenario(self.base_doc())
+        doc["policy"] = {"row_offset": "odd"}
+        _, odd = battle_cli.parse_scenario(doc)
+        _, even = battle_cli.parse_scenario(self.base_doc())
+        self.assertEqual(odd.policy.row_offset, "odd")
         self.assertEqual(even.policy.row_offset, "even")
         self.assertNotEqual(B.state_hash(even), B.state_hash(odd))
+
+    def test_policy_new_fields_from_json(self):
+        doc = self.base_doc()
+        doc["policy"] = {"bad_morale_table": [2, 4, 6], "speed_tie": "alternate_last_mover",
+                         "wait_order": "slow_first_alternate", "range_origin": "any_cell",
+                         "bad_morale_on_wait_activation": True,
+                         "good_morale_on_wait_activation": False}
+        _, state = battle_cli.parse_scenario(doc)
+        self.assertEqual(state.policy.bad_morale_table, (2, 4, 6))
+        self.assertEqual(state.policy.speed_tie, "alternate_last_mover")
+        doc["policy"] = {"bad_morale_table": [1, 2]}
+        with self.assertRaises(battle_cli.CliError):
+            battle_cli.parse_scenario(doc)
+        doc["policy"] = {"morale_roll_on_wait_activation": True}  # deprecated, removed
+        with self.assertRaises(battle_cli.CliError):
+            battle_cli.parse_scenario(doc)
 
     def test_policy_empty_is_default(self):
         doc = self.base_doc()

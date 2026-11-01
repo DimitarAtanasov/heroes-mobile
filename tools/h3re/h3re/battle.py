@@ -14,6 +14,10 @@ Design:
   ``rng.py`` stream ``battle:<battle_id>`` (see ``battle_rng``).
 * Every rule that rules.md tags [uncertain] is a field of ``BattlePolicy``;
   the policy is stored in the state (and therefore in the state hash).
+* docs/specs/vcmi-crosscheck-rules.md records VCMI evidence for several
+  policies. VCMI is evidence, not proof: only "clear" items changed a default
+  (``row_offset``, ``range_origin``, the wait-activation morale split); the
+  rest are extra options pending rules.md section 9 experiments.
 """
 
 import hashlib
@@ -35,13 +39,15 @@ __all__ = [
     "in_grid", "neighbours", "hex_distance", "to_axial", "from_axial",
     "battle_rng", "create_battle", "apply", "cells", "reachable",
     "turn_order", "round_order", "legal_commands", "canonical", "state_hash",
-    "defend_bonus", "effective_morale",
+    "defend_bonus", "effective_morale", "DEFAULT_ROW_OFFSET",
 ]
 
 WIDTH = 17
 HEIGHT = 11
 ATTACKER = 0
 DEFENDER = 1
+# Default row parity for the geometry helpers; equals BattlePolicy().row_offset.
+DEFAULT_ROW_OFFSET = "even"
 
 
 # --------------------------------------------------------------------------
@@ -59,6 +65,10 @@ _DEFAULT_PLACEMENT = (
 )
 
 
+_SPEED_TIES = ("attacker_first", "alternate", "alternate_last_mover")
+_WAIT_ORDERS = ("reverse_speed", "speed", "fifo", "slow_first_alternate")
+
+
 @dataclass(frozen=True)
 class BattlePolicy:
     """Switchable rules. Defaults are the documented / commonly cited choice.
@@ -67,14 +77,20 @@ class BattlePolicy:
     """
 
     # 6.1 geometry: which rows are shifted half a hex to the right.
-    row_offset: str = "odd"            # "odd" | "even"
+    # "even" since the VCMI cross-check (#1, clear); "odd" was the old default.
+    row_offset: str = DEFAULT_ROW_OFFSET   # "odd" | "even"
     # 6.1 geometry: may ordinary stacks use the war-machine edge columns?
     edge_columns_walkable: bool = False
     # 6.1 initial placement: rows per army size (index = n_stacks - 1).
     placement_rows: tuple = _DEFAULT_PLACEMENT
-    # 6.3 speed ties: "attacker_first" (side, then slot) | "alternate".
+    # 6.3 speed ties: "attacker_first" (side, then slot) | "alternate"
+    # (interleave, attacker first in every tie group) | "alternate_last_mover"
+    # (the side that did not act last goes first; carries across rounds;
+    # VCMI behaviour, pending rules.md 9.4).
     speed_tie: str = "attacker_first"
-    # 6.3 order within the wait phase: "reverse_speed" | "speed" | "fifo".
+    # 6.3 order within the wait phase: "reverse_speed" | "speed" | "fifo" |
+    # "slow_first_alternate" (ascending speed, ties by the last-mover rule,
+    # lower slot first; VCMI behaviour, pending rules.md 9.4).
     wait_order: str = "reverse_speed"
     # 6.3 defend bonus: num/den of Defense, at least ``min``, rounding mode.
     defend_bonus_num: int = 1
@@ -85,21 +101,37 @@ class BattlePolicy:
     good_morale_after_wait: bool = False
     good_morale_after_defend: bool = False
     repeat_good_morale: bool = False
-    # 6.5 does a stack that waited roll morale again at its wait-phase
-    # activation? True = yes (original behaviour of this engine).
-    morale_roll_on_wait_activation: bool = True
+    # 6.5 morale rolls at a stack's wait-phase activation (VCMI cross-check
+    # #4): no bad-morale roll, the good-morale roll still happens.
+    # These two replace the deprecated ``morale_roll_on_wait_activation``
+    # (old True == both True, old False == both False).
+    bad_morale_on_wait_activation: bool = False
+    good_morale_on_wait_activation: bool = True
+    # 6.5 bad-morale chance numerators over 24 for morale -1, -2, -3.
+    # (1, 2, 3) is the community-documented value; VCMI uses (2, 4, 6).
+    # Pending rules.md 9.13.
+    bad_morale_table: tuple = rules.BAD_MORALE_NUMERATORS
     # 6.5 bad luck (|L|/24 chance to halve damage, after the final floor).
     bad_luck: bool = False
     # 6.6 R_range: penalty when distance > this many hexes.
     range_penalty_beyond: int = 10
+    # 6.6 R_range distance origin: "head" (shooter head hex to any target
+    # cell; VCMI cross-check #12, clear) | "any_cell" (minimum over all
+    # shooter cells; the old default). Only matters for two-hex shooters.
+    range_origin: str = "head"
 
     def __post_init__(self):
         if self.row_offset not in ("odd", "even"):
             raise ValueError("row_offset must be 'odd' or 'even'")
-        if self.speed_tie not in ("attacker_first", "alternate"):
+        if self.speed_tie not in _SPEED_TIES:
             raise ValueError("bad speed_tie")
-        if self.wait_order not in ("reverse_speed", "speed", "fifo"):
+        if self.wait_order not in _WAIT_ORDERS:
             raise ValueError("bad wait_order")
+        if self.range_origin not in ("head", "any_cell"):
+            raise ValueError("bad range_origin")
+        table = tuple(self.bad_morale_table)
+        object.__setattr__(self, "bad_morale_table", table)
+        rules.check_bad_morale_table(table)
         if self.defend_bonus_rounding not in ("floor", "ceil"):
             raise ValueError("bad defend_bonus_rounding")
         if self.defend_bonus_den <= 0 or self.defend_bonus_num < 0:
@@ -126,20 +158,20 @@ def in_grid(h):
     return 0 <= c < WIDTH and 0 <= r < HEIGHT
 
 
-def to_axial(h, row_offset="odd"):
+def to_axial(h, row_offset=DEFAULT_ROW_OFFSET):
     c, r = h
     if row_offset == "odd":
         return c - (r - (r & 1)) // 2, r
     return c - (r + (r & 1)) // 2, r
 
 
-def from_axial(q, r, row_offset="odd"):
+def from_axial(q, r, row_offset=DEFAULT_ROW_OFFSET):
     if row_offset == "odd":
         return q + (r - (r & 1)) // 2, r
     return q + (r + (r & 1)) // 2, r
 
 
-def neighbours(h, row_offset="odd"):
+def neighbours(h, row_offset=DEFAULT_ROW_OFFSET):
     """Sorted tuple of in-grid neighbours of hex ``h`` (at most 6)."""
     q, r = to_axial(h, row_offset)
     out = []
@@ -150,7 +182,7 @@ def neighbours(h, row_offset="odd"):
     return tuple(sorted(out))
 
 
-def hex_distance(a, b, row_offset="odd"):
+def hex_distance(a, b, row_offset=DEFAULT_ROW_OFFSET):
     aq, ar = to_axial(a, row_offset)
     bq, br = to_axial(b, row_offset)
     dq, dr = aq - bq, ar - br
@@ -240,6 +272,9 @@ class BattleState:
     bonus_turn: bool = False
     morale_pending: bool = False
     winner: int = None
+    # Side of the most recently activated stack (None before the first
+    # activation). Carries across rounds; used by the last-mover tie rules.
+    last_side: int = None
 
 
 class IllegalCommand(ValueError):
@@ -525,29 +560,63 @@ def _speed_sorted(state, stacks):
     return sorted(stacks, key=lambda s: (-s.creature.speed, rank[s.id], s.side))
 
 
+def _last_mover_sorted(stacks, last_side, descending):
+    """Order by speed (descending or ascending); within a speed group, the
+    side that did not act last goes next (attacker if nobody has acted),
+    lower slot first within a side. Returns (order, last side)."""
+    out = []
+    speeds = sorted(set(s.creature.speed for s in stacks), reverse=descending)
+    for spd in speeds:
+        queues = {side: deque(sorted((s for s in stacks
+                                      if s.creature.speed == spd and s.side == side),
+                                     key=lambda s: s.slot))
+                  for side in (ATTACKER, DEFENDER)}
+        while queues[ATTACKER] or queues[DEFENDER]:
+            side = ATTACKER if last_side is None else 1 - last_side
+            if not queues[side]:
+                side = 1 - side
+            out.append(queues[side].popleft())
+            last_side = side
+    return out, last_side
+
+
 def turn_order(state):
     """Ids still to act this round, in order (the active stack first)."""
     living = _living(state)
     done = set(state.done)
     waited = set(state.waited)
+    act = state.active
+    if act is not None and not state.stacks[act].alive:
+        act = None
     main = [s for s in living if s.id not in done and s.id not in waited]
     wait = [s for s in living if s.id in waited and s.id not in done]
-    main_ids = [s.id for s in _speed_sorted(state, main)]
-    pol = state.policy.wait_order
-    if pol == "fifo":
+    pol = state.policy
+    # The last-mover rules predict the queue after the active stack, so they
+    # leave it out (state.last_side is already its side). The older modes
+    # sort it in and then move it to the front, as they always have.
+    last = state.last_side
+    if pol.speed_tie == "alternate_last_mover":
+        main_sorted, last = _last_mover_sorted(
+            [s for s in main if s.id != act], last, True)
+    else:
+        main_sorted = [s for s in _speed_sorted(state, main) if s.id != act]
+        if main_sorted:
+            last = main_sorted[-1].side
+    main_ids = [s.id for s in main_sorted]
+    if pol.wait_order == "fifo":
         alive_wait = set(s.id for s in wait)
         wait_ids = [i for i in state.waited if i in alive_wait]
+    elif pol.wait_order == "slow_first_alternate":
+        wait_ids = [s.id for s in _last_mover_sorted(
+            [s for s in wait if s.id != act], last, False)[0]]
     else:
         wait_ids = [s.id for s in _speed_sorted(state, wait)]
-        if pol == "reverse_speed":
+        if pol.wait_order == "reverse_speed":
             wait_ids.reverse()
-    order = main_ids + wait_ids
-    act = state.active
-    if act is not None and state.stacks[act].alive:
+    order = [i for i in main_ids + wait_ids if i != act]
+    if act is not None:
         # The active stack leads; during a morale bonus turn it is already
         # in ``done`` but still acts first.
-        if act in order:
-            order.remove(act)
         order.insert(0, act)
     return tuple(order)
 
@@ -583,13 +652,20 @@ def defend_bonus(state, stack):
 # Canonical form and hashing
 # --------------------------------------------------------------------------
 
+_OMIT_WHEN_DEFAULT = ()
+_DEFAULT_POLICY_DICT = asdict(DEFAULT_POLICY)
+
+
 def canonical(state):
     """Canonical byte form of the state (used for hashing, saves, sync)."""
     data = asdict(state)
-    # Fields added after the golden hash was pinned are left out while they
-    # hold their default, so older states keep their hash.
-    if data["policy"].get("morale_roll_on_wait_activation", True):
-        data["policy"].pop("morale_roll_on_wait_activation", None)
+    # Policy fields added after the golden hash was last pinned are listed in
+    # _OMIT_WHEN_DEFAULT and left out while they hold their default, so older
+    # states keep their hash. The list is empty right after a re-pin: every
+    # current field (default or not) is part of the canonical form.
+    for name in _OMIT_WHEN_DEFAULT:
+        if data["policy"].get(name) == _DEFAULT_POLICY_DICT[name]:
+            data["policy"].pop(name)
     return json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
@@ -635,7 +711,8 @@ def _strike(state, att_id, def_id, ranged, retaliation, rng, events):
     range_pen = False
     if ranged and not a.creature.no_range_penalty:
         off = pol.row_offset
-        dist = min(hex_distance(x, y, off) for x in cells(a) for y in cells(d))
+        origin = (a.pos,) if pol.range_origin == "head" else cells(a)
+        dist = min(hex_distance(x, y, off) for x in origin for y in cells(d))
         range_pen = dist > pol.range_penalty_beyond
     melee_pen = (not ranged) and a.creature.shooter and not a.creature.no_melee_penalty
     dmg = rules.damage_from_base(
@@ -703,12 +780,17 @@ def _activate_next(state, rng, events):
             st = replace(st, defending=False)
             state = _set(state, st)
         phase = "wait" if sid in state.waited else "main"
-        state = replace(state, active=sid, bonus_turn=False, morale_pending=False)
+        state = replace(state, active=sid, bonus_turn=False, morale_pending=False,
+                        last_side=st.side)
         events.append(TurnStarted(sid, phase, False))
         m = effective_morale(st)
-        if phase == "wait" and not state.policy.morale_roll_on_wait_activation:
-            m = 0
-        if m < 0 and _chance(rng, rules.bad_morale_chance(m)):
+        pol = state.policy
+        if phase == "wait":
+            if m < 0 and not pol.bad_morale_on_wait_activation:
+                m = 0
+            if m > 0 and not pol.good_morale_on_wait_activation:
+                m = 0
+        if m < 0 and _chance(rng, rules.bad_morale_chance(m, pol.bad_morale_table)):
             events.append(MoraleFrozen(sid))
             state = replace(state, done=state.done + (sid,), active=None)
             continue
