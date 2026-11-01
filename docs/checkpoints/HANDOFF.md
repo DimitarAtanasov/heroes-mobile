@@ -9,7 +9,7 @@ Verify the state:
 - `python3 tools/lint/banned_api_lint.py` and `python3 tools/lint/kotlin_banned_api_lint.py` (0 violations)
 - `cd tools/h3re && python3 -m h3re.vectors --check`
 - `cd android && gradle :sim:test` (111 Kotlin tests; Maven Central may answer HTTP 429: wait, retry, `--offline`)
-- `python3 tools/skills/validate.py` (loops, skills, memory)
+- `python3 tools/skills/validate.py` (loops + strict criteria, run traces, skills, memory); `python3 tools/skills/loop_eval.py graph|run ...` is the deterministic judge
 - Always verify from `git archive HEAD` plus only the owner's files (memory note clean-copy-verification).
 
 ## What exists
@@ -28,9 +28,14 @@ Verify the state:
   blocking and uploads the debug APK as artifact `heroes-mobile-debug-apk` (run 41336051621: 8.4 MB). It is
   still the 13-line stub app. GitHub artifacts need a login to download.
 
+## Loop tooling (done, commit 4dcc384)
+`tools/skills/loop_eval.py` judges loops (S1-S4) and recorded runs (R1-R8); agents `loop-advisor` (opus),
+`loop-producer` (opus), `loop-runner` (haiku) in `.claude/agents/`. The three agents have NOT yet been run on a
+live task; only the evaluator is tested (41 tests, rule mutations killed). Try them on the next real round.
+
 ## Next, in order
 1. (done) `:app:assembleDebug` is green in CI and the APK is uploaded. Next is real app code (see 3).
-2. Land the test-speed change (suite under about 8 minutes) and keep CI green.
+2. Verify and land the test-speed change (agent aadb5b6c1ccc7fa72 was still running at save time; its work is in /tmp/w_speed, not in the repo). Suite must drop from about 30 to under about 8 minutes with no check removed.
 3. 0.1 plan is `docs/specs/mvp-0.1.md`: `:presenter`/`BattleSession`, scenario and replay ports (a Kotlin replay must
    pass `python3 -m h3re replay verify`), app shell (screens, Compose board, hit-testing, tap reducer), autosave/resume,
    About screen. Then a device smoke test by the owner.
