@@ -11,13 +11,18 @@ Implemented in `tools/h3re/h3re/defimg.py`. All integers little-endian.
 | 12 | u32 | block count |
 | 16 | 768 | palette, 256 x RGB |
 
-Special palette indices (UNCERTAIN): the low palette entries are reserved for
-effects, but sources disagree on the range. This spec previously said 0-9;
-`engine-design.md` now uses the same 0-9 wording. Only index 0 (transparent) is certain; 1 and 4 are
-believed shadow-like. Treat 0-9 as the conservative reserved range (a superset
-of 0-7) until verified against real assets; indices 8 and 9 in particular are
-unconfirmed. The renderer treats 0 as transparent and 1/4 as approximate
-semi-transparent black (alpha 64/128, guessed); all others keep palette RGB.
+Special palette indices (cross-checked against VCMI): only indices 0-7 are
+reserved; 8 and above are ordinary colours (earlier "0-9" wording was wrong).
+Reference colours: 0=(0,255,255), 1=(255,150,255), 2=(255,100,255),
+3=(255,50,255), 4=(255,0,255), 5=(255,255,0), 6=(180,0,255), 7=(0,255,0).
+Target alpha: 0 -> 0 (transparent), 1 -> 64 (shadow border), 2 -> 64
+(fog-of-war border), 3 -> 128 (fog-of-war body), 4 -> 128 (shadow body),
+5 = selection / owner-flag overlay (transparent only when hidden by the
+renderer), 6 -> 128 and 7 -> 64 (shadow below selection, battle defs).
+Indices 0, 1, 4 are always applied; 2 and 3 only when the actual palette colour
+is within 8 per channel of its reference colour. `to_rgba` renders shadow
+alphas as black with that alpha, keeps index 5 as its opaque palette colour
+(exposed as `OVERLAY_INDEX`), and leaves 6/7 applied unconditionally.
 
 ## Blocks
 Blocks follow the palette back to back. Each block:
@@ -32,17 +37,24 @@ u32 width, u32 height, i32 x, i32 y. The (width x height) image is placed at
 relative to the end of the 32-byte header).
 
 - Format 0: raw, width*height palette indices.
+- Legacy format 1: if width > full width AND height > full height, margins are
+  forced to 0, width/height become the full size, and the pixel data starts 16
+  bytes earlier than normal (at frame offset + 16; row offsets are relative to
+  that start). Seen in two old terrain defs.
 - Format 1: height u32 line offsets; each line is a sequence of (code, len-1)
   pairs: code 0xFF followed by len raw bytes, otherwise len copies of code.
-- Format 2: height u16 line offsets; each line is bytes b with code=b>>5,
+- Format 2: only the first u16 of the frame is read (start of run data);
+  lines are then decoded one after another until each holds `width` pixels.
+  Each line is bytes b with code=b>>5,
   len=(b&31)+1: code 7 means len raw bytes follow, else len copies of index code.
-- Format 3: like 2, but height*ceil(width/32) u16 offsets, one per 32-pixel
-  segment of each line.
+- Format 3: same run encoding. Offset table row stride is 2*floor(width/32)
+  bytes (floor, not ceil); only the first u16 of each row is read, and the row
+  is decoded sequentially until `width` pixels. Equivalent to a per-segment
+  table only for well-formed data with width a multiple of 32.
 
 ## Implementation status / caveats
-- Formats 2 and 3 offsets/layout are written from memory of community
-  documentation and verified only against synthetic fixtures.
-- Palette-cycling and the special-color semantics are not modeled.
+- Formats 2 and 3 follow the VCMI cross-check; tested on synthetic fixtures.
+- Palette-cycling is not modeled.
 - Frame `size` is the length of pixel data after the 32-byte header. It must fit
   in the file, must equal width*height for format 0, and all line/segment
   offsets and run data are confined to that window (else `DefError`).

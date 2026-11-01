@@ -5,7 +5,7 @@ import unittest
 import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from h3re.defimg import (DefError, EmptyImageError, frame_is_empty, frame_to_png, parse_def, frame_to_canvas, to_rgba, to_rgb,
+from h3re.defimg import (DefError, EmptyImageError, frame_is_empty, frame_to_png, parse_def, OVERLAY_INDEX, frame_to_canvas, to_rgba, to_rgb,
                          write_png, write_ppm)
 
 PAL = b"".join(bytes([i, 255 - i, (i * 7) & 255]) for i in range(256))
@@ -73,6 +73,56 @@ class DefTests(unittest.TestCase):
         body = struct.pack("<2H", 4, 5) + s0 + s1
         d = parse_def(build_def([frame_bytes(3, 64, 1, 64, 1, 0, 0, body)]))
         self.assertEqual(d.blocks[0].frames[0].pixels, bytes([1] * 32 + [3] * 16 + [4] * 16))
+
+    def test_format3_floor_stride_sequential(self):
+        # width 40: floor(40/32)=1 -> row stride 2 bytes; one u16 per row.
+        r0 = bytes([(1 << 5) | 31, (2 << 5) | 7])      # 32 x1, 8 x2
+        r1 = bytes([(3 << 5) | 31, (4 << 5) | 7])
+        base = 4
+        body = struct.pack("<2H", base, base + len(r0)) + r0 + r1
+        d = parse_def(build_def([frame_bytes(3, 40, 2, 40, 2, 0, 0, body)]))
+        self.assertEqual(d.blocks[0].frames[0].pixels,
+                         bytes([1] * 32 + [2] * 8 + [3] * 32 + [4] * 8))
+
+    def test_format2_first_offset_only(self):
+        # Second u16 is garbage; only the first is used, rows are sequential.
+        line = bytes([(2 << 5) | 3])
+        body = struct.pack("<2H", 4, 0xFFFF) + line + bytes([(5 << 5) | 3])
+        d = parse_def(build_def([frame_bytes(2, 4, 2, 4, 2, 0, 0, body)]))
+        self.assertEqual(d.blocks[0].frames[0].pixels, bytes([2] * 4 + [5] * 4))
+
+    def test_legacy_format1(self):
+        # Header is only 16 bytes (size, fmt, fullW, fullH); data starts at
+        # frame offset + 16.  The normal width/height fields then overlay the
+        # first two row offsets (8, 12), both exceeding the full size 2x2,
+        # which triggers the legacy case: margins 0, size = full size.
+        r0 = bytes([0xFF, 1, 7, 8])
+        r1 = bytes([9, 1])
+        data = struct.pack("<2I", 8, 12) + r0 + r1 + b"\0\0"  # 16 bytes
+        frame = struct.pack("<4I", 0, 1, 2, 2) + data
+        frame = struct.pack("<I", len(data) - 16 + 4) + frame[4:] + b"\0" * 4
+        d = parse_def(build_def([frame]))
+        f = d.blocks[0].frames[0]
+        self.assertEqual((f.width, f.height, f.x, f.y), (2, 2, 0, 0))
+        self.assertEqual(f.pixels, bytes([7, 8, 9, 9]))
+
+    def test_special_alpha(self):
+        pal = [(10, 20, 30)] * 256
+        pal[2] = (255, 100, 255)
+        pal[3] = (200, 50, 255)  # does not match reference
+        pal[5] = (255, 255, 0)
+        rgba = to_rgba(bytes(range(10)), pal)
+        alphas = [rgba[4 * i + 3] for i in range(10)]
+        self.assertEqual(alphas, [0, 64, 64, 255, 128, 255, 128, 64, 255, 255])
+        self.assertEqual(OVERLAY_INDEX, 5)
+        self.assertEqual(rgba[20:24], bytes([255, 255, 0, 255]))
+        # within tolerance (8 per channel) matches; 9 does not
+        pal[3] = (255 - 8, 50 + 8, 255)
+        self.assertEqual(to_rgba(bytes([3]), pal)[3], 128)
+        pal[3] = (255 - 9, 50, 255)
+        self.assertEqual(to_rgba(bytes([3]), pal)[3], 255)
+        self.assertEqual(to_rgba(bytes([1, 8, 9]), pal, shadow_alpha=False)[3::4],
+                         b"\xff\xff\xff")
 
     def test_canvas_and_images(self):
         d = parse_def(build_def([frame_bytes(0, 4, 3, 2, 1, 1, 1, bytes([5, 6]))]))

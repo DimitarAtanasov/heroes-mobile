@@ -11,13 +11,25 @@ from dataclasses import dataclass, field, replace
 
 __all__ = ["DefError", "EmptyImageError", "Frame", "Block", "DefFile",
            "parse_def", "frame_to_canvas", "frame_is_empty", "frame_to_png",
-           "to_rgba", "to_rgb", "write_png", "write_ppm", "MAX_TOTAL_PIXELS"]
+           "to_rgba", "to_rgb", "write_png", "write_ppm", "MAX_TOTAL_PIXELS",
+           "SPECIAL_COLORS", "SPECIAL_ALPHA", "OVERLAY_INDEX", "COLOR_TOLERANCE"]
 
 MAX_BLOCKS = 256
 MAX_ENTRIES = 4096
 MAX_DIM = 8192
 # Default budget of decoded pixels (summed over distinct frames) per file.
 MAX_TOTAL_PIXELS = 64 * 1024 * 1024
+
+
+# Special palette indices: only 0-7 are reserved (8 and up are ordinary colours).
+SPECIAL_COLORS = ((0, 255, 255), (255, 150, 255), (255, 100, 255), (255, 50, 255),
+                  (255, 0, 255), (255, 255, 0), (180, 0, 255), (0, 255, 0))
+# Target alpha per special index (None = leave opaque palette colour).
+SPECIAL_ALPHA = (0, 64, 64, 128, 128, None, 128, 64)
+# Indices whose alpha applies only if the palette colour matches SPECIAL_COLORS.
+_CONDITIONAL = (2, 3)
+COLOR_TOLERANCE = 8  # max per-channel difference (inclusive) for a match
+OVERLAY_INDEX = 5    # selection / owner-flag overlay; kept as opaque palette colour
 
 
 class DefError(ValueError):
@@ -89,7 +101,7 @@ class DefFile:
 
 
 def _decode_runs(r: _Reader, pos: int, count: int, out: bytearray, what: str) -> None:
-    """Format 2/3 style segment decoding: append exactly `count` pixels."""
+    """Format 2/3 run decoding: append exactly `count` pixels; return the end position."""
     got = 0
     while got < count:
         b = r.u8(pos, what)
@@ -104,6 +116,7 @@ def _decode_runs(r: _Reader, pos: int, count: int, out: bytearray, what: str) ->
         else:
             out += bytes([code]) * n
         got += n
+    return pos
 
 
 def _decode_frame(r: _Reader, off: int, name: str, budget: list) -> Frame:
@@ -120,6 +133,14 @@ def _decode_frame(r: _Reader, off: int, name: str, budget: list) -> Frame:
     for v in (fw, fh, w, h):
         if v > MAX_DIM:
             raise DefError(f"frame {name!r}: dimension {v} too large")
+    # Legacy format-1 quirk: frame larger than the canvas in both directions.
+    # Margins are ignored, the image is the full size, and the pixel data
+    # begins 16 bytes earlier (the header is only 16 bytes long).
+    legacy = fmt == 1 and w > fw and h > fh
+    dstart = off + 32
+    if legacy:
+        w, h, x, y = fw, fh, 0, 0
+        dstart = off + 16
     # `size` is the length of the pixel data following the 32-byte header.
     # Confine all decoding to that window so it is validated against what is
     # actually read (and cannot read neighbouring frames).
@@ -131,7 +152,7 @@ def _decode_frame(r: _Reader, off: int, name: str, budget: list) -> Frame:
         raise DefError(f"frame {name!r}: decoded pixel budget exceeded "
                        f"({npix} > {budget[0]} remaining)")
     budget[0] -= npix
-    r = _Reader(r.raw(off + 32, size, "frame data"))
+    r = _Reader(r.raw(dstart, size + (off + 32 - dstart), "frame data"))
     base = 0
     out = bytearray()
     if w == 0 or h == 0:
@@ -156,18 +177,18 @@ def _decode_frame(r: _Reader, off: int, name: str, budget: list) -> Frame:
                     out += bytes([code]) * n
                 got += n
     elif fmt == 2:
+        # Only the first u16 of the whole frame is read; rows then follow
+        # one another sequentially.
+        pos = base + r.u16(base, "line offset")
         for row in range(h):
-            lo = r.u16(base + 2 * row, "line offset")
-            _decode_runs(r, base + lo, w, out, f"frame {name!r} line {row}")
+            pos = _decode_runs(r, pos, w, out, f"frame {name!r} line {row}")
     else:  # fmt == 3
-        segs = (w + 31) // 32
+        # Offset table row stride is 2*(w//32) bytes (floor); only the first
+        # u16 of each row is read, then the row is decoded sequentially.
+        stride = 2 * (w // 32)
         for row in range(h):
-            remaining = w
-            for s in range(segs):
-                lo = r.u16(base + 2 * (row * segs + s), "segment offset")
-                n = min(32, remaining)
-                _decode_runs(r, base + lo, n, out, f"frame {name!r} line {row}")
-                remaining -= n
+            lo = r.u16(base + stride * row, "line offset")
+            _decode_runs(r, base + lo, w, out, f"frame {name!r} line {row}")
     return Frame(name, off, size, fmt, fw, fh, w, h, x, y, bytes(out))
 
 
@@ -264,17 +285,32 @@ def to_rgb(pixels: bytes, palette) -> bytes:
     return bytes(out)
 
 
+def _matches(rgb, ref) -> bool:
+    return all(abs(a - b) <= COLOR_TOLERANCE for a, b in zip(rgb, ref))
+
+
 def to_rgba(pixels: bytes, palette, shadow_alpha: bool = True) -> bytes:
-    """Index 0 is transparent; 1 and 4 are shadow-ish (semi-transparent black,
-    approximate) when shadow_alpha is set."""
+    """Convert indices to RGBA.
+
+    Index 0 is fully transparent.  With shadow_alpha, special indices become
+    semi-transparent black with the alphas in SPECIAL_ALPHA (1:64, 2:64,
+    3:128, 4:128, 6:128, 7:64); indices 2 and 3 only when the palette colour
+    is within COLOR_TOLERANCE per channel of SPECIAL_COLORS[index].  Index 5
+    (OVERLAY_INDEX, selection/owner-flag overlay) and all indices >= 8 keep
+    their opaque palette colour.
+    """
     out = bytearray()
     for p in pixels:
         if p == 0:
             out += b"\0\0\0\0"
-        elif shadow_alpha and p in (1, 4):
-            out += bytes([0, 0, 0, 64 if p == 1 else 128])
-        else:
+            continue
+        a = SPECIAL_ALPHA[p] if shadow_alpha and p < 8 else None
+        if a is not None and p in _CONDITIONAL and not _matches(palette[p], SPECIAL_COLORS[p]):
+            a = None
+        if a is None:
             out += bytes(palette[p]) + b"\xff"
+        else:
+            out += bytes([0, 0, 0, a])
     return bytes(out)
 
 
