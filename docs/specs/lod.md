@@ -22,10 +22,12 @@ offset 92 + 32 * n       payloads          referenced by directory entries
 |--------|------|--------------|------------------------------------|
 | 0      | 4    | magic        | `4C 4F 44 00` (`"LOD\0"`)          |
 | 4      | 4    | version      | opaque, not interpreted            |
-| 8      | 4    | entry_count  | number of directory entries (`n`)  |
+| 8      | 4    | entry_count  | number of directory entries (`n`); read at offset 8 (confirmed by VCMI) |
 | 12     | 80   | (reserved)   | ignored on read                    |
 
-The magic must match exactly. Any other value is rejected.
+The magic must match exactly. Any other value is rejected. (The engine never
+checks the magic or the version field; this reader does, as a deliberate
+policy.)
 
 ### Directory entry (32-byte stride)
 
@@ -39,7 +41,9 @@ Entry `i` starts at `92 + 32 * i`.
 | 24              | 4    | type              | opaque 32-bit value, exposed but not interpreted   |
 | 28              | 4    | compressed_size   | `0` = payload is stored raw; non-zero = zlib       |
 
-Entry size is 32 bytes. (The original brief said 80; that is the header padding.) Layout is from community documentation and unverified against a real archive.
+Entry size is 32 bytes (confirmed by VCMI: 16-byte name, then four u32 fields, no
+trailing bytes). The header is 92 bytes and the directory starts at offset 0x5C
+(92), which the engine also uses.
 
 ### Payloads
 
@@ -55,20 +59,26 @@ A member with `uncompressed_size == 0` and `compressed_size == 0` is an empty fi
 
 - Lookup is case-insensitive (ASCII-style `upper()` on the Latin-1 string).
 - Names must be non-empty.
-- Two entries whose names compare equal under the lookup rule make the archive invalid.
-- Directory order is preserved and reported by `LodArchive.list()`.
+- Two entries whose names compare equal under the lookup rule are duplicates.
+  Default (`strict=False`): the later entry wins, as the engine does (it stores
+  entries in a map keyed by name). The name is kept in its first-appearance
+  position in `list()`, and the entry data comes from the last duplicate.
+  `strict=True` (`LodArchive(..., strict=True)` or `LodArchive.open(path, strict=True)`)
+  rejects the archive with `LodFormatError` instead.
+- Directory order (first appearance) is reported by `LodArchive.list()`.
 
 ## Validation performed by the reader
 
 Parsing fails with `LodFormatError` if any of these hold:
 
 1. The file is shorter than the 92-byte header, or the magic is wrong.
-2. `entry_count` is greater than 1 048 576 (sanity cap).
+2. `entry_count` is greater than 1 048 576 (sanity cap). This is a limit of this
+   reader, not an engine rule.
 3. The directory (`92 + 32 * entry_count` bytes) extends past end of file.
 4. Any payload range `[offset, offset + stored_size)` extends past end of file, where
    `stored_size` is `compressed_size` if non-zero, else `uncompressed_size`. The sum is
    computed without overflow (Python integers).
-5. A name is empty, or duplicates another name case-insensitively.
+5. A name is empty. Duplicate names are handled per the `strict` option below.
 
 Reading a member fails with `LodFormatError` if:
 
@@ -103,8 +113,11 @@ Extraction does not create subdirectories.
 
 ## Open items
 
-- The header field positions (count at offset 8 after magic+version, directory at offset 92) and the 32-byte
-  stride follow the project brief. They have not been verified against a reference file.
-- The meaning of the `type` field is unknown and is exposed as an integer only.
-- The directory entry is 32 bytes (16-byte name plus four uint32 fields); there are no trailing
-  bytes after these fields. Only the stride itself is unverified (see above).
+- Confirmed by VCMI (functional facts only; see `docs/specs/vcmi-crosscheck-formats.md`):
+  header 92 bytes, entry count u32 at offset 8, 32-byte directory stride, zlib
+  wrapper (RFC 1950, with header) for compressed members, and `compressed_size == 0`
+  meaning raw storage.
+- The meaning of the `type` field is unknown. The engine skips it, and we expose it as an integer only.
+- Known difference: the engine accepts files shorter than the header (under 10 bytes
+  are treated as empty) and does not check magic or version. This reader rejects both
+  as a deliberate policy.

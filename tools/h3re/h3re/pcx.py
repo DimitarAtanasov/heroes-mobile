@@ -14,7 +14,7 @@ from .defimg import write_png
 __all__ = ["PcxError", "PcxImage", "parse_pcx", "MODE_INDEXED", "MODE_BGR24"]
 
 MODE_INDEXED = "indexed"  # 8-bit palette indices + 256 x RGB palette
-MODE_BGR24 = "bgr24"      # 24-bit pixels, stored channel order BGR (unverified)
+MODE_BGR24 = "bgr24"      # 24-bit pixels, stored channel order BGR (confirmed)
 
 MAX_DIM = 8192
 HEADER_SIZE = 12
@@ -42,8 +42,7 @@ class PcxImage:
                 out += bytes(pal[p])
             return bytes(out)
         if self.mode == MODE_BGR24:
-            # Swap B and R.  The stored channel order is an unverified assumption;
-            # see docs/specs/pcx.md.
+            # Swap B and R.  Stored channel order is BGR (see docs/specs/pcx.md).
             px = self.pixels
             out = bytearray(len(px))
             out[0::3] = px[2::3]
@@ -78,8 +77,10 @@ def parse_pcx(data: bytes) -> PcxImage:
         if len(data) < need:
             raise PcxError(f"truncated indexed data: need {need} bytes, "
                            f"have {len(data)}")
+        # The palette is always the LAST 768 bytes of the file, as the engine
+        # reads it. Bytes between the pixels and the palette are not used.
         pixels = data[body:body + n]
-        pal_raw = data[body + n:need]
+        pal_raw = data[-PALETTE_SIZE:]
         palette = [tuple(pal_raw[i * 3:i * 3 + 3]) for i in range(256)]
         return PcxImage(width, height, MODE_INDEXED, pixels, palette)
     if size == 3 * n:

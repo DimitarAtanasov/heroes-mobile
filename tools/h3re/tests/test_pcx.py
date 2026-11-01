@@ -39,9 +39,33 @@ class PcxParseTests(unittest.TestCase):
         self.assertEqual(img.pixels, bytes([10, 20, 30, 40, 50, 60, 70, 80, 90, 1, 2, 3]))
         self.assertEqual(img.to_rgb(), bytes([30, 20, 10, 60, 50, 40, 90, 80, 70, 3, 2, 1]))
 
-    def test_indexed_trailing_bytes_ignored(self):
-        img = parse_pcx(indexed_2x2() + b"\x00\x00")
+    def test_indexed_gap_between_pixels_and_palette_tolerated(self):
+        gap = b"\xaa" * 5
+        blob = struct.pack("<3I", 4, 2, 2) + bytes([0, 1, 200, 255]) + gap + PAL_BYTES
+        img = parse_pcx(blob)
         self.assertEqual(img.pixels, bytes([0, 1, 200, 255]))
+        self.assertEqual(img.palette, PAL)
+
+    def test_indexed_palette_is_last_768_bytes(self):
+        # Palette is read from the end of the file, so a gap before it must not
+        # shift which bytes become the palette.
+        other = [(255 - i, i, 0) for i in range(256)]
+        other_bytes = b"".join(bytes(c) for c in other)
+        blob = struct.pack("<3I", 4, 2, 2) + bytes([9, 8, 7, 6]) + b"\x11" * 40 + other_bytes
+        img = parse_pcx(blob)
+        self.assertEqual(img.pixels, bytes([9, 8, 7, 6]))
+        self.assertEqual(img.palette, other)
+
+    def test_indexed_bytes_after_palette_shift_palette(self):
+        # Extra bytes after the palette are part of the "last 768 bytes" window,
+        # so the palette is read from the shifted position (matches the engine).
+        blob = indexed_2x2() + b"\x00\x00"
+        img = parse_pcx(blob)
+        self.assertEqual(img.pixels, bytes([0, 1, 200, 255]))
+        # Palette = last 768 bytes: starts 2 bytes into PAL_BYTES.
+        shifted = PAL_BYTES[2:] + b"\x00\x00"
+        expected = [tuple(shifted[i * 3:i * 3 + 3]) for i in range(256)]
+        self.assertEqual(img.palette, expected)
 
     def test_to_png_roundtrip_bgr(self):
         png = parse_pcx(bgr_2x2()).to_png()

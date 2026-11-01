@@ -95,12 +95,21 @@ class LodArchive:
     instance opened it.
     """
 
-    def __init__(self, fp: BinaryIO, size: int, *, owns_file: bool = False) -> None:
+    def __init__(
+        self,
+        fp: BinaryIO,
+        size: int,
+        *,
+        owns_file: bool = False,
+        strict: bool = False,
+    ) -> None:
         self._fp = fp
         self._size = size
         self._owns_file = owns_file
+        self._strict = strict
+        # Keyed by upper-cased name. Insertion order = first appearance in the
+        # directory; a later duplicate replaces the value in place (last wins).
         self._entries: dict[str, LodEntry] = {}
-        self._order: list[str] = []
         try:
             self._parse()
         except BaseException:
@@ -108,11 +117,11 @@ class LodArchive:
             raise
 
     @classmethod
-    def open(cls, path: str | os.PathLike[str]) -> LodArchive:
+    def open(cls, path: str | os.PathLike[str], *, strict: bool = False) -> LodArchive:
         fp = open(path, "rb")
         try:
             size = os.fstat(fp.fileno()).st_size
-            return cls(fp, size, owns_file=True)
+            return cls(fp, size, owns_file=True, strict=strict)
         except BaseException:
             fp.close()
             raise
@@ -177,15 +186,17 @@ class LodArchive:
                 )
             key = _key(name)
             if key in self._entries:
-                raise LodFormatError(f"duplicate member name {name!r}")
+                if self._strict:
+                    raise LodFormatError(f"duplicate member name {name!r}")
+                # Lenient default, matching the engine: the later entry wins.
+                # dict assignment keeps the key's first-appearance position.
             self._entries[key] = entry
-            self._order.append(name)
 
     # ------------------------------------------------------------------ public
 
     def list(self) -> list[str]:
-        """Member names in directory order."""
-        return list(self._order)
+        """Member names, one per name, in order of first appearance."""
+        return [entry.name for entry in self._entries.values()]
 
     def entry(self, name: str) -> LodEntry:
         """Directory information for a member. Raises KeyError if absent."""
@@ -195,7 +206,7 @@ class LodArchive:
         return isinstance(name, str) and _key(name) in self._entries
 
     def __len__(self) -> int:
-        return len(self._order)
+        return len(self._entries)
 
     def read(self, name: str) -> bytes:
         """Return the decompressed contents of a member.
@@ -216,7 +227,8 @@ class LodArchive:
         paths written. Existing symlinks at target paths are refused rather
         than followed.
         """
-        for name in self._order:
+        names = self.list()
+        for name in names:
             _check_member_name(name)
 
         root = Path(dest)
@@ -224,7 +236,7 @@ class LodArchive:
         root_real = root.resolve()
 
         written: list[Path] = []
-        for name in self._order:
+        for name in names:
             target = root / name
             if target.is_symlink():
                 raise LodFormatError(f"refusing to write through symlink {target}")

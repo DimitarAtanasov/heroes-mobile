@@ -180,8 +180,51 @@ class MalformedInputTests(unittest.TestCase):
         struct.pack_into("<I", blob, HEADER_SIZE + 20, 0xFFFFFFFF)
         self.assertRejects(bytes(blob))
 
-    def test_duplicate_names_rejected(self):
-        self.assertRejects(build_lod([member("A.TXT", b"1"), member("a.txt", b"2")]))
+    def test_duplicate_names_rejected_when_strict(self):
+        blob = build_lod([member("A.TXT", b"1"), member("a.txt", b"2")])
+        with self.assertRaises(LodFormatError):
+            LodArchive(io.BytesIO(blob), len(blob), strict=True)
+
+    def test_duplicate_names_rejected_when_strict_from_path(self):
+        blob = build_lod([member("A.TXT", b"1"), member("a.txt", b"2")])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "dup.lod")
+            Path(path).write_bytes(blob)
+            with self.assertRaises(LodFormatError):
+                LodArchive.open(path, strict=True)
+
+    def test_duplicate_names_last_entry_wins_by_default(self):
+        blob = build_lod([member("A.TXT", b"first"), member("a.txt", b"second")])
+        with open_bytes(blob) as arc:
+            self.assertEqual(arc.read("A.TXT"), b"second")
+            self.assertEqual(arc.read("a.txt"), b"second")
+            self.assertEqual(arc.entry("A.TXT").size, len(b"second"))
+            self.assertEqual(len(arc), 1)
+            self.assertEqual(arc.list(), ["a.txt"])
+
+    def test_duplicate_keeps_first_position_in_listing(self):
+        blob = build_lod([
+            member("X.BIN", b"x"),
+            member("A.TXT", b"1"),
+            member("x.bin", b"2"),
+        ])
+        with open_bytes(blob) as arc:
+            self.assertEqual(arc.list(), ["x.bin", "A.TXT"])
+            self.assertEqual(arc.read("X.BIN"), b"2")
+
+    def test_duplicate_extract_writes_last_entry_once(self):
+        blob = build_lod([member("A.TXT", b"first"), member("a.txt", b"second")])
+        with open_bytes(blob) as arc, tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "out")
+            written = arc.extract_all(dest)
+            self.assertEqual(len(written), 1)
+            self.assertEqual(Path(dest, "a.txt").read_bytes(), b"second")
+
+    def test_strict_accepts_unique_names(self):
+        blob = build_lod(SAMPLE)
+        with LodArchive(io.BytesIO(blob), len(blob), strict=True) as arc:
+            self.assertEqual(arc.list(), ["DEF_ONE.DEF", "TEXT.TXT", "EMPTY.BIN"])
+
 
     def test_empty_name_rejected(self):
         self.assertRejects(build_lod([member("", b"1")]))
