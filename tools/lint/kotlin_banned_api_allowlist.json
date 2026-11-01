@@ -1,0 +1,74 @@
+[
+ {
+  "file": "Battle.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val occ = HashSet<HexCell>()",
+  "justification": "Membership-only: the set is only queried with `in` (Hex.fits) and never iterated."
+ },
+ {
+  "file": "Battle.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val rank = HashMap<Int, Int>()",
+  "justification": "Write-then-lookup only: filled per stack id inside a loop whose result for each key is independent of visit order, read via getValue(id) in the comparator; never iterated."
+ },
+ {
+  "file": "Content.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val records = ArrayList<Creature>()",
+  "justification": "Lookup-only (duplicate-name row number for an error message); never iterated."
+ },
+ {
+  "file": "Content.kt",
+  "rule": "KT_UNORDERED",
+  "line": "if (row.none { pyStrip(it).isNotEmpty() }) continue",
+  "justification": "Per-row scratch map read by fixed keys (num[\"hp\"] etc.); never iterated."
+ },
+ {
+  "file": "Datapack.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val fr = HashMap<String, Pair<Long, Long>>()",
+  "justification": "Read only by fixed key via getValue; canonical output order comes from the separate linkedMapOf `canon`."
+ },
+ {
+  "file": "Datapack.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val ft = HashMap<String, List<Pair<Long, Long>>>()",
+  "justification": "Read only by fixed key via getValue; canonical output order comes from `canon`."
+ },
+ {
+  "file": "Datapack.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val it = HashMap<String, List<Long>>()",
+  "justification": "Read only by fixed key via getValue; canonical output order comes from `canon`."
+ },
+ {
+  "file": "Def.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val cache = HashMap<Long, DefFrame>()",
+  "justification": "Memo cache keyed by file offset, accessed only through getOrPut; never iterated."
+ },
+ {
+  "file": "Hex.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val occ = HashSet<HexCell>()",
+  "justification": "Membership-only: returned set is used with `in` (fits); never iterated."
+ },
+ {
+  "file": "Hex.kt",
+  "rule": "KT_UNORDERED",
+  "line": "val parent = HashMap<HexCell, HexCell?>()",
+  "justification": "Lookup-only back-pointer map walked by getValue along a path; distances/discovery order live in the LinkedHashMap `dist`; never iterated."
+ },
+ {
+  "file": "Lod.kt",
+  "rule": "KT_CHARSET",
+  "line": "return out.toByteArray()",
+  "justification": "False positive: ByteArrayOutputStream.toByteArray() copies raw bytes; no charset is involved."
+ },
+ {
+  "file": "Rng.kt",
+  "rule": "KT_CHARSET",
+  "line": "val be = seed.toByteArray()",
+  "justification": "False positive: BigInteger.toByteArray() returns two's-complement bytes; no charset is involved."
+ }
+]

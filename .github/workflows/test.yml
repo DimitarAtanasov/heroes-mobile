@@ -30,6 +30,9 @@ jobs:
       - name: Banned-API lint (simulation modules)
         run: python3 tools/lint/banned_api_lint.py
 
+      - name: Banned-API lint (Kotlin simulation sources)
+        run: python3 tools/lint/kotlin_banned_api_lint.py
+
       - name: Determinism soak (default policies)
         working-directory: tools/h3re
         run: python3 -m h3re.soak --games 30 --max-steps 120 -q

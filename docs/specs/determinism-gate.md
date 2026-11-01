@@ -80,3 +80,36 @@ keyed by id), `AdventurePolicy.__post_init__` (`any` over values), `adventure._s
 ## CI
 
 Job `determinism` in `.github/workflows/test.yml` runs the lint, a 30-game soak (max 120 steps), and the policy-matrix soak twice under different `PYTHONHASHSEED` values with a digest comparison.
+
+## Kotlin banned-API lint (`tools/lint/kotlin_banned_api_lint.py`)
+
+Law 2 for `android/sim/src/main/kotlin/h3/sim/*.kt`. `python3 tools/lint/kotlin_banned_api_lint.py [--allowlist F] [--root D] [files]`;
+exit 1 when violations remain. A small tokenizer first blanks comments (including nested block
+comments), string literals, raw strings and char literals (code inside `${...}` templates is
+still scanned), so only code can trigger a rule. Line numbers are preserved.
+
+| Rule | Bans |
+|---|---|
+| KT_FLOAT | `Double`/`Float` (and arrays), float literals (`1.0`, `.5`, `2e3`, `1f`), `.toDouble()`/`.toFloat()` |
+| KT_MATH | `kotlin.math.*` / `Math.*` / `StrictMath.*` real-valued functions and star or named imports of them; `floorDiv`, `floorMod`, `*Exact`, `abs`, `min`, `max` are allowed |
+| KT_CLOCK | `System.currentTimeMillis/nanoTime`, `java.time`, `kotlin.time`, `kotlinx.datetime`, `Date`, `Calendar`, `measureTime*` |
+| KT_RANDOM | `java.util.Random`, `kotlin.random`, `Random`, `SecureRandom`, `ThreadLocalRandom`, `Math.random` |
+| KT_THREAD | `Thread`, `Executors`, coroutines, `java.util.concurrent`, `suspend fun` |
+| KT_UNORDERED | `HashMap`, `HashSet`, `mutableMapOf`, `mutableSetOf`, `hashMapOf`, `hashSetOf`, `toHashSet` (use `LinkedHashMap`/`LinkedHashSet`, `sorted()`, `toSortedMap()`) |
+| KT_CHARSET | `String(bytes)`, `toByteArray()`, `readText()`, readers/writers and similar without an explicit charset argument |
+| KT_LOCALE | `String.format`/`.format(` without `Locale.ROOT` as first argument; `toUpperCase()`/`toLowerCase()`/`capitalize()` without `Locale.ROOT`; `Locale.getDefault` and fixed non-ROOT locales |
+| KT_ENV | `System.getenv/getProperty/getProperties/setProperty/lineSeparator` |
+| KT_PRINT | `println`/`print`/`printf`, `System.out/err/in`, `readLine`, `printStackTrace` |
+
+Allowlist: `tools/lint/kotlin_banned_api_allowlist.json`, entries
+`{"file", "rule", "line", "justification", "count"?}`. `line` is the exact source line (whitespace
+normalised); an entry absorbs at most `count` (default 1) matching violations, so a new violation
+elsewhere in the same function is still reported. Function-wide entries and missing justifications are
+rejected. Inline alternative: `// det-lint-allow: RULE -- reason`. Unused entries are printed as notes
+(and fail the real-sources test, so stale entries get removed).
+
+Current allowlist: membership-only or lookup-only `HashSet`/`HashMap` uses (never iterated; ordered
+output uses `LinkedHashMap`), and two `toByteArray()` calls that are not charset related
+(`ByteArrayOutputStream`, `BigInteger`). Known limits: the scan is lexical, not type aware. Console and
+file I/O other than `print*` are not covered by this lint. CI runs it in the `determinism` job.
+Tests: `tools/h3re/tests/test_kotlin_lint.py`.
