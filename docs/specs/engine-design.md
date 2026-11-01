@@ -117,8 +117,8 @@ same synthetic fixtures.
   used for saves, network sync and hashing.
 - **Commands in, events out.** `apply(state, command, rng) -> (state', [Event])`.
   Commands are validated, and an invalid command is rejected without touching
-  state. The presenter animates events (`UnitMoved`, `DamageDealt`,
-  `UnitDied`, `LuckTriggered`, …).
+  state. The presenter animates events (`Moved`, `DamageDealt`,
+  `UnitDied`, `LuckRolled`, …).
 - **Integer arithmetic only** in rule paths. Percentages are kept as integer
   per-mille or as exact rationals, and rounding happens at the points that
   `rules.md` documents. Floats would break cross-platform determinism.
@@ -131,7 +131,7 @@ same synthetic fixtures.
   - `sim.hero`: experience/levels, primary/secondary skills, spell book,
     spell points, artifacts.
   - `sim.battle`: hex grid, turn queue, actions (move, attack, shoot, wait,
-    defend, cast), damage resolution, retaliation, morale/luck, obstacles,
+    defend), damage resolution, retaliation, morale/luck, obstacles,
     victory.
   - `sim.rules`: pure formula functions with no state. The Python reference
     is `tools/h3re/h3re/rules.py`.
@@ -227,8 +227,8 @@ checkpoint numbers in the checkpoint log in `docs/checkpoints/GRAPH.md`, so
 | 1 | `data`: LOD reader | Lists and extracts entries from a synthetic LOD; on a user's real install (local only), counts match `list()` and every entry decompresses |
 | 2 | `data`: DEF + PCX decode, H3M parse | Synthetic DEF frames decode pixel-exact; synthetic H3M round-trips header, terrain and object counts; local job parses every bundled map without `FormatError` |
 | 3 | Specs: `rules.md`, this doc; `rules.py` reference | Unit tests for every [documented] battle formula pass |
-| 4 | `content`: typed DB from TXT tables + ability map | Loads creatures/spells/heroes from synthetic TXT; local job: 100% of creatures in `CRTRAITS.TXT` resolve to a `CreatureDef` with abilities |
-| 5 | `sim.rng` + `sim.battle` (no spells) | Golden replay: seeded 2-stack-vs-2-stack battle reaches the expected state hash; property tests pass; damage matches `rules.py` |
+| 4 (skipped) | `content`: typed DB from TXT tables + ability map | Loads creatures/spells/heroes from synthetic TXT; local job: 100% of creatures in `CRTRAITS.TXT` resolve to a `CreatureDef` with abilities |
+| 5 (done) | `sim.rng` + `sim.battle` (no spells) | Golden replay: seeded 2-stack-vs-2-stack battle reaches the expected state hash; property tests pass; damage matches `rules.py` |
 | 6 | Battle render + touch UI (separate app target) | A battle is playable on a device; the "skip animations" path gives the same end hash as headless |
 | 7 | `sim.adventure` movement + resources + day/week tick | Pathfinding cost tests per terrain; a hero's movement points match the table in rules §2; 7-day tick fires weekly growth |
 | 8 | `sim.town` + `sim.hero` (levels, skills, spell points) | Building-tree prerequisite tests; growth math tests; level-up uses class probabilities from content |
@@ -236,6 +236,9 @@ checkpoint numbers in the checkpoint log in `docs/checkpoints/GRAPH.md`, so
 | 10 | H3M → playable map; victory/loss conditions; save/load | Load a synthetic map, play scripted turns, save, load, and continue with an identical hash |
 | 11 | AI (adventure + battle) | AI vs AI full games finish without invalid commands across 100 seeds |
 | 12 | Polish: audio, video, accessibility, mods | Device performance budget: 60 fps on the battle screen on a mid-range phone |
+
+Phase 4 (TXT content DB) was skipped so far: `battle.Creature` is built by
+hand (in tests and callers), not loaded from a content database.
 
 ## 4. Open architecture questions
 

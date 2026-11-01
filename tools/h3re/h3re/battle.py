@@ -85,6 +85,9 @@ class BattlePolicy:
     good_morale_after_wait: bool = False
     good_morale_after_defend: bool = False
     repeat_good_morale: bool = False
+    # 6.5 does a stack that waited roll morale again at its wait-phase
+    # activation? True = yes (original behaviour of this engine).
+    morale_roll_on_wait_activation: bool = True
     # 6.5 bad luck (|L|/24 chance to halve damage, after the final floor).
     bad_luck: bool = False
     # 6.6 R_range: penalty when distance > this many hexes.
@@ -582,7 +585,12 @@ def defend_bonus(state, stack):
 
 def canonical(state):
     """Canonical byte form of the state (used for hashing, saves, sync)."""
-    return json.dumps(asdict(state), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    data = asdict(state)
+    # Fields added after the golden hash was pinned are left out while they
+    # hold their default, so older states keep their hash.
+    if data["policy"].get("morale_roll_on_wait_activation", True):
+        data["policy"].pop("morale_roll_on_wait_activation", None)
+    return json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def state_hash(state):
@@ -668,6 +676,10 @@ def _check_end(state, events):
     sides = set(s.side for s in _living(state))
     if len(sides) == 2:
         return state, False
+    # Both sides empty is unreachable: only the active stack's target dies in
+    # one action and retaliation cannot kill the whole of both armies at once
+    # (a dead attacker's side keeps the target's side alive, and vice versa).
+    # The DEFENDER fallback is defensive only.
     winner = sides.pop() if sides else DEFENDER
     events.append(BattleEnded(winner))
     return replace(state, winner=winner, active=None, bonus_turn=False,
@@ -694,6 +706,8 @@ def _activate_next(state, rng, events):
         state = replace(state, active=sid, bonus_turn=False, morale_pending=False)
         events.append(TurnStarted(sid, phase, False))
         m = effective_morale(st)
+        if phase == "wait" and not state.policy.morale_roll_on_wait_activation:
+            m = 0
         if m < 0 and _chance(rng, rules.bad_morale_chance(m)):
             events.append(MoraleFrozen(sid))
             state = replace(state, done=state.done + (sid,), active=None)

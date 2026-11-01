@@ -42,6 +42,27 @@ class TestAll(unittest.TestCase):
         self.assertEqual(exported, set(h3re.__all__))
 
 
+class TestBattleExports(unittest.TestCase):
+    def test_battle_exposed_as_submodule_only(self):
+        from h3re import battle
+
+        self.assertIn("battle", h3re.__all__)
+        self.assertIs(h3re.battle, battle)
+        # generic names must not leak into the package namespace
+        for name in ("apply", "Stack", "Hero", "cells"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, h3re.__all__)
+
+    def test_sibling_modules_not_imported(self):
+        proc = _run_isolated(
+            "import sys, h3re\n"
+            "bad = [m for m in ('h3re.battle_ai', 'h3re.battle_cli', 'h3re.adventure')"
+            " if m in sys.modules]\n"
+            "assert not bad, bad\n"
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
 class TestImportSideEffects(unittest.TestCase):
     def test_fresh_import_prints_nothing(self):
         proc = _run_isolated("import h3re")
@@ -68,7 +89,7 @@ class TestImportSideEffects(unittest.TestCase):
     def test_each_submodule_imports_standalone(self):
         # Importing any submodule first in a fresh process must succeed,
         # which guards against circular-import regressions.
-        for mod in ("defimg", "h3m", "lod", "pcx", "rng", "rules", "txt"):
+        for mod in ("battle", "defimg", "h3m", "lod", "pcx", "rng", "rules", "txt"):
             with self.subTest(module=mod):
                 proc = _run_isolated(f"import h3re.{mod}")
                 self.assertEqual(proc.returncode, 0, proc.stderr)

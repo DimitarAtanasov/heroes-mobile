@@ -534,6 +534,91 @@ class PropertyTest(unittest.TestCase):
         with self.assertRaises(Exception):
             st.stacks[0].count = 0
 
+class IllegalCommandNoRngTest(unittest.TestCase):
+    def assert_illegal(self, state, cmd):
+        probe = ScriptRng()
+        with self.assertRaises(B.IllegalCommand):
+            B.apply(state, cmd, probe)
+        self.assertEqual(probe.calls, 0)
+
+    def two_v_two(self):
+        a = cr("a", speed=7, shots=5)
+        b = cr("b", speed=3)
+        st = B.create_battle("ill", [ss(a, 5), ss(b, 5)], [ss(b, 5), ss(b, 5)])
+        state, _ = begin(st)
+        return state
+
+    def test_move_to_unreachable_hex(self):
+        state = self.two_v_two()
+        me = state.stacks[state.active]
+        far = (16, 10) if me.pos != (16, 10) else (0, 0)
+        self.assertNotIn(far, B.reachable(state, me.id))
+        self.assert_illegal(state, B.Move(me.id, far))
+        obstacle_state = replace(state, obstacles=state.obstacles + ((7, 3),))
+        self.assert_illegal(obstacle_state, B.Move(me.id, (7, 3)))
+
+    def test_shoot_with_enemy_adjacent(self):
+        state = self.two_v_two()
+        me = state.stacks[state.active]
+        self.assertTrue(me.creature.shooter)
+        enemy = next(s for s in state.stacks if s.side != me.side)
+        free = next(h for h in B.neighbours(me.pos)
+                    if all(h not in B.cells(s) for s in state.stacks if s.alive))
+        stacks = list(state.stacks)
+        stacks[enemy.id] = replace(enemy, pos=free)
+        adj = replace(state, stacks=tuple(stacks))
+        self.assert_illegal(adj, B.Shoot(me.id, enemy.id))
+
+    def test_wait_twice(self):
+        c = cr("w", speed=5)
+        st = B.create_battle("w2", [ss(c, 5)], [ss(c, 5)])
+        state, _ = begin(st)
+        first = state.active
+        state, _ = B.apply(state, B.Wait(first), ScriptRng())
+        other = state.active
+        self.assertNotEqual(other, first)
+        state, _ = B.apply(state, B.Defend(other), ScriptRng())
+        self.assertEqual(state.active, first)
+        self.assert_illegal(state, B.Wait(first))
+
+    def test_dead_target(self):
+        state = self.two_v_two()
+        me = state.stacks[state.active]
+        enemy = next(s for s in state.stacks if s.side != me.side)
+        stacks = list(state.stacks)
+        stacks[enemy.id] = replace(enemy, count=0)
+        dead = replace(state, stacks=tuple(stacks))
+        self.assert_illegal(dead, B.Attack(me.id, enemy.id))
+        self.assert_illegal(dead, B.Shoot(me.id, enemy.id))
+
+
+class WaitMoraleRollPolicyTest(unittest.TestCase):
+    def test_no_roll_at_wait_activation_when_disabled(self):
+        c = cr("m", speed=5)
+        for flag, expect in ((True, 1), (False, 0)):
+            pol = B.BattlePolicy(morale_roll_on_wait_activation=flag)
+            st = B.create_battle("wm", [ss(c, 5, morale=-1)], [ss(c, 5)], policy=pol)
+            rng = ScriptRng()
+            state, _ = B.apply(st, B.Begin(), rng)
+            if state.active != 0:
+                state, _ = B.apply(state, B.Defend(state.active), rng)
+            self.assertEqual(state.active, 0)
+            state, _ = B.apply(state, B.Wait(0), rng)
+            other = state.active
+            self.assertEqual(other, 1)
+            before = rng.calls
+            state, _ = B.apply(state, B.Defend(other), rng)
+            self.assertEqual(state.active, 0)
+            self.assertIn(0, state.waited)
+            self.assertEqual(rng.calls - before, expect, flag)
+
+    def test_default_hash_unchanged_and_flag_distinguished(self):
+        a = B.create_battle("h", [ss(cr(), 3)], [ss(cr(), 3)])
+        b = B.create_battle("h", [ss(cr(), 3)], [ss(cr(), 3)],
+                            policy=B.BattlePolicy(morale_roll_on_wait_activation=False))
+        self.assertNotEqual(B.state_hash(a), B.state_hash(b))
+        self.assertNotIn(b"morale_roll_on_wait", B.canonical(a))
+
 
 if __name__ == "__main__":
     unittest.main()

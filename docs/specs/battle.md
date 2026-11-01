@@ -104,7 +104,13 @@ as morale 0. [documented] The morale value itself is an input: army morale
 modifiers are **[uncertain]** and the caller computes them.
 
 - At each regular activation, including a wait-phase activation, the engine
-  makes one morale roll if M ≠ 0. [engine] With M < 0, a successful roll
+  makes one morale roll if M ≠ 0. **[uncertain]** (rules.md §6.5): policy
+  `morale_roll_on_wait_activation`, default `True` (a stack that waited rolls
+  again when its wait-phase turn starts; set `False` to skip the roll at
+  wait-phase activation). A good-morale result drawn at the main activation
+  of a stack that then waits is discarded when `good_morale_after_wait` is
+  `False`; the draw still happens, so the RNG sequence does not depend on
+  that choice. With M < 0, a successful roll
   freezes the stack: its turn is lost. With M > 0, a successful roll grants a
   bonus action once the current action has finished.
 - Whether good morale fires after **Wait** or after **Defend** is
@@ -136,7 +142,10 @@ modifiers are **[uncertain]** and the caller computes them.
   the threshold, unless the shooter has `no_range_penalty`. The threshold is
   **[uncertain]**: policy `range_penalty_beyond`, default 10.
 - `R_melee` applies when a shooter makes a melee attack or retaliates,
-  unless it has `no_melee_penalty`. [documented]
+  unless it has `no_melee_penalty`. [documented] The penalty depends on the
+  creature being a shooter (`shots > 0` in its definition), not on ammo left:
+  a shooter with 0 shots remaining still takes the melee penalty when it
+  attacks or retaliates in melee (rules.md 6.7).
 - A shooter with an enemy adjacent, or with no ammo left, cannot shoot.
   Shots are never retaliated. `shoots_twice` makes two shots, using one
   piece of ammo each. [documented; ammo per shot is engine]
@@ -171,6 +180,7 @@ emitted, the state keeps `winner` and stops accepting commands.
 | `good_morale_after_wait` | `False` | §6.5 [uncertain], §9.12 |
 | `good_morale_after_defend` | `False` | §6.5 [uncertain], §9.12 |
 | `repeat_good_morale` | `False` | §6.5 [uncertain], §9.12 |
+| `morale_roll_on_wait_activation` | `True` | §6.5 [uncertain] |
 | `bad_luck` | `False` | §6.5 [uncertain], §9.6 |
 | `range_penalty_beyond` | 10 | §6.6 [uncertain], §9.2 |
 

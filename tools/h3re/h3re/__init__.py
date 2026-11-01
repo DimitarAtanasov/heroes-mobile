@@ -5,6 +5,7 @@ is printed. Each submodule only depends on the standard library or on
 ``defimg`` (used by ``pcx``), so there are no circular imports.
 """
 
+from . import battle
 from .defimg import (
     Block,
     DefError,
@@ -37,6 +38,8 @@ from .rules import (
 from .txt import TxtError, TxtTable, parse_txt, read_txt
 
 __all__ = [
+    # submodule (its names are generic, e.g. apply/Stack, so not re-exported)
+    "battle",
     # defimg
     "Block",
     "DefError",
