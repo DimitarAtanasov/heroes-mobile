@@ -55,4 +55,8 @@ flowchart LR
 | 27 | PCX palette + LOD duplicates | Haiku | done |
 | 28 | Adventure rules per VCMI (golden re-pinned) | Sonnet | done |
 | 29 | Battle rules per VCMI (golden re-pinned) | Opus | done |
-| R4 | Forge-inspired work: data pack, damage pipeline, determinism gate, CLAUDE.md | mixed | next |
+| 30 | JSON data pack + strict loader | Sonnet | done (rules.py does not read it yet) |
+| 31 | CLAUDE.md, role files, ADRs 0001-0003 | Haiku | done |
+| 32 | Determinism gate: soak, bisector, banned-API lint, CI job | Sonnet | done |
+| 33 | Single damage pipeline (RollPolicy) | Opus | done (golden hash unchanged) |
+| R5 | Wire data pack into rules/battle; prettier battle-sim; README loop graph | mixed | next |
