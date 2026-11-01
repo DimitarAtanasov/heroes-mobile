@@ -6,6 +6,7 @@ Usage (from the directory that contains the ``h3re`` package)::
     python3 -m h3re lod-extract FILE.LOD DESTDIR
     python3 -m h3re def-to-png FILE.DEF OUTDIR
     python3 -m h3re h3m-info FILE.H3M
+    python3 -m h3re battle-sim SCENARIO.json --seed N [--chooser CHOOSER]
 
 Exit status: 0 on success, 1 for malformed input or I/O errors, 2 for
 command-line usage errors. Errors are reported as one line on stderr.
@@ -20,7 +21,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import defimg, h3m, lod
+from . import battle_cli, defimg, h3m, lod
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -137,6 +138,10 @@ def cmd_h3m_info(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_battle_sim(args: argparse.Namespace) -> int:
+    return battle_cli.run(args.scenario, args.seed, args.chooser)
+
+
 # ------------------------------------------------------------------ plumbing
 
 
@@ -165,6 +170,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("h3m-info", help="print the header summary of an .H3M map")
     p.add_argument("file", help="path to an .H3M map (gzip-wrapped or raw)")
     p.set_defaults(func=cmd_h3m_info)
+
+    p = sub.add_parser("battle-sim", help="simulate a field battle from a JSON scenario")
+    p.add_argument("scenario", help="path to a battle scenario JSON file "
+                                    "(see docs/specs/battle-scenario.md)")
+    p.add_argument("--seed", type=int, required=True,
+                   help="master seed for the battle's RNG stream")
+    p.add_argument("--chooser", choices=battle_cli.CHOOSERS, default="first-legal",
+                   help="who picks each command (default: first-legal)")
+    p.set_defaults(func=cmd_battle_sim)
 
     return parser
 
