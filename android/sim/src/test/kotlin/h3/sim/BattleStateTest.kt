@@ -13,7 +13,7 @@ class BattleStateTest {
     private val packs = doc["packs"].obj()
     private val pack = BattlePolicyPack(
         packs["battle_policy"].obj(),
-        packs["bad_morale_numerators"].list().map { it.big().toInt() },
+        packs["bad_morale_numerators"].list().map { it.big().intValueExact() }, packs["rules"].obj()["morale_die"].big().intValueExact(),
     )
     private val codec = BattleCodec(pack)
 
@@ -126,9 +126,9 @@ class BattleStateTest {
         val d = pack.defaultPolicy()
         val p = packs["battle_policy"].obj()
         assertEquals(p["row_offset"], d.rowOffset)
-        assertEquals(p["defend_bonus_den"].big().toInt(), d.defendBonusDen)
-        assertEquals(packs["bad_morale_numerators"].list().map { it.big().toInt() }, d.badMoraleTable)
-        assertEquals(p["placement_rows"].list().map { r -> r.list().map { it.big().toInt() } }, d.placementRows)
+        assertEquals(p["defend_bonus_den"].big().intValueExact(), d.defendBonusDen)
+        assertEquals(packs["bad_morale_numerators"].list().map { it.big().intValueExact() }, d.badMoraleTable)
+        assertEquals(p["placement_rows"].list().map { r -> r.list().map { it.big().intValueExact() } }, d.placementRows)
         // Overrides replace one field and keep the rest.
         val o = pack.policy(mapOf("bad_luck" to true))
         assertEquals(d.copy(badLuck = true), o)
@@ -172,5 +172,75 @@ class BattleStateTest {
             BattleCodec.parseCommand(mapOf("type" to "Wait", "stack" to java.math.BigInteger.ONE, "x" to null))
         }
         assertFailsWith<IllegalArgumentException> { BattleCodec.parseEvent(mapOf("type" to "Nope")) }
+    }
+    private fun rejectMessage(block: () -> Unit): String? =
+        try { block(); null } catch (e: IllegalArgumentException) { e.message ?: "" }
+
+    /** Every policy Python's `BattlePolicy` refuses is refused here, with Python's message. */
+    @Test
+    fun policyRejectCasesMatchPython() {
+        val cases = doc["policy_reject_cases"].list().map { it.obj() }
+        assertTrue(cases.size >= 20)
+        val bad = cases.mapNotNull { c ->
+            val got = rejectMessage { pack.policy(mapOf(c["field"] as String to c["value"])) }
+            if (got == c["message"]) null else "${c["field"]}=${c["value"]}: got '$got' want '${c["message"]}'"
+        }
+        assertTrue(bad.isEmpty(), bad.toString())
+    }
+
+    /** Every state Python's `check_state` refuses is refused by the parse, with Python's message. */
+    @Test
+    fun stateRejectCasesMatchPython() {
+        val cases = doc["state_reject_cases"].list().map { it.obj() }
+        assertTrue(cases.size >= 25)
+        val bad = cases.mapNotNull { c ->
+            val got = rejectMessage { codec.parseState(MiniJson.parse(c["canonical"] as String)) }
+            if (got == c["message"]) null else "${c["label"]}: got '$got' want '${c["message"]}'"
+        }
+        assertTrue(bad.isEmpty(), bad.toString())
+    }
+
+    private fun refused(field: String, value: Any?, message: String) =
+        assertEquals(message, rejectMessage { pack.policy(mapOf(field to value)) }, "$field=$value")
+
+    @Test
+    fun speedTieBogusIsRefused() = refused("speed_tie", "bogus", "bad speed_tie")
+
+    @Test
+    fun rowOffsetDiagonalIsRefused() = refused("row_offset", "diagonal", "row_offset must be 'odd' or 'even'")
+
+    @Test
+    fun defendBonusDenZeroIsRefused() = refused("defend_bonus_den", 0, "bad defend bonus fraction")
+
+    @Test
+    fun badMoraleTableDecreasingIsRefused() =
+        refused("bad_morale_table", listOf(9, 1, 1), "bad_morale_table must be non-decreasing")
+
+    @Test
+    fun rangePenaltyBeyondNegativeIsRefused() = refused("range_penalty_beyond", -5, "bad range_penalty_beyond")
+
+    @Test
+    fun placementRowsEmptyIsRefused() =
+        refused("placement_rows", emptyList<Any>(), "placement_rows needs 7 rows tuples of size 1..7")
+
+    @Test
+    fun waitOrderRangeOriginRoundingAndMinAreRefused() {
+        refused("wait_order", "bogus", "bad wait_order")
+        refused("range_origin", "tail", "bad range_origin")
+        refused("defend_bonus_rounding", "round", "bad defend_bonus_rounding")
+        refused("defend_bonus_min", -1, "defend_bonus_min out of range")
+        refused("defend_bonus_num", 1L shl 31, "defend_bonus_num out of range")
+    }
+
+    @Test
+    fun theCapStateIsAcceptedAndOneAboveIsNot() {
+        val cap = doc["cases"].list().map { it.obj() }.single { it["name"] == "cap" }
+        val text = cap["initial"].obj()["canonical"] as String
+        val state = codec.parseState(MiniJson.parse(text))
+        assertEquals(Int.MAX_VALUE.toLong(), state.stacks[0].count.toLong() * state.stacks[0].creature.dmgMax)
+        val above = state.copy(stacks = listOf(state.stacks[0].copy(creature = state.stacks[0].creature.copy(dmgMax = 2)), state.stacks[1]))
+        assertEquals("count x dmg_max exceeds 2**31-1", rejectMessage { codec.parseState(codec.toMap(above)) })
+        val aboveHp = state.copy(stacks = listOf(state.stacks[0], state.stacks[1].copy(creature = state.stacks[1].creature.copy(hp = 2))))
+        assertEquals("count x hp exceeds 2**31-1", rejectMessage { codec.parseState(codec.toMap(aboveHp)) })
     }
 }

@@ -80,4 +80,19 @@ flowchart LR
 | 51 | Kotlin typed battle state + canonical codec, 586 steps | Sonnet | done |
 | ADR-0010 | License: GPL-2.0-or-later (owner decision); LICENSE added | lead | done |
 | 52 | Kotlin battle apply: stages A 257, B 157, C 1,078 steps + D 4,007 illegal cases all match Python | Opus | done (agent stopped at the usage line; its own 15 mutants killed) |
+| 53 | Kotlin legal_commands + strike_preview (1,533 states, 110k legal commands) | Sonnet | done |
+| 54 | Kotlin DEF decoder | Sonnet | done |
+| 55 | Kotlin LOD + PCX readers | Haiku | done |
+| 56 | Kotlin TXT reader + creature content loader | Sonnet | done |
+| 57 | Kotlin data-pack loader (924 invalid-pack vectors) | Sonnet | done |
+| 58 | H3M remaining object bodies (VCMI provenance comments) | Opus | done |
+| 59 | Test gaps closed; 3 adventure bugs recorded | test-verifier | done |
+| - | App design spec + ADR-0011 (proposed) | spec-agent | done |
+| - | Skills (loop-graph-builder, second-brain), docs/loops, docs/memory, validator, MVP 0.1 scope | lead | done |
+| 60 | Strict integer command fields in adventure/encounter | sim-engineer | done |
+| 61 | Kotlin banned-API lint (10 rules) in CI | test-verifier | done |
+| 62 | Kotlin greedy AI (64 games, 2,686 decisions) | Sonnet | done |
+| 63 | Presenter view v2 + Kotlin port (1,356 states, 22k taps) | Sonnet | done |
+| 64 | Audit fixes: integer caps, Long damage, policy and state validation in both engines | Opus | done (golden unchanged) |
+| - | Android build: plugin versions declared once in settings | lead | pushed; verified by CI only |
 

@@ -82,12 +82,12 @@ data class AttackDefenseFactor(val increase: Rational, val reduction: Rational)
 class Rules(val pack: RulesPack) {
 
     fun attackDefenseFactor(attack: Long, defense: Long): AttackDefenseFactor {
-        val diff = attack - defense
+        val diff = Math.subtractExact(attack, defense)
         if (diff > 0L) {
             return AttackDefenseFactor(minOf(pack.adBonusPerPoint * Rational.of(diff), pack.adBonusCap), Rational.ZERO)
         }
         if (diff < 0L) {
-            return AttackDefenseFactor(Rational.ZERO, minOf(pack.daPenaltyPerPoint * Rational.of(-diff), pack.daPenaltyCap))
+            return AttackDefenseFactor(Rational.ZERO, minOf(pack.daPenaltyPerPoint * Rational.of(Math.negateExact(diff)), pack.daPenaltyCap))
         }
         return AttackDefenseFactor(Rational.ZERO, Rational.ZERO)
     }
@@ -101,7 +101,7 @@ class Rules(val pack: RulesPack) {
         require(1L <= dmgMin && dmgMin <= dmgMax) { "need 1 <= dmg_min <= dmg_max" }
         val rolls = minOf(count, 10L).toInt()
         var total = 0L
-        repeat(rolls) { total += rng.randint(dmgMin, dmgMax) }
+        repeat(rolls) { total = Math.addExact(total, rng.randint(dmgMin, dmgMax)) }
         if (count <= 10L) return total
         // Python: (total * count) // 10
         return Math.floorDiv(Math.multiplyExact(total, count), 10L)
@@ -165,7 +165,7 @@ class Rules(val pack: RulesPack) {
             RollPolicy.ACTUAL_SEED -> Rational.of(baseDamage(ctx.count, ctx.dmgMin, ctx.dmgMax, checkNotNull(rng)))
             RollPolicy.PESSIMAL -> Rational.of(Math.multiplyExact(ctx.count, ctx.dmgMin))
             RollPolicy.OPTIMAL -> Rational.of(Math.multiplyExact(ctx.count, ctx.dmgMax))
-            RollPolicy.EXPECTED -> Rational.of(Math.multiplyExact(ctx.count, ctx.dmgMin + ctx.dmgMax), 2L)
+            RollPolicy.EXPECTED -> Rational.of(Math.multiplyExact(ctx.count, Math.addExact(ctx.dmgMin, ctx.dmgMax)), 2L)
         }
 
         var dmg = scaled(

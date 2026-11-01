@@ -498,5 +498,87 @@ class GoldenTest(unittest.TestCase):
             s.towns[0].built_today = True
 
 
+def _bld(d, fid, bid):
+    f = next(f for f in d["factions"] if f["id"] == fid)
+    return next(b for b in f["buildings"] if b["id"] == bid)
+
+
+class StoredContentHashTest(unittest.TestCase):
+    """ADR-0006: every stored content field and policy field is in state_hash."""
+
+    FERN = "faction.fernwood"
+
+    def _mutations(self):
+        F = self.FERN
+
+        def setter(bid, key, value):
+            def f(d):
+                _bld(d, F, bid)[key] = value
+            return f
+
+        def cost(bid, res, n):
+            def f(d):
+                _bld(d, F, bid)["cost"][res] = n
+            return f
+
+        def income(bid, n):
+            def f(d):
+                _bld(d, F, bid)["income"]["gold"] = n
+            return f
+
+        def other_faction(d):
+            _bld(d, "faction.saltmarsh", d["factions"][1]["buildings"][0]["id"])["cost"] = {"gold": 7}
+
+        return {
+            "cost gold": cost("market", "gold", 501),
+            "cost wood": cost("market", "wood", 6),
+            "cost new resource": cost("market", "gems", 1),
+            "income": income("hall.1", 501),
+            "growth_bonus": setter("keep.2", "growth_bonus", [1, 3]),
+            "dwelling base_growth": lambda d: _bld(d, F, "den.1")["dwelling"].update(base_growth=14),
+            "dwelling creature": lambda d: _bld(d, F, "den.1")["dwelling"].update(creature="cr.other"),
+            "dwelling level": lambda d: _bld(d, F, "grove.3")["dwelling"].update(level=4),
+            "horde bonus": lambda d: _bld(d, F, "hive")["horde"].update(bonus=5),
+            "requires": setter("hive", "requires", ["den.1", "market"]),
+            "player_unique tag": setter("hall.4", "player_unique", "capital2"),
+            "other faction": other_faction,
+        }
+
+    def _hash(self, content, policy=T.DEFAULT_POLICY):
+        return T.state_hash(T.create_game("golden", content, GOLDEN_PLAYERS, GOLDEN_TOWNS, policy))
+
+    def test_every_mutation_changes_the_hash(self):
+        base = self._hash(CONTENT)
+        seen = {base}
+        for name, mut in self._mutations().items():
+            with self.subTest(field=name):
+                d = raw()
+                mut(d)
+                try:
+                    content = T.parse_town_pack(d)
+                except DataPackError as e:      # a mutation the validator forbids: pick another
+                    self.fail("mutation %r invalid: %s" % (name, e))
+                h = self._hash(content)
+                self.assertNotEqual(h, base)
+                seen.add(h)
+        self.assertEqual(len(seen), 1 + len(self._mutations()))   # and they differ pairwise
+
+    def test_unmutated_reparse_keeps_the_hash(self):
+        self.assertEqual(self._hash(T.parse_town_pack(raw())), self._hash(CONTENT))
+
+    def test_policy_fields_change_the_hash(self):
+        base = self._hash(CONTENT)
+        for mode in ("ceil", "nearest"):
+            with self.subTest(citadel_rounding=mode):
+                self.assertNotEqual(self._hash(CONTENT, T.TownPolicy(citadel_rounding=mode)), base)
+
+    def test_hash_covers_content_after_play(self):
+        d = raw()
+        _bld(d, self.FERN, "market")["cost"]["gold"] = 501
+        a, _, _ = golden_run()
+        b = T.create_game("golden", T.parse_town_pack(d), GOLDEN_PLAYERS, GOLDEN_TOWNS)
+        self.assertNotEqual(T.state_hash(a), T.state_hash(b))
+
+
 if __name__ == "__main__":
     unittest.main()

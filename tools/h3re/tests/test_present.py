@@ -160,7 +160,8 @@ class PresentTest(unittest.TestCase):
                     continue
                 if t["shoot"]:
                     p = B.strike_preview(st, st.active, t["stack"], True)
-                    self.assertEqual(t["shoot"]["preview"],
+                    self.assertEqual({k: t["shoot"]["preview"][k]
+                                      for k in ("floor", "expected", "ceiling")},
                                      {"floor": p.floor, "expected": p.expected, "ceiling": p.ceiling})
                     n += 1
                 for a in t["attacks"]:
@@ -197,6 +198,75 @@ class PresentTest(unittest.TestCase):
                     allc.update(P.candidate_commands(st, (c, r)))
             want = {c for c in legal if not isinstance(c, (B.Wait, B.Defend, B.Begin))}
             self.assertEqual(allc, want)
+        self.assertGreater(n, 0)
+
+    def test_v2_grid_parity_and_stack_stats(self):
+        self.assertEqual(P.VIEW_VERSION, 2)
+        odd = replace(golden_states()[1], policy=replace(golden_states()[1].policy,
+                                                         row_offset="odd"))
+        self.assertEqual(P.view(odd)["grid"]["row_offset"], "odd")
+        for st in all_states():
+            v = P.view(st)
+            self.assertEqual(v["grid"]["row_offset"], st.policy.row_offset)
+            self.assertEqual(v["grid"]["edge_columns_walkable"], st.policy.edge_columns_walkable)
+            for s, sv in zip(st.stacks, v["stacks"]):
+                hero = st.heroes[s.side]
+                self.assertEqual(sv["attack"], s.creature.attack + (hero.attack if hero else 0))
+                self.assertEqual(sv["defense"], s.creature.defense + (hero.defense if hero else 0))
+                self.assertEqual((sv["dmg_min"], sv["dmg_max"]),
+                                 (s.creature.dmg_min, s.creature.dmg_max))
+                self.assertEqual(sv["retaliations"], s.retaliations)
+                if not s.defending:
+                    self.assertEqual(sv["defend_bonus"], 0)
+
+    def test_v2_move_paths(self):
+        n = 0
+        for st in all_states():
+            if st.active is None or st.winner is not None:
+                continue
+            act = st.stacks[st.active]
+            reach = B._reach(st, act)
+            for h in P.view(st)["actions"]["by_hex"]:
+                if h["move"]:
+                    path = h["move"]["path"]
+                    self.assertEqual(path, [list(x) for x in reach[tuple(h["hex"])]])
+                    self.assertEqual(path[-1], h["hex"])
+                    self.assertLessEqual(len(path), act.creature.speed)
+                    prev = list(act.pos)
+                    for step in path:
+                        if not act.creature.flyer:
+                            self.assertEqual(B.hex_distance(tuple(prev), tuple(step),
+                                                            st.policy.row_offset), 1)
+                        prev = step
+                    n += 1
+                if h["target"]:
+                    for a in h["target"]["attacks"]:
+                        if a["command"]["from_hex"] is None:
+                            self.assertEqual(a["path"], [])
+                        else:
+                            self.assertEqual(a["path"], [list(x) for x in
+                                                         reach[tuple(a["from_hex"])]])
+                            self.assertEqual(a["path"][-1], a["from_hex"])
+        self.assertGreater(n, 0)
+
+    def test_v2_preview_kills(self):
+        from h3re import rules as R
+        n = 0
+        for st in all_states():
+            for h in P.view(st)["actions"]["by_hex"]:
+                t = h["target"]
+                if not t:
+                    continue
+                tg = st.stacks[t["stack"]]
+                for pv in ([t["shoot"]["preview"]] if t["shoot"] else []) + \
+                        [a["preview"] for a in t["attacks"]]:
+                    for k in ("floor", "expected", "ceiling"):
+                        want = R.apply_damage(tg.count, tg.top_hp, tg.creature.hp, pv[k])[2]
+                        self.assertEqual(pv["kills"][k], want)
+                    self.assertLessEqual(pv["kills"]["floor"], pv["kills"]["expected"])
+                    self.assertLessEqual(pv["kills"]["expected"], pv["kills"]["ceiling"])
+                    self.assertLessEqual(pv["kills"]["ceiling"], tg.count)
+                    n += 1
         self.assertGreater(n, 0)
 
     def test_not_started_and_over(self):

@@ -144,6 +144,70 @@ class TestBattleVectors(unittest.TestCase):
             self.assertEqual(g.state, before)
             self.assertEqual(B.state_hash(state), h)
 
+    def _records(self):
+        for c in self.doc["cases"]:
+            yield c, c["initial"], None
+            prev = c["initial"]
+            for s in c["steps"]:
+                yield c, s, prev
+                prev = s
+
+    def test_legal_lists_and_previews_match_the_oracle(self):
+        n = 0
+        for c, rec, _ in self._records():
+            state = state_from_json(rec["canonical"])
+            g = stream_at(c, 0)
+            before = g.state
+            legal = B.legal_commands(state)
+            self.assertEqual(rec["legal"], [VB._jsonable(soak.encode_command(x)) for x in legal])
+            self.assertEqual(rec["legal"], VB._legal_block(state)["legal"])
+            self.assertEqual(g.state, before)
+            self.assertEqual(B.state_hash(state), rec["sha256"])
+            seen = []
+            for p in rec["previews"]:
+                pv = B.strike_preview(state, p["attacker"], p["target"], p["ranged"])
+                self.assertEqual((p["floor"], p["expected"], p["ceiling"]),
+                                 (pv.floor, pv.expected, pv.ceiling))
+                self.assertLessEqual(pv.floor, pv.expected)
+                self.assertLessEqual(pv.expected, pv.ceiling)
+                ctx = B.strike_context(state, state.stacks[p["attacker"]],
+                                       state.stacks[p["target"]], p["ranged"])
+                self.assertEqual(p["ctx"], VB._jsonable(B.asdict(ctx)))
+                seen.append((p["attacker"], p["target"], p["ranged"]))
+                n += 1
+            want = []
+            for x in legal:
+                if isinstance(x, (B.Attack, B.Shoot)):
+                    k = (x.stack, x.target, isinstance(x, B.Shoot))
+                    if k not in want:
+                        want.append(k)
+            self.assertEqual(seen, want)
+        self.assertGreaterEqual(n, 3000)
+
+    def test_every_recorded_command_is_in_the_previous_legal_list(self):
+        checked = 0
+        for c, rec, prev in self._records():
+            if prev is None:
+                continue
+            self.assertIn(rec["command"], prev["legal"], c["name"])
+            checked += 1
+        self.assertGreaterEqual(checked, 1400)
+
+    def test_illegal_cases_are_absent_from_the_legal_list(self):
+        for x in self.doc["illegal_cases"]:
+            if x["rules_hash"] is not None:
+                continue
+            c = self.cases[x["case"]]
+            rec = c["initial"] if x["after_step"] < 0 else c["steps"][x["after_step"]]
+            self.assertNotIn(x["command"], rec["legal"])
+
+    def test_legal_lists_cover_every_command_kind(self):
+        kinds = {x["type"] for _, r, _ in self._records() for x in r["legal"]}
+        self.assertEqual(kinds, {c.__name__ for c in VB.COMMANDS})
+        self.assertTrue(any(x["type"] == "Attack" and x["from_hex"] is not None
+                            for _, r, _ in self._records() for x in r["legal"]))
+        self.assertTrue(any(p["ranged"] for _, r, _ in self._records() for p in r["previews"]))
+
     def test_unit_shapes_covered(self):
         two_hex = shooter = flyer = one_hex = False
         flags = set()
@@ -166,3 +230,46 @@ class TestBattleVectors(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestContractEdgeVectors(unittest.TestCase):
+    """ADR-0008 caps and policy validation, as recorded for the Kotlin parser."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.doc = VB.generate()[VB.FILE]
+
+    def test_policy_rejects_cover_every_audited_field(self):
+        cases = self.doc["policy_reject_cases"]
+        fields = {c["field"] for c in cases}
+        for f in ("speed_tie", "row_offset", "defend_bonus_den", "bad_morale_table",
+                  "range_penalty_beyond", "placement_rows", "wait_order", "range_origin",
+                  "defend_bonus_rounding", "defend_bonus_num", "defend_bonus_min"):
+            self.assertIn(f, fields)
+        base = dict(json.loads(json.dumps(__import__("dataclasses").asdict(B.DEFAULT_POLICY))))
+        for c in cases:
+            kw = dict(base)
+            kw[c["field"]] = c["value"]
+            with self.assertRaises(ValueError) as cm:
+                B.BattlePolicy(**kw)
+            self.assertEqual(str(cm.exception), c["message"])
+
+    def test_state_rejects_are_refused_with_the_recorded_message(self):
+        cases = self.doc["state_reject_cases"]
+        self.assertGreaterEqual(len(cases), 25)
+        labels = {c["label"] for c in cases}
+        self.assertIn("count x dmg_max above cap", labels)
+        self.assertIn("count x hp above cap", labels)
+        for (label, bad), c in zip(VB._state_mutations(VB.cap_setup()), cases):
+            self.assertEqual(label, c["label"])
+            self.assertEqual(B.canonical(bad).decode("ascii"), c["canonical"])
+            with self.assertRaises(ValueError) as cm:
+                B.check_state(bad)
+            self.assertEqual(str(cm.exception), c["message"])
+
+    def test_cap_case_deals_more_than_int_damage(self):
+        cap = next(c for c in self.doc["cases"] if c["name"] == "cap")
+        dmg = [e["damage"] for s in cap["steps"] for e in s["events"]
+               if e["type"] == "DamageDealt"]
+        self.assertTrue(dmg)
+        self.assertGreater(max(dmg), (1 << 31) - 1)

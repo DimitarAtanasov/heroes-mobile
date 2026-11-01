@@ -110,6 +110,18 @@ data class BattleState(
     val lastSide: Int? = null,
 )
 
+/**
+ * Python `defend_bonus` for a Defense sum [base] (creature plus hero, already widened):
+ * max(min, round(base * num / den)), floor or ceil. Long throughout: |base| <= 2**32 and
+ * num <= 2**31-1, so the product stays below 2**63 (ADR-0008).
+ */
+internal fun policyDefendBonus(p: BattlePolicy, base: Long): Long {
+    val num = Math.multiplyExact(base, p.defendBonusNum.toLong())
+    val den = p.defendBonusDen.toLong()
+    val b = if (p.defendBonusRounding == "floor") Math.floorDiv(num, den) else Math.negateExact(Math.floorDiv(Math.negateExact(num), den))
+    return maxOf(p.defendBonusMin.toLong(), b)
+}
+
 /** Commands (Python `Begin`, `Move`, ...). */
 sealed interface BattleCommand {
     data object Begin : BattleCommand
@@ -134,7 +146,8 @@ sealed interface BattleEvent {
     data class DamageDealt(
         val attacker: Int,
         val target: Int,
-        val damage: Int,
+        /** Can exceed `Int` (ADR-0008 cap rule: only the inputs are capped, not the product). */
+        val damage: Long,
         val killed: Int,
         val ranged: Boolean,
         val retaliation: Boolean,
@@ -148,13 +161,21 @@ sealed interface BattleEvent {
  * default bad-morale table. Python takes `bad_morale_table` from `rules.BAD_MORALE_NUMERATORS`,
  * so it is not in the policy file.
  */
-class BattlePolicyPack(policyJson: Map<String, Any?>, val badMoraleNumerators: List<Int>) {
+class BattlePolicyPack(
+    policyJson: Map<String, Any?>,
+    val badMoraleNumerators: List<Int>,
+    /**
+     * The rules pack's `morale_die`, the upper bound of every bad-morale table entry. Null when
+     * the caller does not pass it: the bound is then checked by [Battle.apply] before any draw.
+     */
+    val moraleDie: Int? = null,
+) {
     private val policy: BattlePolicy
 
     init {
         val m = policyJson.filterKeys { it != "schema_version" }
         BattleJson.exactKeys(m, POLICY_FILE_KEYS, "policy pack")
-        policy = BattleCodec.policyFrom(m + ("bad_morale_table" to badMoraleNumerators), "policy pack")
+        policy = BattleCodec.policyFrom(m + ("bad_morale_table" to badMoraleNumerators), "policy pack", moraleDie)
     }
 
     /** Python `BattlePolicy()` (the `DEFAULT_POLICY`). */
@@ -167,7 +188,7 @@ class BattlePolicyPack(policyJson: Map<String, Any?>, val badMoraleNumerators: L
             require(k in base) { "unknown policy field: $k" }
             base[k] = v
         }
-        return BattleCodec.policyFrom(base, "policy")
+        return BattleCodec.policyFrom(base, "policy", moraleDie)
     }
 
     companion object {
@@ -194,10 +215,20 @@ internal object BattleJson {
         return v
     }
 
-    fun int(v: Any?, what: String): Int = when (v) {
-        is BigInteger -> v.intValueExact()
-        is Int -> v
-        is Long -> Math.toIntExact(v)
+    /** A 32-bit Int (ADR-0008). Out of range is an [IllegalArgumentException] "<what> out of range", as in Python. */
+    fun int(v: Any?, what: String): Int {
+        val l = long(v, what)
+        require(l in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) { "$what out of range" }
+        return l.toInt()
+    }
+
+    fun long(v: Any?, what: String): Long = when (v) {
+        is BigInteger -> {
+            require(v.bitLength() < 64) { "$what out of range" }
+            v.toLong()
+        }
+        is Int -> v.toLong()
+        is Long -> v
         else -> throw IllegalArgumentException("$what: expected integer")
     }
 
@@ -275,7 +306,7 @@ class BattleCodec(
         for (name in omitWhenDefault) if (name !in pm) pm[name] = defaultPolicyMap[name]
         return BattleState(
             battleId = BattleJson.str(m["battle_id"], "battle_id"),
-            policy = policyFrom(pm, "policy"),
+            policy = policyFrom(pm, "policy", pack.moraleDie),
             heroes = BattleJson.list(m["heroes"], "heroes").map { h -> h?.let { heroFrom(it) } },
             obstacles = BattleJson.list(m["obstacles"], "obstacles").map { BattleJson.pos(it, "obstacle") },
             stacks = BattleJson.list(m["stacks"], "stacks").map { stackFrom(it) },
@@ -289,7 +320,7 @@ class BattleCodec(
             winner = BattleJson.intOrNull(m["winner"], "winner"),
             rulesHash = BattleJson.str(m["rules_hash"], "rules_hash"),
             lastSide = BattleJson.intOrNull(m["last_side"], "last_side"),
-        )
+        ).also(::checkState)
     }
 
     companion object {
@@ -338,9 +369,10 @@ class BattleCodec(
             "range_origin" to p.rangeOrigin,
         )
 
-        fun policyFrom(m: Map<String, Any?>, what: String): BattlePolicy {
+        /** Python `BattlePolicy(**m)`: the choices and fractions `__post_init__` refuses are refused here too. */
+        fun policyFrom(m: Map<String, Any?>, what: String, moraleDie: Int? = null): BattlePolicy {
             BattleJson.exactKeys(m, POLICY_KEYS, what)
-            return BattlePolicy(
+            return checkPolicy(BattlePolicy(
                 rowOffset = BattleJson.str(m["row_offset"], "row_offset"),
                 edgeColumnsWalkable = BattleJson.bool(m["edge_columns_walkable"], "edge_columns_walkable"),
                 placementRows = BattleJson.list(m["placement_rows"], "placement_rows")
@@ -362,7 +394,100 @@ class BattleCodec(
                 badLuck = BattleJson.bool(m["bad_luck"], "bad_luck"),
                 rangePenaltyBeyond = BattleJson.int(m["range_penalty_beyond"], "range_penalty_beyond"),
                 rangeOrigin = BattleJson.str(m["range_origin"], "range_origin"),
-            )
+            ), moraleDie)
+        }
+
+        // datapack.POLICY_CHOICES (data/battle_policy.json validation), in the same order.
+        val ROW_OFFSETS = setOf("odd", "even")
+        val SPEED_TIES = setOf("attacker_first", "alternate", "alternate_last_mover")
+        val WAIT_ORDERS = setOf("reverse_speed", "speed", "fifo", "slow_first_alternate")
+        val RANGE_ORIGINS = setOf("head", "any_cell")
+        val ROUNDINGS = setOf("floor", "ceil")
+
+        /**
+         * Python `BattlePolicy.__post_init__`, check for check and message for message. [moraleDie]
+         * null skips only the upper bound of the bad-morale entries ([Battle.apply] checks it).
+         */
+        fun checkPolicy(p: BattlePolicy, moraleDie: Int?): BattlePolicy {
+            require(p.rowOffset in ROW_OFFSETS) { "row_offset must be 'odd' or 'even'" }
+            require(p.speedTie in SPEED_TIES) { "bad speed_tie" }
+            require(p.waitOrder in WAIT_ORDERS) { "bad wait_order" }
+            require(p.rangeOrigin in RANGE_ORIGINS) { "bad range_origin" }
+            checkBadMoraleTable(p.badMoraleTable, moraleDie)
+            require(p.defendBonusRounding in ROUNDINGS) { "bad defend_bonus_rounding" }
+            require(p.defendBonusDen > 0 && p.defendBonusNum >= 0) { "bad defend bonus fraction" }
+            require(p.placementRows.size == 7 && p.placementRows.withIndex().all { (i, r) -> r.size == i + 1 }) {
+                "placement_rows needs 7 rows tuples of size 1..7"
+            }
+            require(p.rangePenaltyBeyond >= 0) { "bad range_penalty_beyond" }
+            // ADR-0008 bounds; the upper bound is the Int range, already enforced by the parse.
+            require(p.defendBonusMin >= 0) { "defend_bonus_min out of range" }
+            return p
+        }
+
+        /** Python `rules.check_bad_morale_table`; [die] null skips the upper bound. */
+        fun checkBadMoraleTable(table: List<Int>, die: Int?) {
+            require(table.size == 3 && table.all { it >= 0 && (die == null || it <= die) }) {
+                "bad_morale_table needs 3 integers in 0..${die ?: "morale_die"}"
+            }
+            require(table.zipWithNext().all { (a, b) -> a <= b }) { "bad_morale_table must be non-decreasing" }
+        }
+
+        private fun bounded(v: Long, name: String, lo: Long, hi: Long) {
+            require(v in lo..hi) { "$name out of range" }
+        }
+
+        private val MIN = Int.MIN_VALUE.toLong()
+        private val MAX = Int.MAX_VALUE.toLong()
+
+        /**
+         * Python `battle.check_state` (battle.md "State invariants and integer caps", ADR-0008):
+         * same checks, same order, same messages. Every parsed state passes through it.
+         */
+        fun checkState(s: BattleState) {
+            require(s.heroes.size == 2) { "heroes must be a pair" }
+            for (o in s.obstacles) require(Hex.inGrid(HexCell(o.first, o.second))) { "obstacle off grid" }
+            val perSide = IntArray(2)
+            for ((i, st) in s.stacks.withIndex()) {
+                require(st.id == i) { "stack id differs from its index" }
+                require(st.side == Hex.ATTACKER || st.side == Hex.DEFENDER) { "stack side must be 0 or 1" }
+                perSide[st.side]++
+                bounded(st.slot.toLong(), "stack slot", 0L, 6L)
+                val cr = st.creature
+                bounded(cr.dmgMin.toLong(), "creature dmg_min", 1L, MAX)
+                bounded(cr.dmgMax.toLong(), "creature dmg_max", 1L, MAX)
+                bounded(cr.hp.toLong(), "creature hp", 1L, MAX)
+                bounded(cr.speed.toLong(), "creature speed", 0L, MAX)
+                bounded(cr.shots.toLong(), "creature shots", 0L, MAX)
+                require(cr.dmgMin <= cr.dmgMax) { "invalid damage range" }
+                bounded(st.count.toLong(), "stack count", 0L, MAX)
+                if (st.count == 0) {
+                    require(st.topHp == 0) { "empty stack must have top_hp 0" }
+                } else {
+                    bounded(st.topHp.toLong(), "stack top_hp", 1L, cr.hp.toLong())
+                }
+                bounded(st.shots.toLong(), "stack shots", 0L, MAX)
+                bounded(st.retaliations.toLong(), "stack retaliations", 0L, MAX)
+                require(Hex.cellsAt(HexCell(st.pos.first, st.pos.second), st.side, cr.doubleWide).all(Hex::inGrid)) {
+                    "stack position off grid"
+                }
+                // Both factors are in 0..2**31-1, so the Long products cannot overflow.
+                require(st.count.toLong() * cr.dmgMax.toLong() <= MAX) { "count x dmg_max exceeds 2**31-1" }
+                require(st.count.toLong() * cr.hp.toLong() <= MAX) { "count x hp exceeds 2**31-1" }
+                val hero = s.heroes[st.side]
+                bounded(cr.attack.toLong() + (hero?.attack ?: 0).toLong(), "attack sum", MIN, MAX)
+                val d = cr.defense.toLong() + (hero?.defense ?: 0).toLong()
+                bounded(d, "defense sum", MIN, MAX)
+                bounded(Math.addExact(d, policyDefendBonus(s.policy, d)), "defense sum", MIN, MAX)
+            }
+            require(perSide.all { it in 1..7 }) { "each side needs 1..7 stacks" }
+            val n = s.stacks.size.toLong()
+            bounded(s.round.toLong(), "round", 0L, MAX)
+            s.active?.let { bounded(it.toLong(), "active", 0L, n - 1L) }
+            for (v in s.done) bounded(v.toLong(), "done", 0L, n - 1L)
+            for (v in s.waited) bounded(v.toLong(), "waited", 0L, n - 1L)
+            require(s.winner == null || s.winner == 0 || s.winner == 1) { "winner must be 0, 1 or None" }
+            require(s.lastSide == null || s.lastSide == 0 || s.lastSide == 1) { "last_side must be 0, 1 or None" }
         }
 
         fun heroToMap(h: BattleHero): Map<String, Any?> = linkedMapOf(
@@ -374,11 +499,11 @@ class BattleCodec(
             val m = BattleJson.obj(v, "hero")
             BattleJson.exactKeys(m, HERO_KEYS, "hero")
             return BattleHero(
-                attack = BattleJson.int(m["attack"], "attack"),
-                defense = BattleJson.int(m["defense"], "defense"),
-                offense = BattleJson.int(m["offense"], "offense"),
-                archery = BattleJson.int(m["archery"], "archery"),
-                armorer = BattleJson.int(m["armorer"], "armorer"),
+                attack = BattleJson.int(m["attack"], "hero attack"),
+                defense = BattleJson.int(m["defense"], "hero defense"),
+                offense = BattleJson.int(m["offense"], "hero offense"),
+                archery = BattleJson.int(m["archery"], "hero archery"),
+                armorer = BattleJson.int(m["armorer"], "hero armorer"),
             )
         }
 
@@ -398,13 +523,13 @@ class BattleCodec(
             BattleJson.exactKeys(m, CREATURE_KEYS, "creature")
             return BattleCreature(
                 name = BattleJson.str(m["name"], "name"),
-                attack = BattleJson.int(m["attack"], "attack"),
-                defense = BattleJson.int(m["defense"], "defense"),
-                dmgMin = BattleJson.int(m["dmg_min"], "dmg_min"),
-                dmgMax = BattleJson.int(m["dmg_max"], "dmg_max"),
-                hp = BattleJson.int(m["hp"], "hp"),
-                speed = BattleJson.int(m["speed"], "speed"),
-                shots = BattleJson.int(m["shots"], "shots"),
+                attack = BattleJson.int(m["attack"], "creature attack"),
+                defense = BattleJson.int(m["defense"], "creature defense"),
+                dmgMin = BattleJson.int(m["dmg_min"], "creature dmg_min"),
+                dmgMax = BattleJson.int(m["dmg_max"], "creature dmg_max"),
+                hp = BattleJson.int(m["hp"], "creature hp"),
+                speed = BattleJson.int(m["speed"], "creature speed"),
+                shots = BattleJson.int(m["shots"], "creature shots"),
                 flyer = BattleJson.bool(m["flyer"], "flyer"),
                 doubleWide = BattleJson.bool(m["double_wide"], "double_wide"),
                 noEnemyRetaliation = BattleJson.bool(m["no_enemy_retaliation"], "no_enemy_retaliation"),
@@ -429,18 +554,18 @@ class BattleCodec(
             val m = BattleJson.obj(v, "stack")
             BattleJson.exactKeys(m, STACK_KEYS, "stack")
             return BattleStack(
-                id = BattleJson.int(m["id"], "id"),
-                side = BattleJson.int(m["side"], "side"),
-                slot = BattleJson.int(m["slot"], "slot"),
+                id = BattleJson.int(m["id"], "stack id"),
+                side = BattleJson.int(m["side"], "stack side"),
+                slot = BattleJson.int(m["slot"], "stack slot"),
                 creature = creatureFrom(m["creature"]),
-                count = BattleJson.int(m["count"], "count"),
-                topHp = BattleJson.int(m["top_hp"], "top_hp"),
+                count = BattleJson.int(m["count"], "stack count"),
+                topHp = BattleJson.int(m["top_hp"], "stack top_hp"),
                 pos = BattleJson.pos(m["pos"], "pos"),
-                shots = BattleJson.int(m["shots"], "shots"),
-                retaliations = BattleJson.int(m["retaliations"], "retaliations"),
+                shots = BattleJson.int(m["shots"], "stack shots"),
+                retaliations = BattleJson.int(m["retaliations"], "stack retaliations"),
                 defending = BattleJson.bool(m["defending"], "defending"),
-                morale = BattleJson.int(m["morale"], "morale"),
-                luck = BattleJson.int(m["luck"], "luck"),
+                morale = BattleJson.int(m["morale"], "stack morale"),
+                luck = BattleJson.int(m["luck"], "stack luck"),
             )
         }
 
@@ -516,7 +641,10 @@ class BattleCodec(
                 "LuckRolled" -> { keys("stack", "good"); BattleEvent.LuckRolled(i("stack"), b("good")) }
                 "DamageDealt" -> {
                     keys("attacker", "target", "damage", "killed", "ranged", "retaliation")
-                    BattleEvent.DamageDealt(i("attacker"), i("target"), i("damage"), i("killed"), b("ranged"), b("retaliation"))
+                    BattleEvent.DamageDealt(
+                        i("attacker"), i("target"), BattleJson.long(m["damage"], "damage"), i("killed"),
+                        b("ranged"), b("retaliation"),
+                    )
                 }
                 "UnitDied" -> { keys("stack"); BattleEvent.UnitDied(i("stack")) }
                 "BattleEnded" -> { keys("winner"); BattleEvent.BattleEnded(i("winner")) }

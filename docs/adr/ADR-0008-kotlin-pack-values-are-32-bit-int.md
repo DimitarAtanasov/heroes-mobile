@@ -19,3 +19,28 @@ Verification:
 - `test_datapack.py::test_max_int_is_the_jvm_int_max` (2147483647 accepted, 2147483648 refused) and the boundary tests in the same file.
 - `python3 -c "import h3re.datapack as d; print(d.MAX_INT)"` prints `2147483647` from `tools/h3re`.
 - Kotlin unit test: a pack value at `Int.MAX_VALUE` loads and one above it fails (to be added with the Kotlin pack loader).
+
+## Amendment (2026-11-01): caps on derived products
+
+Context: the Kotlin-port audit found that the per-value bound is not enough. A stack of 2**31-1
+creatures with a large attack makes Python report a strike of 8589934588 damage, which the Kotlin
+engine refused at `toIntExact`, and `count x dmg_max` with both factors near 2**31 overflowed the
+Long arithmetic of the damage pipeline.
+
+Decision:
+- A battle state also caps the products the damage pipeline builds: `count x dmg_max` <= 2**31-1 and
+  `count x hp` <= 2**31-1 for every stack, and the attack sum (creature plus hero) and the defense
+  sum (creature plus hero, with and without the defend bonus) lie in the Int range. Python
+  `battle.check_state` enforces this (called by `create_battle`); Kotlin `BattleCodec.parseState`
+  enforces the same checks with the same messages. Policy integers are bounded to 0..2**31-1.
+- Values the caps do not bound are `Long` in Kotlin: `DamageDealt.damage` (a strike can exceed
+  2**31-1) and the defend bonus. Killed creatures, counts and HP stay `Int`.
+- A value above a cap is refused, never clamped or wrapped.
+
+Consequences: no pinned hash moved (golden `fbe9015b...`, every earlier vector step unchanged).
+`battle_states.json` carries the `cap` case, `policy_reject_cases` and `state_reject_cases`.
+
+Verification: `tests/test_battle.py` `IntegerCapTest` and `CheckStateTest`;
+`tests/test_vectors_battle.py` `TestContractEdgeVectors`; Kotlin `BattleStateTest`
+(`policyRejectCasesMatchPython`, `stateRejectCasesMatchPython`, `theCapStateIsAcceptedAndOneAboveIsNot`),
+`BattleTest.capCaseDealsMoreThanIntDamageAsALong` and `RationalTest.damagePipelineStaysInLongAtTheCaps`.

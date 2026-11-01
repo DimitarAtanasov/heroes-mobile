@@ -30,6 +30,9 @@ jobs:
       - name: Banned-API lint (simulation modules)
         run: python3 tools/lint/banned_api_lint.py
 
+      - name: Banned-API lint (Kotlin simulation sources)
+        run: python3 tools/lint/kotlin_banned_api_lint.py
+
       - name: Determinism soak (default policies)
         working-directory: tools/h3re
         run: python3 -m h3re.soak --games 30 --max-steps 120 -q
@@ -56,3 +59,84 @@ jobs:
 
       - name: Run h3re tests against real game files
         run: python3 -m unittest discover -s tools/h3re/tests -v
+
+  kotlin-sim:
+    # Kotlin engine (android/sim) tests, plus a check that the committed
+    # conformance vectors still match a fresh Python generation (ADR-0007).
+    # The Gradle wrapper is pinned in android/gradle/wrapper.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Kotlin sim tests
+        working-directory: android
+        run: ./gradlew --no-daemon :sim:test
+
+      - name: Conformance vectors are up to date
+        # Fails if a Python change moved the vectors without regenerating them.
+        working-directory: tools/h3re
+        run: python3 -m h3re.vectors --check
+
+      - name: Upload Gradle test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-sim-test-report
+          path: |
+            android/sim/build/reports/tests/
+            android/sim/build/test-results/
+          if-no-files-found: warn
+
+  android-app:
+    # Builds the debug APK (green since the Android plugin was put on the root classpath) and
+    # publishes it as a build artifact so it can be downloaded and sideloaded.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Locate the runner's Android SDK
+        run: |
+          # The ubuntu-latest image sets ANDROID_HOME; fall back to its usual path.
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+
+      - name: Accept Android SDK licenses
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMANAGER" ]; then
+            # yes exits on SIGPIPE once sdkmanager closes stdin; that is expected.
+            yes | "$SDKMANAGER" --licenses > /dev/null || true
+          else
+            echo "sdkmanager not found; relying on Gradle to install SDK components."
+          fi
+
+      - name: Assemble debug app
+        working-directory: android
+        run: ./gradlew --no-daemon -PwithApp=true :app:assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: heroes-mobile-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

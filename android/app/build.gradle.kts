@@ -1,8 +1,8 @@
 // Android app module. Included only with -PwithApp=true (needs the Google Maven repo).
 plugins {
-    id("com.android.application") version "8.7.3"
-    kotlin("android") version "2.0.21"
-    kotlin("plugin.compose") version "2.0.21"
+    id("com.android.application")
+    kotlin("android")
+    kotlin("plugin.compose")
 }
 
 android {

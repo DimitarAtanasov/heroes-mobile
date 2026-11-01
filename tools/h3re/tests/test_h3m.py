@@ -559,6 +559,152 @@ def object_fixture(ver):
     return temps, objs, events
 
 
+def e_quest(ver, q):
+    """AB-style quest encoder (None = no quest)."""
+    if q is None:
+        return u8(0)
+    m = q["type"]
+    b = u8(m)
+    if m == 1:
+        b += u32(q["level"])
+    elif m == 2:
+        b += bytes(q["primary_skills"])
+    elif m in (3, 4):
+        b += u32(q["target_identifier"])
+    elif m == 5:
+        b += u8(len(q["artifacts"])) + b"".join(w_id(ver, a) for a in q["artifacts"])
+    elif m == 6:
+        b += u8(len(q["creatures"])) + e_army(ver, q["creatures"])
+    elif m == 7:
+        b += b"".join(u32(v) for v in q["resources"])
+    elif m == 8:
+        b += e_opt8(q["hero"])
+    elif m == 9:
+        b += e_opt8(q["player"])
+    return (b + i32(q["deadline"]) + s(q["first_visit"]) + s(q["next_visit"])
+            + s(q["completed"]))
+
+
+def e_reward(ver, d):
+    k = d["type"]
+    b = u8(k)
+    return b + {
+        0: lambda: b"",
+        1: lambda: u32(d.get("experience", 0)),
+        2: lambda: u32(d.get("mana", 0)),
+        3: lambda: i8(d.get("morale", 0)),
+        4: lambda: i8(d.get("luck", 0)),
+        5: lambda: i8(d.get("resource", 0)) + u32(d.get("amount", 0)),
+        6: lambda: u8(d.get("primary_skill", 0)) + u8(d.get("amount", 0)),
+        7: lambda: u8(d.get("skill", 0)) + i8(d.get("level", 0)),
+        8: lambda: w_id(ver, d.get("artifact")),
+        9: lambda: u8(d.get("spell", 0)),
+        10: lambda: w_id(ver, d.get("creature")) + u16(d.get("count", 0)),
+    }[k]()
+
+
+def e_seer(ver, d):
+    q = d["quest"]
+    if ver == ROE:
+        b = w_id(ver, None if q is None else q["artifacts"][0])
+    else:
+        b = e_quest(ver, q)
+    b += u8(0) if q is None else e_reward(ver, d["reward"])
+    return b + bytes(2)
+
+
+QUEST_SAMPLES = [
+    {"type": 1, "level": 12},
+    {"type": 2, "primary_skills": (1, 2, 3, 4)},
+    {"type": 3, "target_identifier": 0xDEAD},
+    {"type": 4, "target_identifier": 7},
+    {"type": 5, "artifacts": [7, 9, None]},
+    {"type": 6, "creatures": [(1, 10), (None, 3)]},
+    {"type": 7, "resources": (1, 2, 3, 4, 5, 6, 0xFFFFFFFF)},
+    {"type": 8, "hero": 33},
+    {"type": 9, "player": None},
+]
+REWARD_SAMPLES = [
+    {"type": 0}, {"type": 1, "experience": 5000}, {"type": 2, "mana": 30},
+    {"type": 3, "morale": -2}, {"type": 4, "luck": 3},
+    {"type": 5, "resource": 6, "amount": 2000},
+    {"type": 6, "primary_skill": 2, "amount": 4}, {"type": 7, "skill": 14, "level": 3},
+    {"type": 8, "artifact": 100}, {"type": 9, "spell": 53},
+    {"type": 10, "creature": 13, "count": 6},
+]
+
+
+def full_quest(i, q):
+    return dict(q, deadline=-1 if i % 2 else 120, first_visit=f"first {i}",
+                next_visit="", completed=f"done {i}")
+
+
+def new_object_fixture(ver):
+    """Fixture for the bodies added after the first object cut (signs ... quest guards)."""
+    temps = [tmpl("AVXSIGN", 91, 0), tmpl("AVXBOTL", 59, 0), tmpl("AVCGAR", 33, 0),
+             tmpl("AVCGAR2", 219, 0), tmpl("AVZGRAIL", 36, 0), tmpl("AVXLITE", 42, 0),
+             tmpl("AVXSCHL", 81, 0), tmpl("AVXSEER", 83, 0), tmpl("AVXSHYD", 87, 0),
+             tmpl("AVXSHR1", 88, 0), tmpl("AVXSHR2", 89, 0), tmpl("AVXSHR3", 90, 0),
+             tmpl("AVXWHUT", 113, 0), tmpl("AVXHPL", 214, 0), tmpl("AVXQGRD", 215, 0),
+             tmpl("AVXBGRD", 9, 2), tmpl("AVXKEYM", 10, 2), tmpl("AVXBGAT", 212, 3),
+             tmpl("AVXPYRA", 63, 0), tmpl("AVXUNIV", 104, 0)]
+    sign = {"message": "Beware"}
+    gar = {"owner": 255, "army": ARMY, "removable_units": False if ver >= AB else True}
+    gar2 = dict(gar, owner=3, removable_units=True)
+    objs = [
+        (0, (0, 0, 0), "sign", sign, s("Beware") + bytes(4)),
+        (1, (1, 0, 0), "sign", {"message": ""}, s("") + bytes(4)),
+        (2, (2, 0, 0), "garrison", gar, u32(255) + e_army(ver, ARMY)
+         + (u8(0) if ver >= AB else b"") + bytes(8)),
+        (3, (0, 1, 0), "garrison", gar2, u32(3) + e_army(ver, ARMY)
+         + (u8(1) if ver >= AB else b"") + bytes(8)),
+        (4, (1, 1, 0), "grail", {"radius": 4}, i32(4)),
+        (5, (2, 1, 0), "lighthouse", {"owner": 1}, u32(1)),
+        (6, (0, 2, 0), "scholar", {"bonus_type": -1, "bonus_id": 0}, i8(-1) + u8(0) + bytes(6)),
+        (6, (0, 2, 0), "scholar", {"bonus_type": 2, "bonus_id": 15}, i8(2) + u8(15) + bytes(6)),
+        (8, (1, 2, 0), "shipyard", {"owner": 255}, u32(255)),
+        (9, (2, 2, 0), "shrine", {"spell": 17}, u32(17)),
+        (10, (2, 2, 0), "shrine", {"spell": None}, u32(0xFF)),
+        (11, (2, 2, 0), "shrine", {"spell": 0}, u32(0)),
+    ]
+    if ver == ROE:
+        objs.append((12, (0, 0, 0), "witch_hut", {"skills_mask": None, "skills": None}, b""))
+    else:
+        m = bytes([0x01, 0, 0x80, 0x08])
+        objs.append((12, (0, 0, 0), "witch_hut",
+                     {"skills_mask": m, "skills": [0, 23, 27]}, m))
+    objs += [
+        (13, (0, 0, 0), "hero_placeholder", {"owner": 2, "hero_type": 40, "power_rank": None},
+         u8(2) + u8(40)),
+        (13, (0, 0, 0), "hero_placeholder", {"owner": None, "hero_type": None, "power_rank": 3},
+         u8(0xFF) + u8(0xFF) + u8(3)),
+        (15, (0, 0, 0), "generic", {}, b""),
+        (16, (0, 0, 0), "generic", {}, b""),
+        (17, (0, 0, 0), "generic", {}, b""),
+        (18, (0, 0, 0), "generic", {}, b""),
+        (19, (0, 0, 0), "generic", {}, b""),
+    ]
+    # Seer huts: an empty one, then every quest type (AB+) / the artifact quest
+    # (RoE), and every reward type.
+    seers = [{"quest": None, "reward": None}]
+    if ver == ROE:
+        for rw in REWARD_SAMPLES:
+            a = rw.get("artifact", 0) if rw["type"] == 8 else 3
+            seers.append({"quest": {"type": 5, "artifacts": [a], "deadline": None,
+                                    "first_visit": None, "next_visit": None,
+                                    "completed": None}, "reward": rw})
+    else:
+        for i, rw in enumerate(REWARD_SAMPLES):
+            q = full_quest(i, QUEST_SAMPLES[i % len(QUEST_SAMPLES)])
+            seers.append({"quest": q, "reward": rw})
+    for d in seers:
+        objs.append((7, (1, 1, 0), "seer_hut", d, e_seer(ver, d)))
+    # Quest guards: no quest, then every quest type (AB-style in every version).
+    for q in [None] + [full_quest(i, q) for i, q in enumerate(QUEST_SAMPLES)]:
+        objs.append((14, (2, 2, 0), "quest_guard", {"quest": q}, e_quest(ver, q)))
+    return temps, objs, []
+
+
 def e_objects(ver, temps, objs, events, trailer=b""):
     b = u32(len(temps)) + b"".join(e_template(t) for t in temps) + u32(len(objs))
     for ti, (x, y, z), _k, _d, body in objs:
@@ -680,16 +826,123 @@ class H3mObjectTests(unittest.TestCase):
         self.assertIn(f"object 1 at offset {rec}", str(e))
         self.assertIsInstance(e, H3mError)
 
+    def test_new_bodies_roundtrip(self):
+        for ver in (ROE, AB, SOD, CHR, WOG):
+            ev = SOD if ver >= SOD else ver
+            temps, objs, events = new_object_fixture(ev)
+            h = parse_h3m_bytes(map_with(ver, e_objects(ev, temps, objs, events)),
+                                objects=True)
+            self.assertEqual(len(h.objects), len(objs))
+            for i, (o, (ti, pos, kind, body, _b)) in enumerate(zip(h.objects, objs)):
+                with self.subTest(ver=ver, obj=i, kind=kind):
+                    self.assertEqual((o.x, o.y, o.level), pos)
+                    self.assertEqual(o.template_index, ti)
+                    self.assertEqual(o.kind, kind)
+                    self.assertEqual(o.body, body)
+            self.assertEqual(h.trailing_bytes, 0)
+            kinds = {o.kind for o in h.objects}
+            self.assertLessEqual({"sign", "garrison", "grail", "lighthouse", "scholar",
+                                  "seer_hut", "shipyard", "shrine", "witch_hut",
+                                  "hero_placeholder", "quest_guard"}, kinds)
+
+    def test_new_bodies_quest_and_reward_coverage(self):
+        for ver in (ROE, AB, SOD):
+            objs = new_object_fixture(ver)[1]
+            rewards = {o[3]["reward"]["type"] for o in objs
+                       if o[2] == "seer_hut" and o[3]["reward"]}
+            self.assertEqual(rewards, set(range(11)), ver)
+            quests = {o[3]["quest"]["type"] for o in objs
+                      if o[2] == "quest_guard" and o[3]["quest"]}
+            self.assertEqual(quests, set(range(1, 10)), ver)
+            if ver >= AB:
+                seer_q = {o[3]["quest"]["type"] for o in objs
+                          if o[2] == "seer_hut" and o[3]["quest"]}
+                self.assertEqual(seer_q, set(range(1, 10)), ver)
+
+    def test_new_bodies_truncation_everywhere(self):
+        for ver in (ROE, AB, SOD):
+            temps, objs, events = new_object_fixture(ver)
+            head = map_with(ver, b"")
+            full = head + e_objects(ver, temps, objs, events)
+            parse_h3m_bytes(full, objects=True)
+            for cut in range(len(head), len(full)):
+                with self.assertRaises(H3mError, msg=f"{ver} {cut}"):
+                    parse_h3m_bytes(full[:cut], objects=True)
+
+    def test_new_bodies_truncation_per_body(self):
+        # Each new body alone, cut at every byte inside it: the error names the
+        # object (not an unsupported-object error).
+        for ver in (ROE, AB, SOD):
+            temps, objs, _ = new_object_fixture(ver)
+            for ti, pos, kind, body, b in objs:
+                if not b:
+                    continue
+                sec = e_objects(ver, temps, [(ti, pos, kind, body, b)], [])
+                raw = map_with(ver, sec)
+                body_end = len(raw) - 4  # before the global event count
+                for cut in range(body_end - len(b), body_end):
+                    with self.assertRaises(H3mError, msg=f"{ver} {kind} {cut}") as cm:
+                        parse_h3m_bytes(raw[:cut], objects=True)
+                    self.assertNotIsInstance(cm.exception, H3mUnsupportedObject)
+                    self.assertIn(f"(class {temps[ti].class_id})", str(cm.exception))
+
+    def one(self, ver, cls, body, sub=0):
+        sec = u32(1) + e_template(tmpl("X", cls, sub)) + u32(1) + bytes(3) + u32(0) \
+            + bytes(5) + body
+        return parse_h3m_bytes(map_with(ver, sec) + bytes(64), objects=True)
+
+    def test_quest_count_bombs(self):
+        bomb = "implausible|needs at least"
+        for ver in (ROE, AB, SOD):
+            for typ in (5, 6):
+                for cls in (215, 83):
+                    if cls == 83 and ver == ROE:
+                        continue
+                    body = u8(typ) + u8(0xFF)  # 255 items, none present
+                    with self.assertRaisesRegex(H3mError, bomb, msg=f"{ver} {typ}"):
+                        sec = u32(1) + e_template(tmpl("X", cls, 0)) + u32(1) \
+                            + bytes(3) + u32(0) + bytes(5) + body + bytes(8)
+                        parse_h3m_bytes(map_with(ver, sec), objects=True)
+
+    def test_quest_and_reward_type_errors(self):
+        for ver in (AB, SOD):
+            for bad in (11, 0x80, 0xFF):
+                with self.assertRaisesRegex(H3mError, "invalid quest type"):
+                    self.one(ver, 215, u8(bad))
+            with self.assertRaisesRegex(H3mError, "HotA-only"):
+                self.one(ver, 215, u8(10) + bytes(16))
+            q = full_quest(0, QUEST_SAMPLES[0])
+            for bad in (11, 0xFF):
+                with self.assertRaisesRegex(H3mError, "invalid seer hut reward type"):
+                    self.one(ver, 83, e_quest(ver, q) + u8(bad))
+        with self.assertRaisesRegex(H3mError, "invalid seer hut reward type"):
+            self.one(ROE, 83, u8(3) + u8(11))
+        e = None
+        try:
+            self.one(SOD, 215, u8(11))
+        except H3mError as ex:
+            e = ex
+        self.assertIn("object 0 at offset", str(e))
+        self.assertNotIsInstance(e, H3mUnsupportedObject)
+
+    def test_border_objects_have_no_body(self):
+        for ver in (ROE, AB, SOD):
+            for cls, sub in ((9, 0), (10, 7), (212, 0), (212, 999)):
+                h = self.one(ver, cls, b"", sub)
+                self.assertEqual((h.objects[0].kind, h.objects[0].body), ("generic", {}))
+                self.assertEqual(h.trailing_bytes, 60)  # 4 of the 64 are the event count
+
     def test_unknown_class_fails_with_offset(self):
         for ver in (ROE, AB, SOD):
             self.unsupported(ver, 250, 0)
             self.unsupported(ver, 0xFFFFFFFF, 3)
             self.unsupported(ver, 145, 0)  # HotA-only class id
 
-    def test_known_but_unsupported_bodies_fail(self):
-        for cls in (33, 36, 42, 59, 81, 83, 87, 88, 89, 90, 91, 113, 214, 215, 219):
-            self.unsupported(SOD, cls, 0)
-        self.unsupported(SOD, 212, 1000)  # HotA quest gate on the border-gate class
+    def test_hota_subids_still_unsupported(self):
+        for ver in (ROE, AB, SOD):
+            self.unsupported(ver, 212, 1000)  # HotA quest gate on the border-gate class
+            self.unsupported(ver, 212, 1001)  # HotA grave
+            self.unsupported(ver, 36, 1000)  # HotA battle location on the grail class
 
     def test_generic_classes_have_no_body(self):
         for cls in (2, 16, 24, 63, 101, 104, 109, 212, 221, 231):

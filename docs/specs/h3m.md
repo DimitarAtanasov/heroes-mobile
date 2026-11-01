@@ -96,11 +96,13 @@ Order after the tiles: template table, object instances, global events, then
 end of data. Source for every layout fact below (functional facts only, no
 code copied): VCMI `lib/mapping/MapFormatH3M.cpp` (`init` call order,
 `readObjectTemplates`, `readObjects`, `readObject` dispatch, the per-class
-readers named below, `readEvents`, `readEventCommon`, `readMessageAndGuards`,
+readers named below, `readEvents`, `readEventCommon`, `readMessageAndGuards`, `readQuest`,
 `readCreatureSet`), `lib/mapping/MapReaderH3M.cpp` (id widths, sentinels,
 bitmask byte counts, `readInt3`, `readBool`), `lib/mapping/MapFeaturesH3M.cpp`
 (per-version sizes), `lib/mapObjects/ObjectTemplate.cpp` (`readMap`), and
-`lib/constants/EntityIdentifiers.h` (object class ids).
+`lib/constants/EntityIdentifiers.h` (object class ids). The bodies added for
+signs through quest guards were checked against VCMI commit c53e0e8; each
+reader carries a provenance comment naming it (ADR-0003, ADR-0010).
 
 ### Template table
 u32 count (cap 65536), then per template (46 bytes + name):
@@ -119,7 +121,7 @@ check happens when an instance uses them.
 u32 count (cap 262144). Per object (`MapObject`): 3 bytes x, y, level; u32
 template index (must be < template count, else `H3mError`); 5 reserved
 bytes; then a class-specific body chosen by the template's class id (and
-subid for mines and border gates). `MapObject` carries `index`, `offset`
+subid for mines, grails and border gates). `MapObject` carries `index`, `offset`
 (byte offset of the record in the decompressed data), `x`, `y`, `level`,
 `template_index`, `class_id`, `subid`, `kind` and `body` (dict). Positions are
 not range-checked (VCMI allows anchors up to 8 tiles past the edge).
@@ -148,6 +150,17 @@ Owner u8 0xFF -> `None`; owner u32 kept raw (255 = neutral).
 | 216, 217, 218 random dwellings | `random_dwelling` | u32 owner; 216/217: u32 faction identifier, if 0 a faction mask (u8 RoE, u16 AB+); 216/218: u8 min level, u8 max level (raw, 0-6). (`readDwellingRandom`) |
 | 26 event | `event` | box; u8 player mask; flag computer activates; flag remove after visit; 4 reserved. (`readEvent`) |
 | 6 Pandora's box | `pandora` | box. (`readPandora`) |
+| 91 sign, 59 ocean bottle | `sign` | string message; 4 reserved. (`readSign`) |
+| 33 garrison, 219 garrison (vertical) | `garrison` | u32 owner (raw, 255 = neutral); army; AB+: flag removable units (RoE: reported as `True`); 8 reserved. (`readGarrison`) |
+| 36 grail (subid < 1000) | `grail` | i32 radius. (`readGrail`) |
+| 42 lighthouse | `lighthouse` | u32 owner (raw). (`readLighthouse`) |
+| 87 shipyard | `shipyard` | u32 owner (raw). (`readShipyard`) |
+| 81 scholar | `scholar` | i8 bonus type (raw: -1 random, 0 primary, 1 secondary, 2 spell; VCMI clamps out-of-range values, we keep them); u8 bonus id; 6 reserved. (`readScholar`) |
+| 88-90 shrines | `shrine` | u32 spell id (255 -> `None`; 0 is a real spell id). (`readShrine`) |
+| 113 witch hut | `witch_hut` | RoE: no body (`skills_mask`/`skills` are `None`); AB+: 4-byte skill mask, set bit = ALLOWED (not inverted), `skills` = ids < 28. (`readWitchHut`) |
+| 214 hero placeholder | `hero_placeholder` | u8 owner (0xFF -> `None`); u8 hero type (0xFF -> `None`); if 0xFF, u8 power rank, else `power_rank` is `None`. (`readHeroPlaceholder`) |
+| 83 seer hut | `seer_hut` | quest (below); if no quest, 1 reserved byte and `reward` is `None`, else a reward (below); 2 reserved. RoE quest: one artifact id (u8; 0xFF = no quest) giving `{"type": 5, "artifacts": [id], "deadline": None, texts None}`. AB+ (and every version for quest guards): the quest record below. (`readSeerHut`, `readSeerHutQuest`) |
+| 215 quest guard | `quest_guard` | quest record (below), nothing else; `quest` is `None` for type 0. (`readQuestGuard`) |
 | generic set (below) | `generic` | no body. |
 
 Box (events and Pandora's boxes, `readBoxContent`): message+guards; u32
@@ -155,25 +168,46 @@ experience; i32 mana; i8 morale; i8 luck; resources; 4 x u8 primary skills;
 u8 count + (u8 skill, u8 level); u8 count + artifact ids; u8 count + u8 spell
 ids; u8 count + (creature id, u16 count); 8 reserved.
 
+Quest record (`readQuest`), dict `quest` or `None`: u8 type, read as i8 and
+required to be 0-10 (else `H3mError`, as VCMI's strict read throws). 0 = no
+quest (nothing else follows). Type payloads: 1 level (u32 `level`); 2 primary
+skills (4 x u8 `primary_skills`); 3 kill hero, 4 kill creature (u32
+`target_identifier`, the identifier of the target object); 5 artifacts (u8
+count, then artifact ids, `artifacts`); 6 army (u8 count, then (creature id,
+u16 count), `creatures`); 7 resources (7 x u32 `resources`); 8 be hero (u8
+`hero`, 0xFF -> `None`); 9 be player (u8 `player`, 0xFF -> `None`); 10 is
+HotA's multi-mission placeholder and raises `H3mError` (not supported before
+HotA). Types 1-9 then have i32 `deadline` (last day, -1 = none, raw) and three
+strings `first_visit`, `next_visit`, `completed`.
+
+Seer hut reward (`readSeerHutQuest`), dict `reward`: u8 type, read as i8 and
+required to be 0-10 (else `H3mError`). 0 nothing; 1 u32 `experience`; 2 u32
+`mana`; 3 i8 `morale`; 4 i8 `luck`; 5 i8 `resource` + u32 `amount`; 6 u8
+`primary_skill` + u8 `amount`; 7 u8 `skill` + i8 `level`; 8 `artifact` id
+(u8/u16 by version); 9 u8 `spell`; 10 `creature` id + u16 `count`. Values are
+kept raw (VCMI clamps morale/luck to -3..3 and skill level to 1..3; we do not).
+
 Generic (no body in RoE/AB/SoD): every class id in VCMI's object enum that
 is not listed above or below, i.e. 2-39, 41-138, 143, 147-161, 212 (subid
-< 1000), 213, 221-231 minus the body classes. This includes banks (16, 24,
-25, 84, 85), pyramid / WoG object 63, treasure chest, corpse, flotsam, lean-to,
-campfire, wagon, black market, university and similar, whose readers only
-read data at HotA levels.
+< 1000), 213, 221-231 minus the body classes. This includes border guard 9,
+keymaster 10 and border gate 212 (subid < 1000; read with VCMI's generic
+reader), banks (16, 24, 25, 84, 85), pyramid / WoG object 63, treasure chest,
+corpse, flotsam, lean-to, campfire, wagon, black market, university and
+similar, whose readers only read data at HotA levels.
 
 Unsupported, raising `H3mUnsupportedObject` (an `H3mError` subclass with
 `index`, `offset` (record), `body_offset`, `class_id`, `subid`); never skipped,
 never length-guessed:
-- known classes with a body we do not implement: garrison 33/219, grail 36,
-  lighthouse 42, ocean bottle 59, scholar 81, seer hut 83, shipyard 87,
-  shrines 88-90, sign 91, witch hut 113, hero placeholder 214, quest guard 215;
-- border gate 212 with subid >= 1000 (HotA quest gate / grave);
+- border gate 212 with subid >= 1000 (HotA quest gate 1000, grave 1001; VCMI
+  reads other subids >= 1002 generically, we still reject them as HotA-only);
+- grail 36 with subid >= 1000 (HotA arena battle location);
 - any class id outside the enum (0, 1, 40, 139-142, 144-146 HotA, 165-211,
   232+).
+These are HotA-only or unknown; HotA maps are already rejected at the header,
+so a real RoE/AB/SoD map reaches them only if it uses an id VCMI does not know.
+Quest type 10 (HotA multi-mission) raises a plain `H3mError` with its offset.
 Because the object list is sequential, the first unsupported object stops
-parsing; real maps with signs, seer huts, garrisons etc. are not yet fully
-parseable.
+parsing.
 
 ### Global events
 u32 count (cap 8192), each a common event: string name; string message;
@@ -211,8 +245,21 @@ VCMI reads nothing after the events. Remaining bytes are counted in
 10. Random creature ids in armies (values above the creature count, encoding
    level/upgrade) are kept raw.
 11. Count caps (templates 65536, objects 262144, events 8192, town events
-   1024, hero skills 28) are our sanity bounds, not engine limits.
+   1024, hero skills 28) are our sanity bounds, not engine limits. Quest
+   artifact/creature counts are u8 and checked against remaining bytes.
+12. RoE seer hut: VCMI also treats an artifact id >= the RoE artifact count
+   (127) as "no quest" (and then reads the 1 empty-reward byte); we treat only
+   0xFF as no quest, so such an out-of-range id is read as an artifact quest.
+   A real map doing this would desynchronise one of the two readers.
+13. Quest guards read the AB-style quest record in every version, including
+   RoE (VCMI does not gate it); the class is believed absent from RoE maps.
+14. Witch hut mask polarity (set = allowed) and the RoE witch hut having no
+   body follow VCMI (`readBitmaskSkills(..., false)`, `levelAB` gate).
+15. Kill-hero / kill-creature targets are the u32 identifier of the target
+   object (matching hero/monster `identifier`); not resolved here.
+16. The shrine spell is a u32 where 255 means none; other out-of-range values
+   are kept raw.
 
 ## Not implemented
-Bodies of the unsupported classes listed above; HotA layouts. Errors raise
+HotA-only object subids and quest type 10 listed above; HotA layouts. Errors raise
 `H3mError`.

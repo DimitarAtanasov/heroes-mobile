@@ -684,9 +684,13 @@ def _hex_vectors():
     return doc
 
 
+# Vector modules that expose generate() -> {file name: JSON-serialisable content}.
+EXTRA_VECTOR_MODULES = ("vectors_battle", "vectors_def", "vectors_lodpcx", "vectors_pack", "vectors_txt", "vectors_ai", "vectors_present")
+
+
 def generate():
     """Return {filename: bytes}. Pure function of the Python implementation."""
-    from . import vectors_battle  # lazy: vectors_battle imports this module
+    import importlib  # lazy: the vector modules import this module for _dump
     out = {
         "rng.json": _dump(_rng_vectors()),
         "canonical_json.json": _dump(_canon_vectors()),
@@ -694,8 +698,9 @@ def generate():
         "rules.json": _dump(_rules_vectors()),
         "hex.json": _dump(_hex_vectors()),
     }
-    for name, obj in vectors_battle.generate().items():
-        out[name] = _dump(obj)
+    for mod in EXTRA_VECTOR_MODULES:
+        for name, obj in importlib.import_module("." + mod, __package__).generate().items():
+            out[name] = _dump(obj)
     return out
 
 

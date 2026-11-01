@@ -44,6 +44,7 @@ __all__ = [
     "turn_order", "round_order", "legal_commands", "canonical", "state_hash",
     "defend_bonus", "effective_morale", "DEFAULT_ROW_OFFSET",
     "strike_context", "strike_preview", "PackMismatch", "POLICY_HASH",
+    "check_state",
 ]
 
 WIDTH = 17
@@ -66,6 +67,16 @@ DEFAULT_ROW_OFFSET = _P["row_offset"]
 # --------------------------------------------------------------------------
 
 _SPEED_TIES = _datapack.POLICY_CHOICES["speed_tie"]
+# ADR-0008: the Kotlin engine holds state and policy integers as 32-bit Int.
+_MAX_INT = _datapack.MAX_INT
+_MIN_INT = -_MAX_INT - 1
+
+
+def _bounded(v, name, lo, hi):
+    """Integer ``v`` in [lo, hi] (bools are not integers here), else ValueError."""
+    if type(v) is not int or not lo <= v <= hi:
+        raise ValueError("%s out of range" % name)
+    return v
 _WAIT_ORDERS = _datapack.POLICY_CHOICES["wait_order"]
 
 
@@ -142,6 +153,13 @@ class BattlePolicy:
             raise ValueError("placement_rows needs 7 rows tuples of size 1..7")
         if self.range_penalty_beyond < 0:
             raise ValueError("bad range_penalty_beyond")
+        # ADR-0008: every policy integer is a 32-bit Int on the Kotlin side.
+        for name in ("defend_bonus_num", "defend_bonus_den", "defend_bonus_min",
+                     "range_penalty_beyond"):
+            _bounded(getattr(self, name), name, 0, _MAX_INT)
+        for rows in self.placement_rows:
+            for v in rows:
+                _bounded(v, "placement_rows", _MIN_INT, _MAX_INT)
 
 
 DEFAULT_POLICY = BattlePolicy()
@@ -471,8 +489,86 @@ def create_battle(battle_id, attackers, defenders, *, obstacles=(),
                 id=len(stacks), side=side, slot=slot, creature=cr,
                 count=s.count, top_hp=cr.hp, pos=head, shots=cr.shots,
                 retaliations=1, defending=False, morale=s.morale, luck=s.luck))
-    return BattleState(battle_id=str(battle_id), policy=policy,
-                       heroes=tuple(heroes), obstacles=obs, stacks=tuple(stacks))
+    state = BattleState(battle_id=str(battle_id), policy=policy,
+                        heroes=tuple(heroes), obstacles=obs, stacks=tuple(stacks))
+    check_state(state)
+    return state
+
+
+_CREATURE_INTS = (("attack", _MIN_INT), ("defense", _MIN_INT), ("dmg_min", 1),
+                  ("dmg_max", 1), ("hp", 1), ("speed", 0), ("shots", 0))
+_HERO_INTS = ("attack", "defense", "offense", "archery", "armorer")
+
+
+def _opt_side(v, name):
+    if v is not None and (type(v) is not int or v not in (ATTACKER, DEFENDER)):
+        raise ValueError("%s must be 0, 1 or None" % name)
+
+
+def check_state(state):
+    """Invariants of a battle state (battle.md "State invariants and integer caps").
+
+    Every integer fits a 32-bit Int (ADR-0008), and the derived products the
+    damage pipeline builds stay within it: count x dmg_max, count x hp, the
+    attack sum and the defense sum (with the defend bonus) of every stack.
+    ``create_battle`` calls it on every state it returns; the Kotlin parser
+    (BattleCodec.parseState) applies the same checks with the same messages.
+    Raises ValueError; returns None.
+    """
+    if len(state.heroes) != 2:
+        raise ValueError("heroes must be a pair")
+    for h in state.heroes:
+        if h is not None:
+            for name in _HERO_INTS:
+                _bounded(getattr(h, name), "hero " + name, _MIN_INT, _MAX_INT)
+    for o in state.obstacles:
+        if not in_grid(o):
+            raise ValueError("obstacle off grid")
+    per_side = [0, 0]
+    for i, s in enumerate(state.stacks):
+        if s.id != i:
+            raise ValueError("stack id differs from its index")
+        if type(s.side) is not int or s.side not in (ATTACKER, DEFENDER):
+            raise ValueError("stack side must be 0 or 1")
+        per_side[s.side] += 1
+        _bounded(s.slot, "stack slot", 0, 6)
+        cr = s.creature
+        for name, lo in _CREATURE_INTS:
+            _bounded(getattr(cr, name), "creature " + name, lo, _MAX_INT)
+        if cr.dmg_min > cr.dmg_max:
+            raise ValueError("invalid damage range")
+        _bounded(s.count, "stack count", 0, _MAX_INT)
+        if s.count == 0:
+            if s.top_hp != 0:
+                raise ValueError("empty stack must have top_hp 0")
+        else:
+            _bounded(s.top_hp, "stack top_hp", 1, cr.hp)
+        for name in ("shots", "retaliations"):
+            _bounded(getattr(s, name), "stack " + name, 0, _MAX_INT)
+        for name in ("morale", "luck"):
+            _bounded(getattr(s, name), "stack " + name, _MIN_INT, _MAX_INT)
+        if any(not in_grid(c) for c in cells(s)):
+            raise ValueError("stack position off grid")
+        if s.count * cr.dmg_max > _MAX_INT:
+            raise ValueError("count x dmg_max exceeds 2**31-1")
+        if s.count * cr.hp > _MAX_INT:
+            raise ValueError("count x hp exceeds 2**31-1")
+        hero = state.heroes[s.side]
+        _bounded(cr.attack + (hero.attack if hero else 0), "attack sum", _MIN_INT, _MAX_INT)
+        d = cr.defense + (hero.defense if hero else 0)
+        _bounded(d, "defense sum", _MIN_INT, _MAX_INT)
+        _bounded(d + defend_bonus(state, s), "defense sum", _MIN_INT, _MAX_INT)
+    if not all(1 <= n <= 7 for n in per_side):
+        raise ValueError("each side needs 1..7 stacks")
+    n = len(state.stacks)
+    _bounded(state.round, "round", 0, _MAX_INT)
+    if state.active is not None:
+        _bounded(state.active, "active", 0, n - 1)
+    for name in ("done", "waited"):
+        for v in getattr(state, name):
+            _bounded(v, name, 0, n - 1)
+    _opt_side(state.winner, "winner")
+    _opt_side(state.last_side, "last_side")
 
 
 # --------------------------------------------------------------------------

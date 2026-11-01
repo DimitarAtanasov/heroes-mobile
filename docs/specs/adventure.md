@@ -256,3 +256,13 @@ own hero still is not.
   same bug in `Move.dest` and `Attack.from_hex`, where `(2.0, 5)` *was*
   stored as the stack position; it is fixed the same way. Neither golden
   hash moved: legal commands always use int pairs.
+- Strict integer command fields (fix): every integer field of `Move`,
+  `EndTurn` and `Attack` (`Move.hero`, the elements of `Move.dest`,
+  `EndTurn.player`, `Attack.hero`, `Attack.target` when it is a hero id) must
+  satisfy `type(v) is int`. `bool`, `float`, `str`, `None` and `int`
+  subclasses (numpy-style integers) raise `IllegalCommand` before any state
+  or RNG change. Before, `Move.hero` used `isinstance(.., int)` so `True` and
+  `False` reached heroes 1 and 0, and `EndTurn.player` was only compared with
+  `==`, so `0.0` and `False` passed as player 0. Neither golden hash moved
+  (adventure `179c5700...`, encounter `512b53ca...`): legal commands always
+  use plain ints.

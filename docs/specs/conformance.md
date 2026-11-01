@@ -200,3 +200,49 @@ Rules the Kotlin side matches:
 - Kotlin class names: `BattleCreature`, `BattleHero`, `BattleStack` (to stay clear of future adventure
   types), commands and events nested in `BattleCommand` / `BattleEvent`. Positions are `Pair<Int, Int>`
   (col, row); hex geometry lives elsewhere.
+
+## Legal commands and strike previews (`battle_states.json`, battle-port slice 4)
+
+Source: `vectors_battle.py` `_legal_block(state)`. Kotlin: `Legal.kt` (`Battle.legalCommands`), with
+`Battle.strikeContext` / `Battle.strikePreview` (ported in slice 3 because `apply` needs them);
+test `LegalTest.kt`. Additive: the existing keys of `initial` and `steps[]` are unchanged.
+
+Every recorded state (each case's `initial`, and the state after each step: 1,533 in all) now also
+carries:
+- `legal`: the complete `battle.legal_commands(state)`, in Python's order, each entry a
+  `soak.encode_command` dict (110,127 commands in all). Order is part of the contract: `Wait` (unless
+  the stack has waited or it is a bonus turn), `Defend`, one `Move` per reachable head in sorted
+  (col, row) order, then for each living enemy in stack-id order: `Shoot` (shooter with shots left and no
+  adjacent enemy), then one `Attack` per head from which the target is adjacent, the stack's own
+  position first (`from_hex` null) and the reachable heads after it in sorted order. An unstarted state
+  lists `[Begin]`; a finished one lists nothing.
+- `previews`: for each distinct (attacker, target, ranged) among the `Attack` (ranged false) and `Shoot`
+  (ranged true) entries of `legal`, in first-seen order: `floor`, `expected`, `ceiling`
+  (`strike_preview`) and `ctx`, the `DamageCtx` fields from `strike_context` (3,554 previews, 2,344
+  ranged). Melee previews do not depend on the attack hex.
+
+Rules the Kotlin side matches:
+- The list equals the recorded one element by element, in order; every recorded command is a member of
+  the list of the state it was applied to; every recorded illegal command (other than the pack-mismatch
+  ones) is absent from the list of its state.
+- `strikeContext` fields and the three preview values equal the record, with floor <= expected <= ceiling.
+- Neither function takes a stream or changes the state (hash and canonical text identical before and
+  after); the generator state after each step is unchanged by calling them.
+- Integers (`Int` / `Long` / `Rational`) only; reachable heads come from `Battle.reachable`.
+
+## Contract edges: caps, policy and state rejects (`battle_states.json`)
+
+Added after the Kotlin-port audit (ADR-0008 amendment, battle.md change note "state invariants and
+integer caps").
+
+- `cases` holds a `cap` playout: both big stacks at `count x dmg_max = count x hp = 2**31-1`; its
+  strikes deal more than 2**31-1 damage. Kotlin replays it like every other case, with
+  `DamageDealt.damage` as a `Long`.
+- `policy_reject_cases`: `{field, value, error, message}`, one field of the default policy replaced.
+  Python's `BattlePolicy(**kw)` raises `ValueError(message)`; Kotlin `BattlePolicyPack.policy` must
+  throw `IllegalArgumentException` with the same message.
+- `state_reject_cases`: `{label, canonical, error, message}`, mutations of the `cap` initial state,
+  including one step above each cap. Python `check_state` raises `ValueError(message)`; Kotlin
+  `BattleCodec.parseState` must throw `IllegalArgumentException` with the same message.
+- A bad-morale table entry above the morale die is refused by the parse when the policy pack has
+  the die, and otherwise by `Battle.apply` before any draw.

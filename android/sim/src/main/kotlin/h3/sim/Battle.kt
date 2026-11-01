@@ -77,8 +77,9 @@ class Battle(val rules: Rules, val rulesHash: String) {
     /** Python `_speed_sorted`. Any `speed_tie` other than "attacker_first" uses the alternate ranking. */
     private fun speedSorted(state: BattleState, stacks: List<BattleStack>): List<BattleStack> {
         if (state.policy.speedTie == "attacker_first") {
+            // compareByDescending: negating the speed would wrap for Int.MIN_VALUE.
             return stacks.sortedWith(
-                compareBy<BattleStack>({ -it.creature.speed }, { it.side }, { it.slot }),
+                compareByDescending<BattleStack> { it.creature.speed }.thenBy { it.side }.thenBy { it.slot },
             )
         }
         // alternate: within a speed, interleave sides starting with the attacker.
@@ -90,7 +91,7 @@ class Battle(val rules: Rules, val rulesHash: String) {
             }
         }
         return stacks.sortedWith(
-            compareBy<BattleStack>({ -it.creature.speed }, { rank.getValue(it.id) }, { it.side }),
+            compareByDescending<BattleStack> { it.creature.speed }.thenBy { rank.getValue(it.id) }.thenBy { it.side },
         )
     }
 
@@ -171,15 +172,11 @@ class Battle(val rules: Rules, val rulesHash: String) {
     fun effectiveMorale(st: BattleStack): Int =
         if (st.creature.noMorale) 0 else maxOf(-3, minOf(3, st.morale))
 
-    /** Python `defend_bonus`: max(min, round(Defense * num / den)), floor or ceil. */
-    fun defendBonus(state: BattleState, st: BattleStack): Int {
-        val p = state.policy
+    /** Python `defend_bonus`: max(min, round(Defense * num / den)), floor or ceil. Widened before adding. */
+    fun defendBonus(state: BattleState, st: BattleStack): Long {
         val hero = state.heroes[st.side]
-        val base = Math.addExact(st.creature.defense, hero?.defense ?: 0).toLong()
-        val num = Math.multiplyExact(base, p.defendBonusNum.toLong())
-        val den = p.defendBonusDen.toLong()
-        val b = if (p.defendBonusRounding == "floor") Math.floorDiv(num, den) else -Math.floorDiv(-num, den)
-        return Math.toIntExact(maxOf(p.defendBonusMin.toLong(), b))
+        val base = Math.addExact(st.creature.defense.toLong(), (hero?.defense ?: 0).toLong())
+        return policyDefendBonus(state.policy, base)
     }
 
     /** Python `strike_context`: the one place battle state becomes damage inputs. */
@@ -189,7 +186,7 @@ class Battle(val rules: Rules, val rulesHash: String) {
         val hd = state.heroes[dfn.side]
         val a = Math.addExact(att.creature.attack.toLong(), (ha?.attack ?: 0).toLong())
         var d = Math.addExact(dfn.creature.defense.toLong(), (hd?.defense ?: 0).toLong())
-        if (dfn.defending) d = Math.addExact(d, defendBonus(state, dfn).toLong())
+        if (dfn.defending) d = Math.addExact(d, defendBonus(state, dfn))
         var rangePen = false
         if (ranged && !att.creature.noRangePenalty) {
             val off = pol.rowOffset
@@ -251,7 +248,7 @@ class Battle(val rules: Rules, val rulesHash: String) {
             d.copy(count = count, topHp = Math.toIntExact(r.topHp), defending = if (count != 0) d.defending else false),
         )
         events.add(
-            BattleEvent.DamageDealt(a.id, d.id, Math.toIntExact(dmg), Math.toIntExact(r.killed), ranged, retaliation),
+            BattleEvent.DamageDealt(a.id, d.id, dmg, Math.toIntExact(r.killed), ranged, retaliation),
         )
         if (count == 0) events.add(BattleEvent.UnitDied(d.id))
         return state
@@ -375,6 +372,9 @@ class Battle(val rules: Rules, val rulesHash: String) {
         if (state.rulesHash != rulesHash) {
             throw PackMismatch("state rules_hash ${state.rulesHash} differs from the local rules pack $rulesHash")
         }
+        // Python refuses such a policy at construction; a parse without the morale die cannot,
+        // so the bound is checked here, before any draw.
+        BattleCodec.checkBadMoraleTable(state.policy.badMoraleTable, Math.toIntExact(rules.pack.moraleDie))
         if (cmd is BattleCommand.Begin) {
             if (state.started) throw IllegalCommand("battle already started")
             return Validated()

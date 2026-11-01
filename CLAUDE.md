@@ -41,6 +41,24 @@ Specs live in `docs/specs/`, decisions in `docs/adr/`, progress in `docs/checkpo
     record the decision in an ADR. Never silently edit code to match stale docs, or docs to
     match a bug.
 
+## Working principles
+
+Adapted from the community-maintained guidelines built on Andrej Karpathy's observations about how
+LLMs fail at coding (the file is not published by him). They shape how every agent works here.
+
+1. **Think before coding.** State assumptions, surface tradeoffs, and ask the owner instead of guessing
+   silently on anything irreversible or outward-facing.
+2. **Simplicity first.** The minimum that solves the problem; no speculative features or abstractions.
+   A skill, spec or note that can be shorter should be.
+3. **Surgical changes.** Touch only what the task needs. Every changed line traces to the request.
+4. **Goal-driven execution.** Turn each task into a verifiable success test and loop until the test
+   passes; an agent's "done" is not evidence. See `.claude/skills/loop-graph-builder` and
+   `docs/loops/agent-round.md`.
+
+Project memory lives in `docs/memory/` (see `.claude/skills/second-brain`): read `MEMORY.md` at session
+start and capture lessons after a surprise. Validate loops, skills and memory with
+`python3 tools/skills/validate.py`.
+
 ## Roles and delegation
 
 The main session orchestrates: it triages, routes and verifies. Role definitions live in
@@ -55,6 +73,9 @@ other docs refer to roles, never models.
 | `test-verifier` | Checks acceptance criteria against command output. Trusts nothing without output. |
 | `determinism-auditor` | Reviews sim diffs for determinism hazards. Runs before merging sim changes and on any hash divergence. |
 | `adr-scribe` | Writes ADRs, keeps spec cross-references current, records re-pins. |
+| `loop-advisor` | Read-only design brief for a loop or a failed run (`.claude/skills/loop-graph-builder`). |
+| `loop-producer` | Writes `docs/loops` contracts until `tools/skills/loop_eval.py graph` passes. |
+| `loop-runner` | Runs a loop and records a trace; never accepts its own work. The evaluator judges. |
 
 ## Commands
 
