@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "xp_table": [0, 1000, 2000, 3200, 4600, 6200, 8000, 10000, 12200, 14700, 17500, 20600],
+  "max_secondary": 8,
+  "skill_levels": 3,
+  "primary_high_from_level": 10,
+  "skills": ["skill.anvil", "skill.brook", "skill.cinder", "skill.drift", "skill.ember",
+             "skill.fable", "skill.gale", "skill.hollow", "skill.ivy", "skill.jade"],
+  "classes": [
+    {
+      "id": "class.seer",
+      "start_primary": [0, 1, 2, 2],
+      "primary_low": [10, 15, 40, 35],
+      "primary_high": [20, 20, 30, 30],
+      "secondary": {"skill.anvil": 1, "skill.brook": 3, "skill.cinder": 8, "skill.drift": 2,
+                    "skill.ember": 6, "skill.fable": 9, "skill.gale": 5, "skill.hollow": 4,
+                    "skill.ivy": 0, "skill.jade": 7}
+    },
+    {
+      "id": "class.warden",
+      "start_primary": [2, 2, 1, 1],
+      "primary_low": [40, 30, 15, 15],
+      "primary_high": [30, 30, 20, 20],
+      "secondary": {"skill.anvil": 8, "skill.brook": 6, "skill.cinder": 2, "skill.drift": 5,
+                    "skill.ember": 3, "skill.fable": 1, "skill.gale": 4, "skill.hollow": 7,
+                    "skill.ivy": 6, "skill.jade": 0}
+    }
+  ]
+}
