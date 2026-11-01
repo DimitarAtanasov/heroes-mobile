@@ -22,6 +22,11 @@ the same as in that file: **[documented]**, **[uncertain]** and **[engine]**.
 - An illegal command raises `IllegalCommand`. All validation runs before any
   RNG draw, so a rejected command touches neither the state nor the stream.
   [engine]
+- A malformed hex is an illegal command: `Move.dest` and `Attack.from_hex` must
+  be a tuple or list of exactly two `int`s. A float, a `bool`, a non-pair or a
+  non-iterable raises `IllegalCommand` (`battle._as_hex`) before any state
+  change or RNG draw. It never raises `TypeError` and never reaches the state.
+  See section 10, 2026-11-01.
 - `apply` refuses a state whose `rules_hash` differs from the local rules pack
   (`rules.RULES_HASH`) by raising `PackMismatch`, a subclass of
   `IllegalCommand`, as the first check of validation (every command, `Begin`
@@ -366,4 +371,22 @@ The golden hash did **not** move (`fbe9015b...` stays pinned).
   Only `rules.json` is covered by `rules_hash`; a state saved under another
   `battle_policy.json` keeps playing by the policy stored in it, which is what
   its hash already commits to.
+
+### 2026-11-01: malformed hex raises IllegalCommand (no re-pin)
+
+The golden hash did **not** move (`fbe9015b...`). Legal commands always use
+int pairs, so no pinned scenario changes.
+
+- Before: a float pair such as `(2.0, 5)` passed as `Attack.from_hex` was stored
+  as the stack position; a non-pair could raise `TypeError`.
+- Now: `Move.dest` and `Attack.from_hex` go through `_as_hex`, which accepts only
+  a tuple or list of two values of exact type `int`. Anything else (float, bool,
+  wrong length, non-iterable) raises `IllegalCommand` before any state change
+  or RNG draw.
+- `adventure.py` `Move.dest` has the same entry check (`_as_tile`, `adventure.md`
+  section 8). No test found in `test_adventure.py` pins a float or bool `dest`:
+  a gap for `sim-engineer`.
+- Verification: `MalformedHexTest` in `tools/h3re/tests/test_battle.py` (rejects
+  `(2.0, 5)`, `(True, 5)`, `[1]`, `(1, 2, 3)`, `5`, `"ab"` and `{1: 2}` with
+  `IllegalCommand`, and checks that no draw happens).
 

@@ -1,7 +1,9 @@
 # heroes-mobile: project constitution
 
 Clean-room, data-driven reimplementation tooling inspired by Heroes of Might and Magic 3.
-Python 3.13 package `tools/h3re/` (readers, rules, battle and adventure cores, tests).
+Python 3.13 package `tools/h3re/` (readers, rules, battle, adventure, encounter, town and hero
+cores, replay files, battle presenter, content loader, tests). The Android app and its Kotlin
+engine live in `android/` (`sim` module), per ADR-0004; Python is the reference oracle.
 Specs live in `docs/specs/`, decisions in `docs/adr/`, progress in `docs/checkpoints/`.
 
 ## Laws
@@ -10,14 +12,19 @@ Specs live in `docs/specs/`, decisions in `docs/adr/`, progress in `docs/checkpo
    (GPL) is a source of facts only: no code, comments or paraphrase of its code (ADR-0003).
    Original game files, assets and binaries never enter the repo. Tests use synthetic
    fixtures; real-file tests are gated on `H3_DATA_DIR`.
-2. **Determinism.** Simulation modules (`rules.py`, `rng.py`, `battle.py`, `adventure.py`)
-   must not use floats, clocks, environment reads, threads, I/O, or iteration over unordered
+2. **Determinism.** Simulation modules (`rules.py`, `rng.py`, `battle.py`, `adventure.py`,
+   `encounter.py`, `town.py`, `hero.py`; the list the lint checks is `SIM_MODULES` in
+   `tools/lint/banned_api_lint.py`) must not use floats, clocks, environment reads, threads, I/O, or iteration over unordered
    collections where order reaches state or events. Randomness comes only from the passed
    stream (`rng.derive_stream`, one named stream per feature). Set membership is fine.
 3. **Integer-only simulation** (ADR-0002). `int` and `fractions.Fraction` only, with one
    named rounding step per derived quantity. No `/` on sim values, no float literals.
-4. **Balance numbers live in `data/*.json`.** Code holds formulas, not tuning values. `rules.py` constants are loaded from `data/rules.json` at import via `h3re/datapack.py` (override the directory with `H3_DATA_PACK_DIR`); `battle.py` creatures and policies still migrate later. Importing `h3re` may open only `rules.json`; a test pins that.
-   Existing constants in code are migration debt (HANDOFF item 1), not precedent.
+4. **Balance numbers live in `data/*.json`.** Code holds formulas, not tuning values. At import,
+   `rules.py` constants are loaded from `data/rules.json` and the `battle.py` policy defaults from
+   `data/battle_policy.json`, both via `h3re/datapack.py` (override the directory with
+   `H3_DATA_PACK_DIR`). Importing `h3re` opens exactly these two files; a test pins that
+   (`tests/test_package.py`). Other tuning constants still in code (adventure constants, for
+   example) are migration debt (HANDOFF), not precedent.
 5. **Every sim change needs a test** in `tools/h3re/tests/`, in the same change.
 6. **Golden re-pin rule.** Golden hashes are pinned in the tests. A re-pin is a reviewed
    change, and its reason is recorded in the owning spec (`docs/specs/battle.md` or
@@ -50,4 +57,7 @@ other docs refer to roles, never models.
 ## Commands
 
 - Tests: `python3 -m unittest discover -s tools/h3re/tests`
-- CLI: `cd tools/h3re && python3 -m h3re <lod-list|lod-extract|def-to-png|h3m-info|battle-sim>`
+- CLI: `cd tools/h3re && python3 -m h3re <lod-list|lod-extract|def-to-png|h3m-info|battle-sim|replay>`
+- Conformance vectors (the Kotlin contract, ADR-0007): `cd tools/h3re && python3 -m h3re.vectors`
+  writes to `android/sim/src/test/resources/vectors`; `--check` exits non-zero if the committed
+  files differ from a fresh generation. Vectors are never edited by hand.

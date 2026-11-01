@@ -15,15 +15,18 @@ Decision:
 - The rules pack in force is part of the state: `BattleState.rules_hash` is the `datapack`
   content hash of the loaded `rules.json` (`rules.RULES_HASH`) and is always in the canonical
   form, so peers with different packs diverge at step 0. A sim module that starts reading pack
-  values must carry the hash too (`adventure.py` reads none today and does not).
+  values must carry the hash too (`adventure.py` reads none today and does not). Amended
+  2026-11-01 (ADR-0006): a module whose pack input is content or policy stored in its own state
+  (town, hero) carries no separate hash; the stored content is in the canonical form.
 - `apply` refuses a battle state whose `rules_hash` differs from the local pack
   (`battle.PackMismatch`, an `IllegalCommand`), before any RNG draw.
 - `BattlePolicy` defaults come from `data/battle_policy.json`. The policy values are in
   the state, so that file needs no hash field of its own (`battle.POLICY_HASH` is for logs
   and tests); moving the defaults out of code was not a re-pin.
-- Battle only: fields added after a pin may be listed in `_OMIT_WHEN_DEFAULT` and are left out
-  of the canonical form while they hold their default. This keeps older hashes valid. The list
-  is empty right after a re-pin.
+- Omit at default (amended 2026-11-01, see ADR-0005): any state module may list fields added
+  after a pin in its `_OMIT_WHEN_DEFAULT`; they are left out of the canonical form while they
+  hold their default. This keeps older hashes valid. `adventure.py` uses it; `battle.py` uses it
+  for policy fields and its list is empty right after a re-pin.
 - Re-pin rule: a golden hash changes only through a reviewed re-pin. The re-pin:
   1. is its own reviewed change, not mixed with unrelated edits;
   2. records the reason in the owning spec (`docs/specs/battle.md` or `docs/specs/adventure.md`): the rule or field that changed, why the new hash is expected, and the old and new values;
@@ -35,6 +38,14 @@ Re-pin history:
 - 2026-11-01 (1): battle `cd969e37...` -> `2191ae97...` (row parity, policy fields, `last_side`).
 - 2026-11-01 (2): battle `2191ae97...` -> `fbe9015b...` (`rules_hash` added; play unchanged).
   Reasons are in `docs/specs/battle.md` section 10. Adventure pin `179c5700...` did not move.
+
+First pins (not re-pins), 2026-11-01, recorded in ADR-0005: town `0360ce88...`, hero
+`f18f5ebb...`, encounter `512b53ca...` (an `adventure.state_hash`).
+
+Amendment 2026-11-01 (dated, one decision each):
+- ADR-0005: the omit-at-default mechanism is not battle-only; it applies to every state module.
+- ADR-0006: stored content and policy stand in for a separate pack hash (town, hero).
+- ADR-0007: replay files and exported vectors are the cross-language contract (see also ADR-0004).
 
 Consequences:
 - Every state field must be canonical-serialisable: ints, strings, bools, tuples, nested dataclasses. A set or a non-string dict key makes `json.dumps` fail, which is the intended fail-closed behaviour.

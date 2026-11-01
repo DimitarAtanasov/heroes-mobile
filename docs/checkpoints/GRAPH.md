@@ -6,11 +6,11 @@ documentation of the formats and observable game mechanics.
 
 ```mermaid
 flowchart LR
-    A[Opus advisor: review state, pick next targets, assign model + file ownership] --> R{Complexity}
-    R -->|mechanical, well-documented| H[Haiku worker]
-    R -->|format parsing, moderate logic| So[Sonnet worker]
-    R -->|architecture, ambiguity| O[Opus worker]
-    H --> V[Lead verifies: full test suite]
+    A[Lead: review state, pick targets, assign role and file ownership] --> R{Complexity}
+    R -->|mechanical, well-documented| H[Implementer role, bounded scope]
+    R -->|format parsing, moderate logic| So[Spec first, then implementer]
+    R -->|architecture, ambiguity| O[spec-agent, then implementer]
+    H --> V[test-verifier: full test suite]
     So --> V
     O --> V
     V -->|fail| A
@@ -66,4 +66,11 @@ flowchart LR
 | 37 | Soak digest + hash-seed CI, line-scoped lint, datapack linted | Sonnet-role | done |
 | 38 | Policy-aware divergence bisector | Sonnet-role | done |
 | 39 | BattlePolicy defaults from data/battle_policy.json; PackMismatch guard in apply | Opus-role | done (golden fbe9015b unchanged, no re-pin) |
+| 40 | Creature TXT content loader (column mapping unverified; placeholder ability table) | not recorded | done |
+| 41 | Replay file format (versioned, canonical, pack-hash checked) with record, verify and info CLI | not recorded | done |
+| 42 | Read-only battle presenter / view-model for the mobile UI (versioned, canonical, RNG-free) | not recorded | done |
+| 43 | H3M object templates, instances and events (opt-in `objects=True`; unsupported object bodies fail with index and offset) | not recorded | done (object bodies still to implement) |
+| 44 | Kotlin `:sim` foundation (canonical JSON, SHA-256, PCG32, named streams) with Python-generated conformance vectors; `:app` scaffold behind `-PwithApp` | not recorded | done |
+| 45 | Town and hero cores (building rules, weekly growth, experience and level-up draws) with synthetic data packs and first pins; lint extended to `town.py` and `hero.py` (commit b25dfff) | not recorded | done |
+| 46 | Adventure-map encounters (`Attack`, auto-resolved battle on its own stream, survivors flow back); `dest` validation fix; `encounter.py` linted | not recorded | done |
 

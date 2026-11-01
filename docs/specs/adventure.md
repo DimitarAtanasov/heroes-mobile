@@ -7,8 +7,9 @@ Scope: a tile grid with terrain and road movement costs, hero movement
 points, pathfinding, and the day/week tick with daily income and a weekly
 growth hook. Out of scope: towns, map objects (mines exist only as a list of
 owned mine kinds), fog of war, boats and sea movement, native terrain,
-artifacts, spells, battles, AI and random weekly effects. The source rules
-are `rules.md` §1–§3. Tags are the same as in that file: **[documented]**,
+artifacts, spells, AI and random weekly effects. Battles on the map (an
+`Attack` on a guard or an enemy hero) are in section 8 and `encounter.md`,
+not here. The source rules are `rules.md` §1–§3. Tags are the same as in that file: **[documented]**,
 **[uncertain]** and **[engine]**.
 
 ## 1. Interface
@@ -74,8 +75,9 @@ Same pattern as `battle.md` §1. [engine]
   for 175, one less than sqrt2).
 - Corner cutting: with `diagonal_corner_cut=False`, a diagonal step needs
   both orthogonal side tiles to be passable. [uncertain]
-- Tiles occupied by other heroes (of any owner) cannot be entered or crossed.
-  [engine: hero meetings and battles are out of scope]
+- Tiles occupied by other heroes (of any owner) and by guards cannot be entered
+  or crossed. [engine: meeting an own hero is out of scope; attacks on other
+  heroes and on guards are in section 8 and `encounter.md`]
 
 ## 3. Movement points
 
@@ -226,10 +228,9 @@ of the day; heroes block tiles; `water`/`rock` cannot be passed on land.
 ## 8. Encounters (battles on the map)
 
 Battles between a hero and an enemy hero or a neutral guard are specified in
-`docs/specs/encounter.md`. This section lists what they change here. It
-amends the scope line (battles were out of scope) and the §2 note "hero
-meetings and battles are out of scope": attacking is now possible, meeting
-an own hero still is not.
+`docs/specs/encounter.md`. This section lists what they change here. The
+scope line and the §2 note point here: attacking is possible, meeting an
+own hero still is not.
 
 - Command `Attack(hero, target)` (target: hero id `int` or guard id `str`).
   `apply` hands it to `encounter.validate` / `encounter.resolve`. For this
@@ -242,8 +243,8 @@ an own hero still is not.
   unique, 1..7 valid slots, passable tile not shared with a hero or guard)
   and, if `encounter` is set, that every army has content in it.
 - Canonical form: those three fields are left out while at their default
-  (`_OMIT_WHEN_DEFAULT`, ADR-0001). The 14-day golden `179c5700...` is
-  unchanged.
+  (`_OMIT_WHEN_DEFAULT`, ADR-0005, which extends ADR-0001). The 14-day golden
+  `179c5700...` is unchanged.
 - A hero removed after a lost battle keeps its id with `pos=None` and
   `army=()`. It gets no `MovementReset`, cannot `Move` or `Attack`, does
   not block its old tile, and `reachable`/`find_path` return `{}`/`None`.

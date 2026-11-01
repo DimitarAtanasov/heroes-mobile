@@ -34,11 +34,9 @@ oracle. A Kotlin build is correct only when it reproduces the Python golden hash
 - **RNG.** PCG32 and the stream derivation (`derive_stream`, SHA-256 of seed, domain, id with
   length-prefixed fields) are ported with unsigned 64-bit arithmetic (`ULong`) and tested
   against the published vectors in `rng.md`.
-- **Exact rationals.** Python's `Fraction` has no Kotlin equivalent. Either add a small
-  exact rational type with the same single-rounding-step semantics, or rewrite the affected
-  formulas as integer arithmetic in Python first and re-verify the hashes. The second is
-  preferred (it simplifies both sides) but may need a reviewed re-pin only if results change,
-  which they must not.
+- **Exact rationals.** Python's `Fraction` has no Kotlin equivalent. Amended 2026-11-01:
+  the Kotlin engine adds a small `Rational` type with one named rounding step (ADR-0009). The
+  integer-rewrite preference in the earlier text is withdrawn.
 - **Data stays outside the APK.** No game assets in the app or repo. The user imports their
   own install through the Storage Access Framework; LOD/DEF/PCX/TXT/H3M readers are ported
   after the sim and are conformance-tested with synthetic files plus the gated real-file tests.
@@ -47,6 +45,12 @@ oracle. A Kotlin build is correct only when it reproduces the Python golden hash
   change.
 - **Project layout.** `android/` (Gradle, Kotlin, Compose UI) with a `sim` module that has no
   Android dependencies (so it runs as plain JVM tests), `data` (readers) and `app`.
+
+## Amendments (2026-11-01)
+- Conformance vectors and the replay format are the cross-language contract: ADR-0007.
+- Pack integers are Kotlin `Int`, capped at 2**31-1 on both sides; hashes and XP accumulation use `Long`: ADR-0008.
+- Exact rationals use a `Rational` type with one named rounding step: ADR-0009.
+- The state-form rules (omit at default, stored content in place of a pack hash) are ADR-0005 and ADR-0006.
 
 ## Risks
 - Two implementations can drift; mitigated by CI that regenerates vectors from Python and

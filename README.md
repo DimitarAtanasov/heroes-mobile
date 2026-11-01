@@ -1,12 +1,22 @@
 # heroes-mobile
 
 Clean-room, data-driven reimplementation tooling inspired by Heroes of Might and
-Magic 3: readers for its file formats, a deterministic battle core, and a text
-simulator to run battles from JSON scenarios.
+Magic 3: readers for its file formats, deterministic battle, adventure, town,
+hero and encounter cores in Python (the reference), and an Android app with a
+Kotlin engine that the Python reference checks.
 
 The tools read the user's own legally owned game files at runtime. No original
 assets or code are committed to this repository. This project is not affiliated
 with or endorsed by the rights holders of Heroes of Might and Magic 3.
+
+## Status
+
+Checkpoint 46 is the latest. The Python reference covers the readers, the
+simulation cores, the replay format and the presenter. The Kotlin `:sim`
+module has its foundation (canonical JSON, SHA-256, PCG32, named streams) and
+is the next port (see [`docs/checkpoints/HANDOFF.md`](docs/checkpoints/HANDOFF.md)).
+The direction is recorded in [ADR-0004](docs/adr/ADR-0004-android-kotlin-core-python-oracle.md):
+a native Android app with a Kotlin engine, and the Python code as the oracle.
 
 ## Features
 
@@ -14,12 +24,21 @@ with or endorsed by the rights holders of Heroes of Might and Magic 3.
 |------|------|-------|
 | Formats | LOD archives (`lod-list`, `lod-extract`) | read-only, lazy member access |
 | Formats | DEF sprites (`def-to-png`) | hardened against malformed input |
-| Formats | H3M maps (`h3m-info`) | header through terrain; objects not yet parsed |
+| Formats | H3M maps (`h3m-info`) | header, terrain; object templates, instances and events with `objects=True`; an unsupported object body fails with its index and offset |
 | Formats | PCX images, TXT tables | readers |
-| Engines | Battle core (`h3re.battle`) | hex grid, turn queue, morale and luck, deterministic replay |
-| Engines | Adventure core (`h3re.adventure`) | movement and economy |
+| Content | Creature TXT loader (`h3re.content`) | column mapping not yet verified; ability table is a placeholder |
+| Data | Data packs (`data/*.json`, `h3re.datapack`) | strict loader; `rules.json` and `battle_policy.json` are read at import |
+| Engines | Battle core (`h3re.battle`) | hex grid, turn queue, morale and luck; rules-pack hash in the state |
+| Engines | Battle presenter (`h3re.present`) | read-only, versioned, RNG-free view-model for the mobile UI |
+| Engines | Adventure core (`h3re.adventure`) | movement, economy, and `Attack` on guards and heroes |
+| Engines | Encounters (`h3re.encounter`) | a map battle on its own stream; survivors return to the army |
+| Engines | Town core (`h3re.town`) | building rules, weekly growth; pack content is in the state |
+| Engines | Hero core (`h3re.hero`) | experience, level-ups with seeded draws |
 | Engines | Greedy battle AI (`h3re.battle_ai`) | used by `battle-sim --chooser ai` |
 | Engines | PCG32 RNG (`h3re.rng`) | named streams, same seed gives same output |
+| Replay | Replay files (`h3re.replay`, `replay record/verify/info`) | versioned, canonical, pack-hash checked |
+| Conformance | Vectors (`h3re.vectors`) | exported from Python for the Kotlin tests; `--check` detects stale files |
+| Android | Kotlin `:sim` foundation (`android/sim`) | canonical JSON, SHA-256, PCG32, streams; no Android dependency |
 | Tools | `battle-sim` | runs a JSON scenario, text board with `--pretty` |
 | Tools | Determinism gate | soak runs, replay bisector, banned-API lint |
 
@@ -42,6 +61,9 @@ cd tools/h3re && python3 -m h3re battle-sim SCENARIO.json --seed 12345 --chooser
 
 # Read a LOD archive (your own game files)
 cd tools/h3re && python3 -m h3re lod-list FILE.LOD
+
+# Check that the exported Kotlin conformance vectors match the Python reference
+cd tools/h3re && python3 -m h3re.vectors --check
 ```
 
 `battle-sim` takes a JSON scenario. The format is described in
@@ -57,16 +79,17 @@ before any commit.
 
 ## Development loop
 
-The advisor loop that plans and verifies work on this repository, from
-[`docs/checkpoints/GRAPH.md`](docs/checkpoints/GRAPH.md):
+The loop that plans and verifies work on this repository, from
+[`docs/checkpoints/GRAPH.md`](docs/checkpoints/GRAPH.md). Each step is a role
+(see `CLAUDE.md`), not a model:
 
 ```mermaid
 flowchart LR
-    A[Opus advisor: review state, pick next targets, assign model + file ownership] --> R{Complexity}
-    R -->|mechanical, well-documented| H[Haiku worker]
-    R -->|format parsing, moderate logic| So[Sonnet worker]
-    R -->|architecture, ambiguity| O[Opus worker]
-    H --> V[Lead verifies: full test suite]
+    A[Lead: review state, pick targets, assign role and file ownership] --> R{Complexity}
+    R -->|mechanical, well-documented| H[Implementer role, bounded scope]
+    R -->|format parsing, moderate logic| So[Spec first, then implementer]
+    R -->|architecture, ambiguity| O[spec-agent, then implementer]
+    H --> V[test-verifier: full test suite]
     So --> V
     O --> V
     V -->|fail| A
@@ -81,8 +104,11 @@ Progress is logged in [`docs/checkpoints/GRAPH.md`](docs/checkpoints/GRAPH.md) a
 
 ## Repository layout
 
-- `tools/h3re/` - Python package: readers, rules, battle and adventure cores, CLI.
+- `tools/h3re/` - Python package: readers, rules, battle, adventure, encounter, town and hero cores, replay, presenter, CLI.
 - `tools/h3re/tests/` - unit tests on synthetic fixtures (no game files needed).
+- `data/` - JSON data packs (rules, battle policy, synthetic test packs); no original game data.
+- `android/` - Android app: Gradle build, `sim` (Kotlin engine, no Android dependency), `app`.
 - `docs/specs/` - format and design specs, written from public documentation and observed mechanics.
-- `docs/checkpoints/` - reverse-engineering workflow graph and handoff notes.
+- `docs/adr/` - architecture decisions.
+- `docs/checkpoints/` - workflow graph and handoff notes.
 - `.github/workflows/test.yml` - CI running the test suite on push and pull request.
