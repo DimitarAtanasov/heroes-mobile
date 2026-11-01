@@ -1,6 +1,7 @@
 """Tests for the town core (tools/h3re/h3re/town.py, docs/specs/town.md)."""
 
 import copy
+import hashlib
 import json
 import os
 import sys
@@ -99,6 +100,13 @@ class PackTest(unittest.TestCase):
         self._bad(lambda d: self._fern(d, "hive")["horde"].update(level=7), "horde")
         self._bad(lambda d: d.update(schema_version=2), "schema_version")
 
+    def test_unique_tag_cannot_deadlock_a_chain(self):
+        # hall.4 requires hall.3: both tagged would make hall.4 unbuildable
+        self._bad(lambda d: self._fern(d, "hall.3").update(player_unique="capital"),
+                  "player_unique")
+        self._bad(lambda d: self._fern(d, "hall.2").update(player_unique="capital"),
+                  "capital")
+
     def test_floats_rejected_from_file(self):
         import tempfile
         text = json.dumps(raw()).replace('"base_growth": 13', '"base_growth": 13.0', 1)
@@ -182,6 +190,81 @@ class BuildTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "capital"):
             game(towns=(T.TownSetup("a", "faction.fernwood", 0, top + ("hall.4",)),
                         T.TownSetup("b", "faction.fernwood", 0, top + ("hall.4",))))
+
+    def _two_capitals(self):
+        """A pack where a second, unrelated building carries the capital tag."""
+        d = raw()
+        d["factions"][0]["buildings"].append(
+            {"id": "monument", "cost": {"gold": 1}, "requires": ["hall.1"],
+             "player_unique": "capital"})
+        return T.parse_town_pack(d)
+
+    def test_unique_tag_holds_inside_one_town(self):
+        content = self._two_capitals()
+        top = ("hall.1", "market", "hall.2", "keep.1", "hall.3", "keep.2", "keep.3")
+        setup = (T.TownSetup("t1", "faction.fernwood", 0, top),)
+        for first, second in (("hall.4", "monument"), ("monument", "hall.4")):
+            with self.subTest(first=first):
+                s = T.create_game("g", content, (RICH,), (T.TownSetup(
+                    "t1", "faction.fernwood", 0, top + (first,)),))
+                canon = T.canonical(s)
+                with self.assertRaisesRegex(T.IllegalCommand, "capital"):
+                    T.apply(s, T.Build(0, "t1", second), NoRng())
+                self.assertEqual(T.canonical(s), canon)
+        with self.assertRaisesRegex(ValueError, "capital"):
+            T.create_game("g", content, (RICH,), (T.TownSetup(
+                "t1", "faction.fernwood", 0, top + ("hall.4", "monument")),))
+        # an unrelated tag-free building and another player are unaffected
+        T.create_game("g", content, (RICH, RICH), (
+            T.TownSetup("a", "faction.fernwood", 0, top + ("hall.4",)),
+            T.TownSetup("b", "faction.fernwood", 1, top + ("monument",))))
+        T.apply(T.create_game("g", content, (RICH,), setup), T.Build(0, "t1", "monument"),
+                NoRng())
+
+    def test_create_game_rejects_non_int_inputs(self):
+        def make(players=(RICH,), towns=None):
+            return T.create_game("g", CONTENT, players, towns or (
+                T.TownSetup("t1", "faction.fernwood", 0, ("hall.1",)),))
+
+        ok = {n: 1 for n in A.RESOURCE_NAMES}
+        for bad in (1.0, True, False, "1", None, 2 ** 31):
+            for name in A.RESOURCE_NAMES:
+                with self.subTest(field=name, value=bad):
+                    with self.assertRaisesRegex(ValueError, "resources"):
+                        make(players=(R(**dict(ok, **{name: bad})),))
+        # float 0.0 and bool False compare equal to 0 but must not enter canonical()
+        with self.assertRaises(ValueError):
+            make(players=(R(gold=0.0),))
+        with self.assertRaises(ValueError):
+            make(players=(R(gold=False),))
+        for players in ((), [], ((1, 2, 3, 4, 5, 6, 7),), (object(),), (None,)):
+            with self.subTest(players=players), self.assertRaises(ValueError):
+                make(players=players)
+        # int subclasses are not ints either
+        class MyInt(int):
+            pass
+        with self.assertRaises(ValueError):
+            make(players=(R(gold=MyInt(5)),))
+        make(players=(R(gold=2 ** 31 - 1),))               # the cap is allowed
+
+        for owner in (0.0, False, True, "0", None):
+            with self.subTest(owner=owner), self.assertRaisesRegex(ValueError, "owner"):
+                make(towns=(T.TownSetup("t1", "faction.fernwood", owner, ()),))
+        for setup in (T.TownSetup(1, "faction.fernwood", 0, ()),
+                      T.TownSetup("t1", 5, 0, ()),
+                      T.TownSetup("t1", "faction.fernwood", 0, "hall.1"),
+                      T.TownSetup("t1", "faction.fernwood", 0, ("hall.1", 5)),
+                      ("t1", "faction.fernwood", 0, ()), None):
+            with self.subTest(setup=setup), self.assertRaises(ValueError):
+                make(towns=(setup,))
+        with self.assertRaises(ValueError):
+            make(towns=T.TownSetup("t1", "faction.fernwood", 0, ()))   # not a sequence
+
+    def test_state_holds_only_plain_ints(self):
+        s = game()
+        self.assertTrue(all(type(getattr(p, n)) is int for p in s.players
+                            for n in A.RESOURCE_NAMES))
+        self.assertIs(type(s.towns[0].owner), int)
 
     def test_create_validates(self):
         for towns, msg in (
@@ -315,7 +398,23 @@ def golden_run(policy=T.DEFAULT_POLICY):
     return s, trace, pools
 
 
+GROWTH_MODES = ("floor", "ceil", "nearest")
+
+
+def growth_digest(modes=GROWTH_MODES):
+    """SHA-256 of the canonical JSON of the golden run's growth pools under each
+    citadel_rounding mode (town.md section 7): [[mode, [[id, available, growth], ...]], ...]."""
+    out = []
+    for mode in GROWTH_MODES:
+        _, _, pools = golden_run(T.TownPolicy(citadel_rounding=modes[GROWTH_MODES.index(mode)]))
+        out.append([mode, [[p.id, p.available, p.growth] for p in pools]])
+    text = json.dumps(out, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 class GoldenTest(unittest.TestCase):
+    # Second pin: growth pools under all three rounding modes (town.md section 7).
+    GROWTH_PINNED = "b4108c58f2e6e95cbaa19fbfb7694e66a74067558840c614cbffc71c96549322"
     # First pin of the town core (not a re-pin). Derivation: docs/specs/town.md
     # section 7. Covers content (data/towns_test.json), policy and state.
     PINNED = "0360ce8861ca3b4a12f8210f0d8111b57c328becb8c433d41c59d6a6d257aae7"
@@ -341,6 +440,31 @@ class GoldenTest(unittest.TestCase):
             A.GrowthPool("east:dwelling1", 0, 13 + 4),
             A.GrowthPool("east:dwelling2", 0, 7)))
         self.assertEqual(T.state_hash(s), self.PINNED)
+
+    def test_growth_pools_digest(self):
+        # Second pin (first pin of this digest, not a re-pin): docs/specs/town.md
+        # section 7. It covers the rounding modes and horde handling, which the
+        # state hash does not (growth is a query, not state).
+        self.assertEqual(growth_digest(), self.GROWTH_PINNED)
+
+    def test_growth_digest_reacts_to_rounding_and_horde_mistakes(self):
+        base = growth_digest()
+        # a wrong rounding mode changes it
+        self.assertNotEqual(growth_digest(modes=("ceil", "ceil", "nearest")), base)
+        self.assertNotEqual(growth_digest(modes=("floor", "floor", "floor")), base)
+        # scaling the horde by the castle bonus (a plausible mistake) changes it
+        real = T.weekly_growth
+
+        def scaled(base_growth, bonus, horde, policy=T.DEFAULT_POLICY):
+            return (real(base_growth, bonus, 0, policy)
+                    + T._round_castle_bonus(horde, T.Fraction(*bonus), policy.citadel_rounding)
+                    + horde)
+        T.weekly_growth = scaled
+        try:
+            self.assertNotEqual(growth_digest(), base)
+        finally:
+            T.weekly_growth = real
+        self.assertEqual(growth_digest(), base)
 
     def test_replay_is_deterministic(self):
         a, ta, pa = golden_run()

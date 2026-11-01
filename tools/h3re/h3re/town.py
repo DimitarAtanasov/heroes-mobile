@@ -187,6 +187,11 @@ def _check_faction(f, path):
             raise DataPackError("%s: requirement cycle among %s" % (
                 fid, ", ".join(bid for bid in ids if bid not in placed)))
         placed.update(ready)
+    for bid in ids:
+        tag = by_id[bid].player_unique
+        if tag and any(by_id[r].player_unique == tag for r in _closure(bid, by_id)):
+            raise DataPackError("%s.%s: player_unique %r is also on a building it requires"
+                                % (fid, bid, tag))
     roots = {}
     for bid in ids:
         b = by_id[bid]
@@ -424,26 +429,48 @@ def _minus(have, cost):
     return Resources(*(getattr(have, n) - getattr(cost, n) for n in RESOURCE_NAMES))
 
 
-def _unique_holder(state, player, tag, skip_town):
-    """Id of another town of ``player`` that has a ``tag`` building, or None."""
-    for t in state.towns:
-        if t.owner == player and t.id != skip_town and any(
-                b.player_unique == tag for b in _buildings(state, t) if b.id in t.built):
-            return t.id
-    return None
+def _unique_count(state, player, tag):
+    """How many built buildings carrying ``tag`` the player owns, in all of the
+    player's towns including the one being built in (town.md section 3)."""
+    return sum(1 for t in state.towns if t.owner == player
+               for b in _buildings(state, t) if b.id in t.built and b.player_unique == tag)
 
 
 # --------------------------------------------------------------------------
 # Setup, canonical form, hash
 # --------------------------------------------------------------------------
 
+def _check_treasury(p):
+    if not (type(p) is Resources and all(
+            type(getattr(p, n)) is int and 0 <= getattr(p, n) <= MAX_INT
+            for n in RESOURCE_NAMES)):
+        raise ValueError("players need resources: a Resources of ints 0..%d" % MAX_INT)
+
+
 def create_game(game_id, content, players, towns, policy=DEFAULT_POLICY):
     """Build the initial state (day 1). ``players``: a Resources treasury per
-    player. ``towns``: TownSetup with a prerequisite-closed ``built`` list."""
-    if not players or any(getattr(p, n) < 0 for p in players for n in RESOURCE_NAMES):
-        raise ValueError("players need non-negative resources")
+    player. ``towns``: TownSetup with a prerequisite-closed ``built`` list.
+    Inputs are type-checked (``type(v) is int``, so floats and bools are
+    rejected) because they go straight into the canonical form."""
+    if not isinstance(players, (tuple, list)) or not players:
+        raise ValueError("players need resources: a non-empty sequence of Resources")
+    for p in players:
+        _check_treasury(p)
+    if not isinstance(towns, (tuple, list)):
+        raise ValueError("towns must be a sequence of TownSetup")
     built, seen = [], set()
     for s in towns:
+        if type(s) is not TownSetup:
+            raise ValueError("towns must be TownSetup values, got %r" % (s,))
+        if type(s.id) is not str or not s.id.strip():
+            raise ValueError("town id must be a non-empty string, got %r" % (s.id,))
+        if type(s.faction) is not str:
+            raise ValueError("town %r: faction must be a string" % (s.id,))
+        if type(s.owner) is not int:
+            raise ValueError("town %r: owner must be an int, got %r" % (s.id, s.owner))
+        if (not isinstance(s.built, (tuple, list))
+                or any(type(n) is not str for n in s.built)):
+            raise ValueError("town %r: built must be a sequence of building ids" % (s.id,))
         if s.id in seen:
             raise ValueError("duplicate town id %r" % (s.id,))
         seen.add(s.id)
@@ -460,12 +487,12 @@ def create_game(game_id, content, players, towns, policy=DEFAULT_POLICY):
         for b in fac.buildings:
             if b.id in names and any(r not in names for r in b.requires):
                 raise ValueError("town %r: %r requires %s" % (s.id, b.id, ", ".join(b.requires)))
-        built.append(Town(str(s.id), s.faction, s.owner, names))
+        built.append(Town(s.id, s.faction, s.owner, names))
     state = TownState(str(game_id), policy, content, tuple(players), tuple(built))
     for t in state.towns:
         for b in _buildings(state, t):
-            if b.id in t.built and b.player_unique and _unique_holder(
-                    state, t.owner, b.player_unique, t.id) is not None:
+            if b.id in t.built and b.player_unique and _unique_count(
+                    state, t.owner, b.player_unique) > 1:
                 raise ValueError("player %d has more than one %r building"
                                  % (t.owner, b.player_unique))
     return state
@@ -501,7 +528,7 @@ def _validate_build(state, cmd):
     missing = tuple(r for r in b.requires if r not in town.built)
     if missing:
         raise IllegalCommand("%r: missing %s" % (b.id, ", ".join(missing)))
-    if b.player_unique and _unique_holder(state, cmd.player, b.player_unique, town.id):
+    if b.player_unique and _unique_count(state, cmd.player, b.player_unique):
         raise IllegalCommand("player %d already has a %r building"
                              % (cmd.player, b.player_unique))
     if not _covers(state.players[cmd.player], b.cost):

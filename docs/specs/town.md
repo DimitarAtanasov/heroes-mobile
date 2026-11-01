@@ -25,10 +25,19 @@ Same pattern as `battle.md` §1 and `adventure.md` §1. [engine]
   integers or `[num, den]` pairs. It opens a file only when called;
   importing `h3re.town` opens nothing.
 - `create_game(game_id, content, players, towns, policy=DEFAULT_POLICY)`.
-  `players` is one `adventure.Resources` treasury per player (non-negative).
-  `towns` is `TownSetup(id, faction, owner, built=())`; `built` must be
+  `players` is a non-empty tuple or list of `adventure.Resources`, one
+  treasury per player. `towns` is a tuple or list of
+  `TownSetup(id, faction, owner, built=())`; `built` must be
   prerequisite-closed, and a player may not start with two buildings of the
-  same `player_unique` tag. The state starts on day 1.
+  same `player_unique` tag (counted over all of the player's towns, and two in
+  one town count too). The state starts on day 1.
+  **Input types are checked** (determinism audit), because these values go
+  straight into `canonical()`: every treasury field is `type(v) is int` in
+  `0..2**31-1` (floats, bools and int subclasses are rejected, `0.0` and
+  `False` included); a treasury is exactly `Resources`; `owner` is
+  `type is int`; town `id` is a non-empty `str`, `faction` a `str`, `built` a
+  tuple or list of `str`; each town is exactly `TownSetup`. Any violation
+  raises `ValueError` before a state exists.
 - `apply(state, cmd, rng) -> (state', events)`. Commands:
   `Build(player, town, building)` and `NewDay()`.
 - `rng`: nothing here is random. `apply` accepts the stream `town:<game_id>`
@@ -64,7 +73,9 @@ Loader checks: unknown references, requirement cycles, every dwelling
 transitively requires a `fort` building ("Creature dwellings need a Fort",
 `rules.md` §4 [documented]), a dwelling upgrades only a dwelling of the same
 level and only a dwelling upgrades a dwelling, exactly one base dwelling per
-level, a horde's level has a dwelling. Factions and buildings are stored
+level, a horde's level has a dwelling, and a `player_unique` building does not
+(transitively) require another building with the same tag (it could never be
+built). Factions and buildings are stored
 sorted by id and `requires` is sorted, so file order does not reach the
 state or the hash (tested).
 
@@ -78,8 +89,10 @@ per level is active. [engine]
 `Build(player, town, building)` is legal when, checked in this order (the
 first failure is the error): the player exists; the town exists; the player
 owns it; the building exists in the town's faction; it is not built; the town
-has not built today; every `requires` entry is built; no other town of that
-player holds a building with the same `player_unique` tag; the treasury
+has not built today; every `requires` entry is built; the player holds no built
+building with the same `player_unique` tag in any of their towns, **the town
+being built in included** (so one town cannot hold two `capital` buildings,
+even when the data tags two unrelated buildings); the treasury
 covers the cost in every resource. Then the cost is paid and the building is
 added (the `built` tuple stays sorted).
 
@@ -160,6 +173,26 @@ Example, base 13 with a Citadel: floor 19, ceil 20, nearest 20.
    7. north hall.2
 4. `state_hash` of the resulting day-8 state. The test also asserts both
    treasuries and the pools (north 23/10, south 13/9, east 17/7).
+
+### Growth pools digest (second pin)
+
+The state hash does not cover growth (a query, not state), so a second digest
+pins it. `tests/test_town.py` `GoldenTest.GROWTH_PINNED =
+b4108c58f2e6e95cbaa19fbfb7694e66a74067558840c614cbffc71c96549322` (first pin of
+this digest; not a re-pin). Derivation:
+
+1. Run the golden script above three times, with `citadel_rounding` `"floor"`,
+   `"ceil"` and `"nearest"`, and take `growth_pools(state, town.id)` for each
+   town in state order (north, south, east).
+2. Build the list `[[mode, [[pool_id, available, growth], ...]], ...]` in the
+   order floor, ceil, nearest (pools in the order north d1, d2, south d1, d2,
+   east d1, d2). `available` is 0.
+3. `json.dumps(list, separators=(",", ":"))`, UTF-8, SHA-256, hex.
+
+Values: floor 23/10, 13/9, 17/7; ceil and nearest 24/11, 14/9, 17/7. The test
+also shows that a wrong rounding mode, or scaling a horde by the castle bonus
+(north: `hive` +4 with a 1/2 bonus), changes the digest. Changing it follows
+the same re-pin rule as the state hash.
 
 Changing the policy (`citadel_rounding="ceil"`) or one content number moves
 the hash (tested). The hash is the same under `PYTHONHASHSEED` 0, 1, 12345

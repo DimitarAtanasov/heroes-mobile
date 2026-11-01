@@ -43,6 +43,16 @@ keys, wrong types (bool is not an integer), floats anywhere in the JSON
 dmg_max`, duplicate names, `hates` naming unknown creatures, non-monotonic
 skill/morale tables, unsupported `schema_version`.
 
+## Integer range
+
+`MAX_INT` is `2**31 - 1` (JVM `Int.MAX_VALUE`; the Kotlin engine uses `Int`,
+ADR-0004). It is the upper bound of every pack integer that has no tighter
+bound (`schema_version`, fraction parts, policy numerators, and in the town and
+hero packs resources, growth, weights and XP). `2**31` is out of range
+(`... out of range 0..2147483647`). No shipped pack value is above it (checked
+when the cap was lowered; the cap was previously `2**31`), so no hash moved.
+Weight *totals* in the hero pack are capped separately (`hero.md` section 2).
+
 ## Determinism and hash
 
 Creatures are sorted by name; `hates` is sorted. `content_hash` is the

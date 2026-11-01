@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import unittest
+from dataclasses import replace
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -98,6 +99,26 @@ class PackTest(unittest.TestCase):
         self._bad(lambda d: d["classes"].append(copy.deepcopy(d["classes"][0])), "duplicate")
         self._bad(lambda d: d.update(primary_high_from_level=1), "out of range")
         self._bad(lambda d: d.update(schema_version=9), "schema_version")
+
+    def test_weight_totals_are_capped_at_int_max(self):
+        cap = 2 ** 31 - 1
+        big = cap // 2 + 1                       # two of these exceed the cap
+        # each weight is within range, only the TOTAL is too large
+        self._bad(lambda d: d["classes"][0].update(primary_low=[big, big, 0, 0]), "total")
+        self._bad(lambda d: d["classes"][0].update(primary_high=[cap, 1, 0, 0]), "total")
+        self._bad(lambda d: d["classes"][0]["secondary"].update(
+            {"skill.anvil": big, "skill.brook": big}), "total")
+        # a total of exactly 2**31-1 is accepted
+        d = raw()
+        d["classes"][0]["primary_low"] = [cap - 1, 1, 0, 0]
+        d["classes"][0]["primary_high"] = [cap, 0, 0, 0]
+        H.parse_hero_pack(d)
+        d = raw()
+        sec = d["classes"][0]["secondary"]
+        for k in sec:
+            sec[k] = 0
+        sec["skill.anvil"], sec["skill.brook"] = cap - 5, 5
+        H.parse_hero_pack(d)
 
     def test_floats_rejected_from_file(self):
         import tempfile
@@ -283,6 +304,51 @@ class IllegalTest(unittest.TestCase):
                 with self.assertRaisesRegex(H.IllegalCommand, msg):
                     H.apply(s, cmd, NoRng())
                 self.assertEqual(H.canonical(s), canon)
+
+    def _broken(self, **changes):
+        """A hand-built state whose class bypasses the pack validation."""
+        s = hero()
+        return replace(s, class_def=replace(s.class_def, **changes))
+
+    def test_bad_class_weights_raise_before_any_draw(self):
+        cap = 2 ** 31 - 1
+        sec = H.find_class(CONTENT, "class.warden").secondary_weights
+        bad_sec = tuple((k, cap if i < 2 else w) for i, (k, w) in enumerate(sec))
+        for changes, msg in (({"primary_low": (cap, cap, 0, 0)}, "weights"),
+                             ({"primary_low": (0, 0, 0, 0)}, "weights"),
+                             ({"primary_low": (1, -1, 1, 1)}, "weights"),
+                             ({"primary_high": (1, 1, 1)}, "weights"),
+                             ({"primary_high": (1, 1.5, 1, 1)}, "weights"),
+                             ({"secondary_weights": bad_sec}, "weights"),
+                             ({"secondary_weights": sec[:-1]}, "weights")):
+            with self.subTest(changes=list(changes)):
+                s = self._broken(**changes)
+                canon = H.canonical(s)
+                with self.assertRaisesRegex(H.IllegalCommand, msg):
+                    H.apply(s, H.GainXP("h1", 1000), NoRng())
+                self.assertEqual(H.canonical(s), canon)
+        # a pending offer: ChooseSkill that would continue levelling is checked too
+        rng = H.hero_rng(5, "h1")
+        s, _ = H.apply(hero(), H.GainXP("h1", 4600), rng)
+        s = replace(s, class_def=replace(s.class_def, primary_low=(cap, cap, 0, 0)))
+        with self.assertRaisesRegex(H.IllegalCommand, "weights"):
+            H.apply(s, H.ChooseSkill("h1", 0), NoRng())
+
+    def test_unused_bad_tables_do_not_block_commands_that_draw_nothing(self):
+        s = self._broken(primary_low=(0, 0, 0, 0))
+        s2, ev = H.apply(s, H.GainXP("h1", 999), NoRng())     # no level reached
+        self.assertEqual(s2.hero.xp, 999)
+
+    def test_xp_is_capped_at_int_max(self):
+        cap = 2 ** 31 - 1
+        for amount in (cap + 1, 1 << 40):
+            with self.subTest(amount=amount), self.assertRaisesRegex(H.IllegalCommand, "XP"):
+                H.apply(hero(), H.GainXP("h1", amount), NoRng())
+        s = replace(hero(), hero=replace(hero().hero, xp=cap - 1, level=12))
+        with self.assertRaisesRegex(H.IllegalCommand, "XP"):
+            H.apply(s, H.GainXP("h1", 2), NoRng())
+        s, _ = H.apply(s, H.GainXP("h1", 1), NoRng())
+        self.assertEqual(s.hero.xp, cap)
 
     def test_create_validates(self):
         for kw, msg in (({"cls": "class.none"}, "class"),

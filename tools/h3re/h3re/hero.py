@@ -94,11 +94,20 @@ class HeroContent:
     classes: tuple                  # HeroClass, sorted by id
 
 
+def _check_total(w, path, positive):
+    """A weight total must fit a JVM Int (ADR-0004): it is the span of one
+    ``rng.range`` draw, and a larger one must never be reachable."""
+    total = sum(w)
+    if positive and total <= 0:
+        raise DataPackError("%s: weights must have a positive total" % path)
+    if total > MAX_INT:
+        raise DataPackError("%s: weight total %d above %d" % (path, total, MAX_INT))
+
+
 def _weights(v, path):
     w = tuple(_int(x, "%s[%d]" % (path, i), 0, MAX_INT)
               for i, x in enumerate(_list(v, path, len(PRIMARY))))
-    if sum(w) <= 0:
-        raise DataPackError("%s: weights must have a positive total" % path)
+    _check_total(w, path, True)
     return w
 
 
@@ -112,6 +121,7 @@ def _check_class(c, path, skills):
                                               len(PRIMARY))))
     sec = _obj(c["secondary"], path + ".secondary", skills)
     pairs = tuple((s, _int(sec[s], "%s.secondary.%s" % (path, s), 0, MAX_INT)) for s in skills)
+    _check_total([w for _, w in pairs], path + ".secondary", False)
     return HeroClass(cid, start, _weights(c["primary_low"], path + ".primary_low"),
                      _weights(c["primary_high"], path + ".primary_high"), pairs)
 
@@ -379,6 +389,24 @@ def state_hash(state):
 # apply
 # --------------------------------------------------------------------------
 
+def _check_draw_inputs(state):
+    """Raise IllegalCommand unless every weight a level-up may draw from is
+    valid. Runs before the first draw, so a bad hand-built state cannot make
+    ``rng.range`` fail after the stream has advanced (a retry would desync)."""
+    cls, rules = state.class_def, state.rules
+    for name in ("primary_low", "primary_high"):
+        w = getattr(cls, name)
+        if not (isinstance(w, tuple) and len(w) == len(PRIMARY)
+                and all(type(x) is int and 0 <= x for x in w)
+                and 0 < sum(w) <= MAX_INT):
+            raise IllegalCommand("class %r: bad %s weights" % (cls.id, name))
+    sw = cls.secondary_weights
+    if not (isinstance(sw, tuple) and tuple(p[0] for p in sw) == rules.skills
+            and all(type(p[1]) is int and 0 <= p[1] for p in sw)
+            and sum(p[1] for p in sw) <= MAX_INT):
+        raise IllegalCommand("class %r: bad secondary weights" % (cls.id,))
+
+
 def _validate(state, cmd):
     if not isinstance(cmd, (GainXP, ChooseSkill)):
         raise IllegalCommand("unknown command %r" % (cmd,))
@@ -390,11 +418,17 @@ def _validate(state, cmd):
             raise IllegalCommand("XP amount must be a positive integer")
         if h.offer:
             raise IllegalCommand("level-up offer pending: choose a skill first")
-        return
-    if not h.offer:
-        raise IllegalCommand("no pending offer")
-    if not (type(cmd.index) is int and 0 <= cmd.index < len(h.offer)):
-        raise IllegalCommand("no such offer %r" % (cmd.index,))
+        if h.xp + cmd.amount > MAX_INT:
+            raise IllegalCommand("XP would exceed %d" % MAX_INT)
+        xp = h.xp + cmd.amount
+    else:
+        if not h.offer:
+            raise IllegalCommand("no pending offer")
+        if not (type(cmd.index) is int and 0 <= cmd.index < len(h.offer)):
+            raise IllegalCommand("no such offer %r" % (cmd.index,))
+        xp = h.xp
+    if level_for_xp(xp, state.rules.xp_table) > h.level:
+        _check_draw_inputs(state)       # the command will draw: check first
 
 
 def apply(state, cmd, rng):

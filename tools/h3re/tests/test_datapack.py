@@ -176,6 +176,23 @@ class ValidationTest(unittest.TestCase):
     def test_error_type(self):
         self.assertTrue(issubclass(D.DataPackError, ValueError))
 
+    def test_max_int_is_the_jvm_int_max(self):
+        # ADR-0004: the Kotlin engine uses Int, so a pack integer is at most 2**31-1.
+        self.assertEqual(D.MAX_INT, 2147483647)
+        r, c = raw()
+        r["half"] = [D.MAX_INT, D.MAX_INT]
+        D.parse(r, c)                                  # the cap itself is accepted
+        for v in (D.MAX_INT + 1, 1 << 32):
+            with self.subTest(v=v):
+                self.bad("out of range", lambda r: r.update(half=[v, 1]))
+                self.bad("out of range", lambda r: r.update(half=[1, v]))
+        p = raw_policy()
+        p["defend_bonus_num"] = D.MAX_INT + 1
+        with self.assertRaisesRegex(D.DataPackError, "out of range"):
+            D.parse_policy(p)
+        p["defend_bonus_num"] = D.MAX_INT
+        D.parse_policy(p)
+
 
 def raw_policy():
     with open(os.path.join(D.DEFAULT_DIR, "battle_policy.json")) as f:

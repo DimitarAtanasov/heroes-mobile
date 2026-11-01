@@ -31,7 +31,9 @@ _REPO_DIR = os.path.abspath(os.path.join(
 DEFAULT_DIR = os.path.abspath(os.environ.get(ENV_DIR) or _REPO_DIR)
 LOADED_DIR = DEFAULT_DIR
 SCHEMA_VERSION = 1
-MAX_INT = 1 << 31
+# Largest value a pack integer may take: the JVM Int.MAX (the Kotlin engine uses
+# Int, ADR-0004). docs/specs/datapack.md.
+MAX_INT = (1 << 31) - 1
 
 
 class DataPackError(ValueError):

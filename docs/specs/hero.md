@@ -54,6 +54,13 @@ Primary weights are in the order attack, defense, power, knowledge
 (`PRIMARY`) and must have a positive total. Weights are relative, not
 percentages. Classes are stored sorted by id.
 
+**Totals are capped at `2**31-1`** (JVM `Int.MAX`, ADR-0004): the loader rejects a
+`primary_low` or `primary_high` total, and the total of a class's `secondary`
+weights, above it (each weight alone is already capped by `datapack.MAX_INT`).
+A total is the span of one `rng.range` draw, and a span that `rng.range`
+refuses would raise after earlier draws had advanced the stream. A total of
+exactly 2**31-1 is accepted.
+
 ## 3. Experience and levels
 
 - `level_for_xp(xp, table)` = number of table entries ≤ xp. The test pack
@@ -84,6 +91,16 @@ For each level the XP allows, one at a time [engine]:
 resolves level by level, so each level's offers see the previous choice
 (tested: 4600 XP from level 1 stops at levels 2, 3, 4, 5).
 
+**Inputs are checked before the first draw.** `apply` raises `IllegalCommand`
+(state untouched, nothing drawn) when a `GainXP` or `ChooseSkill` would level
+the hero and the state's class has invalid weights: a primary table that is
+not four ints `>= 0` with total `1..2**31-1`, or secondary weights that are not
+one int `>= 0` per pack skill, in pack order, with total `<= 2**31-1`. A pack
+loaded through `parse_hero_pack` always passes; this guards hand-built states.
+`GainXP` is also illegal if `xp + amount` would exceed 2**31-1 (XP is an
+`Int` in the Kotlin engine). A command that draws nothing is not blocked by an
+unused bad table. Tested, including with an RNG that fails if touched.
+
 **Draw order** within one level [engine]: primary draw, then offer draws
 (the upgrade before the new skill). Weighted draw: one
 `rng.range(0, total)`, walked over the weights in their fixed order; a draw
@@ -100,6 +117,14 @@ replays (`rng.md`).
   range and distinctness are property-tested.
 - Choosing: a new skill is appended (skills stay in the order learned); an
   upgrade raises the held skill in place.
+- `weighted_pair` candidate order: the pool is **all upgrades (in skill-id
+  order) followed by all new skills (in skill-id order)**. Two draws are made
+  without replacement: each is one `rng.range(0, total)` over the remaining
+  candidates' class weights, walked in that pool order, and the chosen
+  candidate is removed before the second draw. The order is part of the replay
+  contract (it decides which candidate a given draw selects). `upgrade_and_new`
+  draws one from the upgrades, then one from the new skills, each in skill-id
+  order.
 - The offer algorithm is [uncertain] (`rules.md` §5.3), so it is the policy
   below. Guaranteed Wisdom / magic-school intervals are not modelled.
 
