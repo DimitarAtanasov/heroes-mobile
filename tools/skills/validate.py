@@ -169,6 +169,38 @@ def check_memory(root):
     return errs
 
 
+def _check_loop_runs(root):
+    """Strict graph criteria for every loop doc, and every recorded run in docs/loops/runs."""
+    import loop_eval  # lazy: loop_eval imports this module
+    errs = []
+    d = os.path.join(root, "docs", "loops")
+    if not os.path.isdir(d):
+        return errs
+    for fn in sorted(os.listdir(d)):
+        if fn.endswith(".md"):
+            with open(os.path.join(d, fn), encoding="utf-8") as f:
+                text = f.read()
+            errs += [e for e in loop_eval.eval_graph(text, "docs/loops/" + fn) if not e.startswith("G0 ")]
+    rd = os.path.join(d, "runs")
+    if os.path.isdir(rd):
+        for fn in sorted(os.listdir(rd)):
+            if not fn.endswith(".jsonl"):
+                continue
+            loop = os.path.join(d, fn.split(".")[0] + ".md")
+            if not os.path.isfile(loop):
+                errs.append(f"docs/loops/runs/{fn}: no matching loop doc {os.path.basename(loop)}")
+                continue
+            with open(loop, encoding="utf-8") as f:
+                text = f.read()
+            try:
+                recs = loop_eval._load_run(os.path.join(rd, fn))
+            except ValueError as e:
+                errs.append(f"docs/loops/runs/{fn}: {e}")
+                continue
+            errs += [e for e in loop_eval.eval_run(text, recs, "docs/loops/runs/" + fn) if not e.startswith("G0 ")]
+    return errs
+
+
 def validate_repo(root):
     errs = []
     d = os.path.join(root, "docs", "loops")
@@ -185,6 +217,7 @@ def validate_repo(root):
                 with open(p, encoding="utf-8") as f:
                     errs += check_skill(f.read(), name)
     errs += check_memory(root)
+    errs += _check_loop_runs(root)
     return errs
 
 

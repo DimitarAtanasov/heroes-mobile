@@ -74,6 +74,24 @@ flowchart LR
 - Mutation-check any new test: break the code once on purpose and see the test fail. If it survives,
   prove it is an equivalent mutant or add a test.
 
+## The evaluator and the three loop agents
+Judge = `tools/skills/loop_eval.py` (deterministic, no model, same input gives the same verdict):
+- `python3 tools/skills/loop_eval.py graph <loop.md>` - structure plus strict criteria S1-S4: branching
+  edges labelled, positive budgets and labelled retries, `done` reachable only through a `verify*` node, a
+  `failed`/`escalated` exit exists.
+- `python3 tools/skills/loop_eval.py run <loop.md> <trace.jsonl>` - R1-R8: unbroken chain from the start to a
+  terminal; every step is a real edge with its exact label; counters stay within budgets and every retry spends;
+  `done` needs a verifier record with command evidence exit 0 and the producer is never the verifier;
+  evidence is well formed; no unknown keys; `escalated` carries a decision; `failed` carries evidence.
+- `python3 tools/skills/validate.py` runs all of it over `docs/loops`, `docs/loops/runs`, skills and memory.
+
+Agents (role files in `.claude/agents/`; models live only there):
+- `loop-advisor` (read-only): turns a task or a failed run into a design brief.
+- `loop-producer`: writes `docs/loops/<name>.md` until the evaluator passes; never edits the evaluator.
+- `loop-runner`: executes the loop and records the trace; cannot accept its own work.
+Sequence: advisor brief, producer contract, evaluator `graph` PASS, runner trace, evaluator `run` PASS, lead
+checks the real commands. The lead (orchestrating session) is the only writer of shared files.
+
 ## Anti-patterns (from the guide)
 "Keep trying until done"; a diagram with no executable meaning; dynamic topology with no policy;
 one agent creating and accepting; checkpoints with no idempotency; token-only observability.

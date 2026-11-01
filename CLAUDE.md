@@ -73,6 +73,9 @@ other docs refer to roles, never models.
 | `test-verifier` | Checks acceptance criteria against command output. Trusts nothing without output. |
 | `determinism-auditor` | Reviews sim diffs for determinism hazards. Runs before merging sim changes and on any hash divergence. |
 | `adr-scribe` | Writes ADRs, keeps spec cross-references current, records re-pins. |
+| `loop-advisor` | Read-only design brief for a loop or a failed run (`.claude/skills/loop-graph-builder`). |
+| `loop-producer` | Writes `docs/loops` contracts until `tools/skills/loop_eval.py graph` passes. |
+| `loop-runner` | Runs a loop and records a trace; never accepts its own work. The evaluator judges. |
 
 ## Commands
 

@@ -1,0 +1,9 @@
+{"actor":"opus-advisor","evidence":[{"kind":"report","ref":"advisor backlog: 3 tasks, disjoint files"}],"label":"","node":"advise","role":"advisor","step":1,"to":"dispatch"}
+{"actor":"haiku-runner","evidence":[{"kind":"file","ref":"android/sim/src/main/kotlin/h3/sim/Example.kt"}],"label":"agents reported","node":"dispatch","role":"runner","step":2,"to":"verify"}
+{"actor":"lead","evidence":[{"exit_code":1,"kind":"command","ref":"gradle :sim:test"}],"label":"fail","node":"verify","role":"verifier","step":3,"to":"rework"}
+{"actor":"lead","evidence":[{"kind":"report","ref":"1 failing test sent back to the runner"}],"label":"budget left","node":"rework","role":"lead","spent":{"rework_per_piece":1},"step":4,"to":"dispatch"}
+{"actor":"haiku-runner","evidence":[{"kind":"file","ref":"android/sim/src/main/kotlin/h3/sim/Example.kt"}],"label":"agents reported","node":"dispatch","role":"runner","spent":{"rework_per_piece":1},"step":5,"to":"verify"}
+{"actor":"lead","evidence":[{"exit_code":0,"kind":"command","ref":"gradle :sim:test"},{"exit_code":0,"kind":"command","ref":"python3 -m h3re.vectors --check"}],"label":"pass","node":"verify","role":"verifier","spent":{"rework_per_piece":1},"step":6,"to":"commit"}
+{"actor":"lead","evidence":[{"kind":"commit","ref":"0000000 example commit"}],"label":"","node":"commit","role":"lead","spent":{"rework_per_piece":1},"step":7,"to":"more"}
+{"actor":"lead","evidence":[{"kind":"report","ref":"HANDOFF.md Next list is empty"}],"label":"backlog empty","node":"more","role":"lead","spent":{"rework_per_piece":1},"step":8,"to":"done"}
+{"actor":"lead","evidence":[{"kind":"file","ref":"docs/checkpoints/HANDOFF.md"}],"label":"","node":"done","role":"lead","spent":{"rework_per_piece":1},"step":9,"to":null}

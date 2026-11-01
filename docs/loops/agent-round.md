@@ -53,7 +53,7 @@ Enforced by the lead, not requested of the agents:
 flowchart LR
     advise[Advisor plans the round] --> dispatch[Dispatch agents, disjoint files]
     dispatch -->|needs owner decision| escalated
-    dispatch --> verify[Verify in clean copy plus mutation]
+    dispatch -->|agents reported| verify[Verify in clean copy plus mutation]
     verify -->|pass| commit[Commit per owner and push]
     verify -->|fail| rework[Rework or drop the piece]
     verify -->|unsafe or data loss| failed
