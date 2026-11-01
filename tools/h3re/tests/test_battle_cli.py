@@ -454,5 +454,207 @@ class MainIntegrationTest(CliTestCase):
             self.assertEqual(rc, 2)
 
 
+class _Tty(io.StringIO):
+    """A stdout stand-in that reports itself as a terminal."""
+
+    def isatty(self):
+        return True
+
+
+ATTACKER_MARKS = "ABCDEFG"
+DEFENDER_MARKS = "HIJKLMN"
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _board_at(lines, label):
+    """Index of the ``-- board, <label>`` line in the pretty output."""
+    prefix = f"-- board, {label}, "
+    return next(i for i, line in enumerate(lines) if line.startswith(prefix))
+
+
+def _grid_rows(lines, label):
+    """The 11 board rows that follow the two column-digit lines."""
+    start = _board_at(lines, label)
+    return lines[start + 3:start + 3 + B.HEIGHT]
+
+
+def _cell_glyphs(grid):
+    """Map each hex to the glyph drawn at its column. Even rows are shifted
+    right by half a hex (2 columns), matching the default row_offset."""
+    glyphs = {}
+    for r, line in enumerate(grid):
+        assert line[:4] == f"{r:>2}  ", repr(line)
+        shift = 2 if r % 2 == 0 else 0
+        for c in range(B.WIDTH):
+            x = 4 + shift + 4 * c + 2
+            glyphs[(c, r)] = line[x] if x < len(line) else " "
+    return glyphs
+
+
+class PrettyTest(CliTestCase):
+    def pretty(self, scenario, seed=12345, chooser="scripted", **kw):
+        out, err = kw.pop("stdout", None) or io.StringIO(), io.StringIO()
+        rc = battle_cli.run(str(scenario), seed, chooser, stdin=io.StringIO(""),
+                            stdout=out, stderr=err, pretty=kw.pop("pretty", True), **kw)
+        return _Run(rc, out.getvalue(), err.getvalue())
+
+    def golden_path(self):
+        return self.write(golden_scenario(), "golden.json")
+
+    def test_board_dimensions_and_positions(self):
+        result = self.pretty(self.golden_path())
+        self.assertEqual(result.rc, 0, result.err)
+        lines = result.out.splitlines()
+        grid = _grid_rows(lines, "start")
+        self.assertEqual(len(grid), B.HEIGHT)
+        self.assertTrue(all(len(line) <= 4 + 4 * B.WIDTH + 2 for line in grid))
+        glyphs = _cell_glyphs(grid)
+        self.assertEqual(len(glyphs), B.WIDTH * B.HEIGHT)
+
+        _, state = battle_cli.parse_scenario(golden_scenario())
+        expected = {(c, r): "." for c in range(B.WIDTH) for r in range(B.HEIGHT)}
+        for ob in state.obstacles:
+            expected[ob] = "#"
+        for s in state.stacks:
+            mark = (ATTACKER_MARKS if s.side == B.ATTACKER else DEFENDER_MARKS)[s.slot]
+            for h in B.cells(s):
+                expected[h] = mark
+        self.assertEqual(glyphs, expected)
+
+    def test_board_is_ascii_and_has_no_colour_codes_by_default(self):
+        result = self.pretty(self.golden_path(), board_every=2)
+        result.out.encode("ascii")
+        self.assertNotIn("\x1b", result.out)
+
+    def test_legend_lists_each_stack_with_side_count_and_hp(self):
+        result = self.pretty(self.golden_path())
+        lines = result.out.splitlines()
+        start = _board_at(lines, "start")
+        legend_at = next(i for i in range(start, len(lines)) if lines[i].startswith("legend:"))
+        table = []
+        for line in lines[legend_at + 1:]:
+            if not line.strip():
+                break
+            table.append(line.split())
+        self.assertEqual(table[0], ["mark", "side", "creature", "count", "HP", "pos", "state"])
+        # HP is the total: (count - 1) * hp + the wounded top unit.
+        self.assertEqual([row[:5] for row in table[1:]], [
+            ["A", "attacker", "pikeman", "30", "300"],
+            ["B", "attacker", "archer", "20", "200"],
+            ["H", "defender", "wolf", "15", "225"],
+            ["I", "defender", "gnoll", "25", "325"],
+        ])
+        self.assertTrue(all(row[-1] == "alive" for row in table[1:]))
+
+    def test_round_headers_match_rounds(self):
+        result = self.pretty(self.golden_path())
+        headers = re.findall(r"^== round (\d+) =+$", result.out, re.M)
+        rounds = int(re.search(r"^rounds: (\d+)$", result.out, re.M).group(1))
+        self.assertEqual(headers, [str(n) for n in range(1, rounds + 1)])
+
+    def test_event_columns_are_aligned(self):
+        result = self.pretty(self.golden_path())
+        event_lines = [line for line in result.out.splitlines()
+                       if re.match(r"^      [A-Za-z]", line)]
+        self.assertTrue(event_lines)
+        for line in event_lines:
+            self.assertEqual(line[22], " ", line)
+            self.assertNotEqual(line[23:24], " ", line)
+
+    def test_pretty_run_is_deterministic(self):
+        path = self.golden_path()
+        a = self.pretty(path, 12345, board_every=3)
+        b = self.pretty(path, 12345, board_every=3)
+        self.assertEqual(a.out, b.out)
+        c = self.pretty(path, 54321, board_every=3)
+        self.assertNotEqual(a.out, c.out)
+
+    def test_hash_line_identical_with_and_without_pretty(self):
+        path = self.golden_path()
+        plain = self.run_sim(path, 12345, "scripted")
+        pretty = self.pretty(path)
+        self.assertEqual(plain.rc, pretty.rc)
+        tail = plain.out.splitlines()[-3:]
+        self.assertEqual(pretty.out.splitlines()[-3:], tail)
+        self.assertEqual(tail[-1], f"state hash: {GOLDEN_PINNED}")
+
+    def test_pretty_false_is_the_plain_output(self):
+        path = self.golden_path()
+        plain = self.run_sim(path, 12345, "scripted")
+        explicit = self.pretty(path, pretty=False)
+        self.assertEqual(plain.out, explicit.out)
+
+    def test_board_every_adds_boards_at_multiples_of_n(self):
+        result = self.pretty(self.golden_path(), board_every=3)
+        steps = len(re.findall(r"^ {0,4}\d+  \S", result.out, re.M))
+        after = re.findall(r"^-- board, after step (\d+), ", result.out, re.M)
+        self.assertEqual(after, [str(n) for n in range(3, steps + 1, 3)])
+        self.assertEqual(result.out.count("-- board, "), 2 + steps // 3)
+
+    def test_no_board_every_means_only_start_and_end_boards(self):
+        result = self.pretty(self.golden_path())
+        self.assertEqual(result.out.count("-- board, "), 2)
+        self.assertIn("-- board, start, round 0 --", result.out)
+        self.assertIn("-- board, end, round 4 --", result.out)
+
+    def test_board_every_needs_pretty(self):
+        out, err = io.StringIO(), io.StringIO()
+        rc = battle_cli.run(str(self.golden_path()), 12345, "scripted", stdin=io.StringIO(""),
+                            stdout=out, stderr=err, board_every=2)
+        self.assertEqual(rc, battle_cli.EXIT_FAILURE)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("--board-every needs --pretty", err.getvalue())
+
+    def test_board_every_rejects_negative(self):
+        result = self.pretty(self.golden_path(), board_every=-1)
+        self.assertEqual(result.rc, battle_cli.EXIT_FAILURE)
+        self.assertIn("board_every must be an integer of 0 or more", result.err)
+
+    def test_colour_only_with_tty(self):
+        path = self.golden_path()
+        plain = self.pretty(path)
+        no_tty = self.pretty(path, color=True)
+        self.assertNotIn("\x1b", no_tty.out)
+        tty = self.pretty(path, color=True, stdout=_Tty())
+        self.assertIn("\x1b[", tty.out)
+        self.assertEqual(ANSI.sub("", tty.out), plain.out)
+        self.assertEqual(ANSI.sub("", tty.out).splitlines()[-1], f"state hash: {GOLDEN_PINNED}")
+
+    def test_summary_lists_survivors(self):
+        path = self.write(tiny_scenario(), "tiny.json")
+        result = self.pretty(path)
+        self.assertEqual(result.rc, 0, result.err)
+        lines = result.out.splitlines()
+        end = _board_at(lines, "end")
+        alive_in_legend = [line for line in lines[end:] if line.endswith(" alive")]
+        summary = lines[lines.index("== summary ==") + 1:]
+        rows = []
+        for line in summary:
+            if not line.strip():
+                break
+            rows.append(line)
+        if not alive_in_legend:
+            self.assertEqual(rows, ["  no surviving stacks"])
+        else:
+            self.assertEqual(len(rows), 1 + len(alive_in_legend))  # header + survivors
+
+    def test_unfinished_battle_still_prints_summary(self):
+        path = self.write(tiny_scenario(), "tiny.json")
+        with mock.patch.object(battle_cli, "MAX_COMMANDS", 30):
+            result = self.pretty(path, chooser="first-legal")
+        self.assertEqual(result.rc, battle_cli.EXIT_FAILURE)
+        self.assertIn("== summary ==", result.out)
+        self.assertIn("winner: none (not finished)\n", result.out)
+        self.assertEqual(result.err.count("h3re: error:"), 1, result.err)
+
+    def test_unicode_battle_id_is_escaped_to_ascii(self):
+        scenario = tiny_scenario()
+        scenario["battle_id"] = "b\u00e4ttle"
+        path = self.write(scenario, "uni.json")
+        result = self.pretty(path, board_every=5)
+        result.out.encode("ascii")
+        self.assertIn("== battle b\\xe4ttle |", result.out)
+
+
 if __name__ == "__main__":
     unittest.main()

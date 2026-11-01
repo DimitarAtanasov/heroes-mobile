@@ -6,7 +6,7 @@ Usage (from the directory that contains the ``h3re`` package)::
     python3 -m h3re lod-extract FILE.LOD DESTDIR
     python3 -m h3re def-to-png FILE.DEF OUTDIR
     python3 -m h3re h3m-info FILE.H3M
-    python3 -m h3re battle-sim SCENARIO.json --seed N [--chooser CHOOSER]
+    python3 -m h3re battle-sim SCENARIO.json --seed N [--chooser CHOOSER] [--pretty [--board-every N] [--color]]
 
 Exit status: 0 on success, 1 for malformed input or I/O errors, 2 for
 command-line usage errors. Errors are reported as one line on stderr.
@@ -139,7 +139,9 @@ def cmd_h3m_info(args: argparse.Namespace) -> int:
 
 
 def cmd_battle_sim(args: argparse.Namespace) -> int:
-    return battle_cli.run(args.scenario, args.seed, args.chooser)
+    return battle_cli.run(args.scenario, args.seed, args.chooser,
+                          pretty=args.pretty, board_every=args.board_every,
+                          color=args.color)
 
 
 # ------------------------------------------------------------------ plumbing
@@ -178,6 +180,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="master seed for the battle's RNG stream")
     p.add_argument("--chooser", choices=battle_cli.CHOOSERS, default="first-legal",
                    help="who picks each command (default: first-legal)")
+    p.add_argument("--pretty", action="store_true",
+                   help="render a text hex board, aligned event log and summary table")
+    p.add_argument("--board-every", type=int, default=0, metavar="N",
+                   help="with --pretty, also print the board every N commands")
+    p.add_argument("--color", action="store_true",
+                   help="with --pretty, use ANSI colour when stdout is a terminal")
     p.set_defaults(func=cmd_battle_sim)
 
     return parser

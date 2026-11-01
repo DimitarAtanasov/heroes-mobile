@@ -15,7 +15,16 @@ Choosers decide every command after ``Begin``:
 Errors (bad scenario, unreadable file, illegal command, unfinished battle)
 are reported as one line on stderr with exit status 1. No traceback.
 
-Stdlib only.
+``--pretty`` (``pretty=True`` in ``run``) replaces the plain event log with a
+readable report: a text hex board with a legend at the start and the end (and
+every N commands with ``--board-every N``), an event log with aligned columns
+and round headers, and a table of surviving stacks. The last three lines
+(winner, rounds, state hash) are the same with and without it. Stacks are
+drawn as one letter each: attacker stacks A-G, defender stacks H-N, in slot
+order. ``#`` is an obstacle and ``.`` an empty hex. ANSI colour is used only
+with ``color=True`` and a TTY on stdout.
+
+Stdlib only. Output is ASCII.
 """
 
 from __future__ import annotations
@@ -315,11 +324,177 @@ def _log(out: TextIO, cmd, events):
         out.write(f"  {ev!r}\n")
 
 
-def _play(state, rng, pick, out: TextIO):
+# --------------------------------------------------------------- pretty output
+
+_MARKS = {B.ATTACKER: "ABCDEFG", B.DEFENDER: "HIJKLMN"}
+_SIDE_TEXT = {B.ATTACKER: "attacker", B.DEFENDER: "defender"}
+_ANSI = {B.ATTACKER: "\x1b[34m", B.DEFENDER: "\x1b[31m"}
+_ANSI_RESET = "\x1b[0m"
+_CELL = 4    # board columns per hex
+_LABEL = 4   # row label "NN  " in front of each board row
+_RULE = 64   # width of round headers
+
+
+def _txt(value) -> str:
+    """Text as ASCII: non-ASCII characters are escaped."""
+    return str(value).encode("ascii", "backslashreplace").decode("ascii")
+
+
+def _mark(stack) -> str:
+    return _MARKS[stack.side][stack.slot]
+
+
+def _hp(stack) -> int:
+    """Total HP of a stack: full units plus the wounded top unit."""
+    if not stack.alive:
+        return 0
+    return (stack.count - 1) * stack.creature.hp + stack.top_hp
+
+
+def _pos_text(stack) -> str:
+    if not stack.alive:
+        return "-"
+    col, row = stack.pos
+    return f"[{col},{row}]"
+
+
+def _fields(obj) -> str:
+    return " ".join(f"{f.name}={ascii(getattr(obj, f.name))}"
+                    for f in dataclasses.fields(obj))
+
+
+def _shifted(row: int, row_offset: str) -> bool:
+    """True when the row is drawn half a hex to the right (battle.py geometry:
+    ``"even"`` shifts even rows right, ``"odd"`` shifts odd rows right)."""
+    return (row % 2 == 0) == (row_offset == "even")
+
+
+def _table(headers, rows, numeric):
+    """Aligned plain-text table lines; ``numeric`` marks right-aligned columns."""
+    widths = [max([len(h)] + [len(r[i]) for r in rows]) for i, h in enumerate(headers)]
+
+    def fmt(cells):
+        parts = [c.rjust(w) if numeric[i] else c.ljust(w)
+                 for i, (c, w) in enumerate(zip(cells, widths))]
+        return ("  " + "  ".join(parts)).rstrip()
+
+    return [fmt(headers)] + [fmt(r) for r in rows]
+
+
+def _board_lines(state, color: bool):
+    """The hex board as text lines: column digits, then one line per row."""
+    off = state.policy.row_offset
+    paint = {}
+    for s in state.stacks:
+        if not s.alive:
+            continue
+        text = _mark(s)
+        if color:
+            text = f"{_ANSI[s.side]}{text}{_ANSI_RESET}"
+        for hex_ in B.cells(s):
+            paint[hex_] = text
+    obstacles = set(state.obstacles)
+    width = _LABEL + _CELL * B.WIDTH + 2
+
+    tens = [" "] * width
+    units = [" "] * width
+    for c in range(B.WIDTH):
+        x = _LABEL + _CELL * c + 2
+        units[x] = str(c % 10)
+        if c >= 10:
+            tens[x] = str(c // 10)
+    lines = ["".join(tens).rstrip(), "".join(units).rstrip()]
+
+    for r in range(B.HEIGHT):
+        arr = [" "] * width
+        arr[:_LABEL] = list(f"{r:>2}  ")
+        shift = _CELL // 2 if _shifted(r, off) else 0
+        for c in range(B.WIDTH):
+            hex_ = (c, r)
+            if hex_ in paint:
+                tok = paint[hex_]
+            elif hex_ in obstacles:
+                tok = "#"
+            else:
+                tok = "."
+            arr[_LABEL + shift + _CELL * c + 2] = tok
+        lines.append("".join(arr).rstrip())
+    return lines
+
+
+def _legend_lines(state):
+    rows = []
+    for s in state.stacks:
+        rows.append([_mark(s), _SIDE_TEXT[s.side], _txt(s.creature.name),
+                     str(s.count), str(_hp(s)), _pos_text(s),
+                     "alive" if s.alive else "dead"])
+    return _table(["mark", "side", "creature", "count", "HP", "pos", "state"], rows,
+                  (False, False, False, True, True, False, False))
+
+
+class _Pretty:
+    """Renders ``--pretty``: boards, the event log and the survivor table."""
+
+    def __init__(self, out: TextIO, board_every: int, color: bool):
+        self.out = out
+        self.board_every = board_every
+        self.color = color
+
+    def header(self, battle_id, seed, chooser):
+        self.out.write(f"== battle {_txt(battle_id)} | seed {seed} | chooser {chooser} ==\n\n")
+
+    def board(self, state, label):
+        self.out.write(f"-- board, {label}, round {state.round} --\n")
+        for line in _board_lines(state, self.color):
+            self.out.write(line + "\n")
+        self.out.write("\n")
+        self.out.write("legend: A-G attacker, H-N defender, # obstacle, . empty\n")
+        for line in _legend_lines(state):
+            self.out.write(line + "\n")
+        self.out.write("\n")
+
+    def command(self, step, cmd, events, state):
+        self.out.write(f"{step:>4}  {type(cmd).__name__:<8} {_fields(cmd)}".rstrip() + "\n")
+        for ev in events:
+            if isinstance(ev, B.RoundStarted):
+                self.out.write(f"== round {ev.round} ".ljust(_RULE, "=") + "\n")
+            self.out.write(f"      {type(ev).__name__:<16} {_fields(ev)}".rstrip() + "\n")
+        if self.board_every and step % self.board_every == 0:
+            self.board(state, f"after step {step}")
+
+    def end(self, state):
+        self.board(state, "end")
+        self.out.write("== summary ==\n")
+        rows = [[_mark(s), _SIDE_TEXT[s.side], _txt(s.creature.name), str(s.count),
+                 str(_hp(s)), _pos_text(s)]
+                for s in state.stacks if s.alive]
+        if rows:
+            for line in _table(["mark", "side", "creature", "count", "HP", "pos"], rows,
+                               (False, False, False, True, True, False)):
+                self.out.write(line + "\n")
+        else:
+            self.out.write("  no surviving stacks\n")
+        self.out.write("\n")
+
+
+def _record(out: TextIO, pretty, step, cmd, events, state):
+    if pretty is None:
+        _log(out, cmd, events)
+    else:
+        pretty.command(step, cmd, events, state)
+
+
+def _play(state, rng, pick, out: TextIO, pretty=None):
     """Play to the end. Returns ``(state, finished)``; ``finished`` is False
-    when the command cap is hit first (e.g. first-legal never attacks)."""
+    when the command cap is hit first (e.g. first-legal never attacks).
+
+    ``pretty`` (a ``_Pretty``) renders the steps instead of the plain log.
+    Commands, RNG draws and the returned state do not depend on it.
+    """
+    if pretty is not None:
+        pretty.board(state, "start")
     state, events = B.apply(state, B.Begin(), rng)
-    _log(out, B.Begin(), events)
+    _record(out, pretty, 1, B.Begin(), events, state)
     commands = 0
     while state.winner is None:
         if commands >= MAX_COMMANDS:
@@ -331,26 +506,52 @@ def _play(state, rng, pick, out: TextIO):
             state, events = B.apply(state, cmd, rng)
         except B.IllegalCommand as exc:
             raise CliError(f"illegal command {cmd!r}: {exc}") from None
-        _log(out, cmd, events)
         commands += 1
+        _record(out, pretty, commands + 1, cmd, events, state)
     return state, True
 
 
-def run(scenario, seed, chooser="first-legal", *, stdin=None, stdout=None, stderr=None):
+def _check_pretty_options(pretty, board_every):
+    if isinstance(board_every, bool) or not isinstance(board_every, int) or board_every < 0:
+        raise CliError("board_every must be an integer of 0 or more")
+    if board_every and not pretty:
+        raise CliError("--board-every needs --pretty")
+
+
+def _is_tty(stream) -> bool:
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, ValueError):
+        return False
+
+
+def run(scenario, seed, chooser="first-legal", *, stdin=None, stdout=None, stderr=None,
+        pretty=False, board_every=0, color=False):
     """Simulate the battle described by the JSON file ``scenario``.
 
     Prints the event log, then the winner, round count and state hash, to
     ``stdout``. Returns the exit status: 0 when the battle finished, 1 for
     any reported error (including a battle still running at the command cap,
     whose summary is still printed).
+
+    ``pretty`` prints the readable report described in the module docstring.
+    ``board_every`` (needs ``pretty``) adds a board after every N-th step.
+    ``color`` adds ANSI colour to the board only when ``stdout`` is a TTY.
     """
     stdin = sys.stdin if stdin is None else stdin
     stdout = sys.stdout if stdout is None else stdout
     stderr = sys.stderr if stderr is None else stderr
     try:
+        _check_pretty_options(pretty, board_every)
         battle_id, state = parse_scenario(_load_json(scenario))
         pick = _make_chooser(chooser, stdin, stderr)
-        final, finished = _play(state, B.battle_rng(seed, battle_id), pick, stdout)
+        view = None
+        if pretty:
+            view = _Pretty(stdout, board_every, bool(color) and _is_tty(stdout))
+            view.header(battle_id, seed, chooser)
+        final, finished = _play(state, B.battle_rng(seed, battle_id), pick, stdout, view)
+        if view is not None:
+            view.end(final)
     except CliError as exc:
         stderr.write(f"h3re: error: {' '.join(str(exc).split())}\n")
         return EXIT_FAILURE

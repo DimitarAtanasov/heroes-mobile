@@ -5,6 +5,7 @@ Status: draft v1. Read by `python3 -m h3re battle-sim` (see
 
 ```
 python3 -m h3re battle-sim SCENARIO.json --seed N [--chooser first-legal|interactive|ai|scripted]
+    [--pretty [--board-every N] [--color]]
 ```
 
 `--seed` is the master seed. The battle draws from the named stream
@@ -25,9 +26,10 @@ state hash: 2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d
 ```
 
 Exit status: 0 on success. 1 for a malformed scenario, an unreadable file,
-an illegal command, a chooser failure, or a battle that is not finished after
-2000 commands. Each error is one line on stderr, prefixed `h3re: error:`.
-Usage errors (unknown `--chooser`, missing `--seed`) exit 2.
+an illegal command, a chooser failure, `--board-every` without `--pretty`, or a
+battle that is not finished after 2000 commands. Each error is one line on
+stderr, prefixed `h3re: error:`. Usage errors (unknown `--chooser`, missing
+`--seed`) exit 2.
 
 ## 1. Document
 
@@ -157,3 +159,83 @@ Pinned state hash for this scenario with seed 12345 and the scripted chooser:
 `2191ae97fb22c8d15389d3e54c1a1eb6569a8d53630e0af647bd4ca97ca0d67d`.
 It was re-pinned on 2026-11-01 (previously `cd969e37…a95d`) when the default
 row parity became `"even"`. The reason is recorded in `battle.md` §10.
+
+## 8. Pretty output (`--pretty`)
+
+`--pretty` replaces the plain event log with a report for people. Without it
+the output is the plain log shown at the top of this document (the golden
+hash tests depend on that). With it, the report has four parts. Everything is ASCII. Output is
+deterministic for a given scenario, seed and chooser.
+
+- **Board.** A text hex board of 17 columns and 11 rows, printed at the start
+  (round 0), at the end, and after every N-th step with `--board-every N`
+  (steps are numbered from 1, where `Begin` is step 1). Each row starts with
+  its row number. Each hex is four columns wide. Row parity follows
+  `policy.row_offset`: with the default `"even"`, even rows are drawn half a
+  hex to the right. Markers:
+
+  | glyph   | meaning                                                   |
+  |---------|-----------------------------------------------------------|
+  | `A`-`G` | attacker stack in slot 0-6                                |
+  | `H`-`N` | defender stack in slot 0-6                                |
+  | `#`     | obstacle                                                  |
+  | `.`     | empty hex                                                 |
+
+  A double-wide stack shows its letter on both hexes. Dead stacks are not
+  drawn. Column digits are printed above the board (tens line, then units).
+
+- **Legend.** Under each board, one row per stack of the state: mark, side,
+  creature, count, HP, head position and `alive` or `dead`. HP is the total:
+  `(count - 1) * creature.hp + top_hp`. A dead stack has `-` for position.
+
+- **Event log.** One line per command (step number, command name, fields),
+  followed by one line per event, indented, with the event name in a fixed
+  16-column field. A `== round N ====` header is printed directly before the
+  `RoundStarted` event that starts round N, so the header sits inside the step
+  that began the round.
+
+- **Summary.** A table of surviving stacks (mark, side, creature, count, HP,
+  position), or `no surviving stacks`.
+
+After the report, the last three lines are the same as in the plain output:
+`winner:`, `rounds:` and `state hash:`. Their values do not depend on
+`--pretty`, `--board-every` or `--color`.
+
+`--color` adds ANSI colour to the board letters (attacker blue, defender red)
+only when stdout is a terminal. With a pipe or a file it is ignored, so
+redirected output is always plain ASCII.
+
+Example (golden scenario, first board and the start of the log):
+
+```text
+-- board, start, round 0 --
+                                              1   1   1   1   1   1   1
+      0   1   2   3   4   5   6   7   8   9   0   1   2   3   4   5   6
+ 0      .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .
+ 1    .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .
+ 2      .   A   .   .   .   .   .   .   .   .   .   .   .   .   .   H   .
+ 3    .   .   .   .   .   .   .   #   .   .   .   .   .   .   .   .   .
+ 4      .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .
+ 5    .   .   .   .   .   .   .   .   #   .   .   .   .   .   .   .   .
+ 6      .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .
+ 7    .   .   .   .   .   .   .   .   .   #   .   .   .   .   .   .   .
+ 8      .   B   .   .   .   .   #   .   .   .   .   .   .   .   I   I   .
+ 9    .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .
+10      .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .   .
+...
+legend: A-G attacker, H-N defender, # obstacle, . empty
+  mark  side      creature  count   HP  pos     state
+  A     attacker  pikeman      30  300  [1,2]   alive
+  B     attacker  archer       20  200  [1,8]   alive
+  H     defender  wolf         15  225  [15,2]  alive
+  I     defender  gnoll        25  325  [14,8]  alive
+
+   1  Begin
+      BattleStarted    battle_id='golden'
+== round 1 =====================================================
+      RoundStarted     round=1
+      TurnStarted      stack=2 phase='main' bonus=False
+   2  Move     stack=2 dest=(7, 2)
+```
+
+The example is abbreviated and its rows are not all shown.
