@@ -124,6 +124,11 @@ class ContentResult(
     /** creature name -> columns with no datapack slot; values are Long or String */
     val extras: Map<String, Map<String, Any>>,
     val unknown: List<UnknownAbility>,
+    /**
+     * creature name -> zero-based data-row index among creature records (header skipped; blank and
+     * empty-name rows not counted), in file order. Side map for sprite lookup; not part of any hash.
+     */
+    val creatureRows: Map<String, Int> = emptyMap(),
 )
 
 object Content {
@@ -213,6 +218,7 @@ object Content {
         val records = ArrayList<Creature>()
         val extras = LinkedHashMap<String, Map<String, Any>>()
         val rowNo = HashMap<String, Int>()
+        val creatureRows = LinkedHashMap<String, Int>()
         val unknown = ArrayList<UnknownAbility>()
         for ((i, row) in t.rows.withIndex()) {
             val r = i + 1 + mapping.headerRows
@@ -272,9 +278,10 @@ object Content {
             }
             extras[name] = ex
             rowNo[name] = r
+            creatureRows[name] = records.size
             records.add(rec)
         }
         if (records.isEmpty()) throw ContentError(ContentErrorCategory.NO_ROWS, null, null, "table: no creature rows")
-        return ContentResult(records.sortedBy { it.name }, extras, unknown)
+        return ContentResult(records.sortedBy { it.name }, extras, unknown, creatureRows)
     }
 }

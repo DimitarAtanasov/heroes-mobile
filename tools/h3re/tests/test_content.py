@@ -72,6 +72,14 @@ class ContentTests(unittest.TestCase):
         res = parse_creatures(build([[""], row("Zork"), ["", "x"]]))
         self.assertEqual(len(res.creatures), 1)
 
+    def test_creature_rows_data_row_index(self):
+        # Rule: zero-based index among creature records in file order; header rows excluded,
+        # blank and empty-name rows not counted. Same fixture as ContentTest.creatureRowsDataRowIndex.
+        res = parse_creatures(build([
+            row("Zork"), [""], row("Blip"), ["", "x"], row("Mump")]))
+        self.assertEqual(res.creature_rows, {"Zork": 0, "Blip": 1, "Mump": 2})
+        self.assertEqual([c["name"] for c in res.creatures], ["Blip", "Mump", "Zork"])
+
     def test_errors_name_row_and_column(self):
         cases = [
             (row("Zork", hp=0), "row 3"),

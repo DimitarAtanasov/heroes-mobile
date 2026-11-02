@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import datapack
@@ -30,6 +30,9 @@ class ContentResult:
     creatures: tuple      # validated creature dicts, sorted by name (datapack order)
     extras: dict          # name -> dict of columns with no datapack slot (cost, growth, ...)
     unknown: tuple        # (row, creature name, ability text) for unmapped ability texts
+    # name -> zero-based data-row index among creature records (header skipped, blank and
+    # empty-name rows not counted), file order. Side map for sprite lookup; not hashed.
+    creature_rows: dict = field(default_factory=dict)
 
 
 def load_mapping(path=None) -> dict:
@@ -93,6 +96,7 @@ def parse_creatures(data: bytes, mapping=None, *, roe=False, encoding="cp1252") 
     table = {_norm(k): v for k, v in m["ability_flags"].items()}
 
     records, extras, unknown, rowno = [], {}, [], {}
+    creature_rows = {}
     for i, row in enumerate(t.rows):
         r = i + 1 + m["header_rows"]
         if not any(c.strip() for c in row):
@@ -144,11 +148,12 @@ def parse_creatures(data: bytes, mapping=None, *, roe=False, encoding="cp1252") 
                                % (r, name, rowno[name]))
         extras[name] = ex
         rowno[name] = r
+        creature_rows[name] = len(records)
         records.append(rec)
     if not records:
         raise ContentError("table: no creature rows")
     creatures = datapack._check_creatures({"schema_version": 1, "creatures": records})
-    return ContentResult(tuple(creatures), extras, tuple(unknown))
+    return ContentResult(tuple(creatures), extras, tuple(unknown), creature_rows)
 
 
 def load_creatures(path, mapping=None, *, roe=False, encoding="cp1252") -> ContentResult:
