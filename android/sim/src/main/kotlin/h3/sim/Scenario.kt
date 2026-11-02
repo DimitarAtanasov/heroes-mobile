@@ -162,7 +162,8 @@ object Scenario {
         )
     }
 
-    private class Setup(val creature: BattleCreature, val count: Int, val morale: Int, val luck: Int, val pos: Pair<Int, Int>?)
+    /** One stack of a side; `internal` because `h3.sim.encounter` builds its battles through [createBattle]. */
+    internal class Setup(val creature: BattleCreature, val count: Int, val morale: Int, val luck: Int, val pos: Pair<Int, Int>?)
 
     private fun stack(v: Any?, creatures: Map<String, BattleCreature>, path: String): Setup {
         val o = obj(v, path)
@@ -259,8 +260,8 @@ object Scenario {
 
     private fun tupleRepr(p: Pair<Int, Int>) = "(${p.first}, ${p.second})"
 
-    /** Python `battle.create_battle`: the initial (not yet started) state. */
-    private fun createBattle(
+    /** Python `battle.create_battle`: the initial (not yet started) state. Shared with `h3.sim.encounter.EncounterEngine`. */
+    internal fun createBattle(
         battleId: String, attackers: List<Setup>, defenders: List<Setup>,
         obstacles: List<Pair<Int, Int>>, heroes: List<BattleHero?>, policy: BattlePolicy, rulesHash: String,
     ): BattleState {

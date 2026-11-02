@@ -205,8 +205,29 @@ in the source JSON is clamped for the check only (every bound is far inside `Int
 verdict and message are Python's) and a non-integer is refused with the same message.
 Conformance: `policy_cases` in `adventure.json` (docs/specs/conformance-adventure.md).
 No pinned hash moved: the default and every vector policy are far below the bound
-(adventure golden `179c5700...` unchanged). Boolean policy fields still accept any truthy
-value in Python; that is not covered by this amendment.
+(adventure golden `179c5700...` unchanged).
+
+Flags (second amendment, same style): the six boolean fields `road_needs_both`,
+`diagonal_moves`, `diagonal_corner_cut`, `diagonal_exception`, `zero_remainder` and
+`income_on_first_day` must satisfy `type(x) is bool`. Before, `1`, `0`, `1.0`, `None` or `"x"`
+was accepted, hashed as written (a float reached the canonical form of an integer-only sim)
+and acted as its truthiness. `__post_init__` now checks the flags first, in the order listed
+here, and raises `ValueError("<field> must be a bool")`; the other checks follow in their old
+order. Kotlin `AdventurePolicy.validate` does the same (`FLAGS`; a flag that is not a JSON
+`true`/`false` is recorded as ill-typed while reading and refused first). No pinned hash moved:
+every stored and vector policy has real bools. Like the integer bounds, this refuses input the
+code used to accept, so the owner must confirm it (ADR-0008 amendment).
+
+### The day counter
+
+Python's `GameState.day` is an unbounded `int`, and `EndTurn` after the last player adds 1 with
+no limit; the week and month derive from it by `calendar`. Kotlin holds `day`, and the `week`
+and `month` of the `DayStarted`/`WeekStarted` events, in a `Long` (the town core already does
+the same). The state codec accepts a day in `0..2^63-1`, and `EndTurn` works up to day 2^63-1
+exactly as Python does (vectors `edge-day-*`). The one difference left: at day 2^63-1 Kotlin's
+`EndTurn` after the last player throws `ArithmeticException` (state untouched) where Python
+goes on to day 2^63; a state text with a day of 2^63 or more is refused with "day out of range".
+That day is 2.5 x 10^17 years of play.
 
 ### Default changes and the golden hash
 

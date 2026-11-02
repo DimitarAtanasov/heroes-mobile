@@ -309,6 +309,37 @@ class PolicyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             A.AdventurePolicy(road_cost=(("cobblestone", True), ("dirt", 75), ("gravel", 65)))
 
+    BOOL_FIELDS = ("road_needs_both", "diagonal_moves", "diagonal_corner_cut",
+                   "diagonal_exception", "zero_remainder", "income_on_first_day")
+
+    def test_policy_flags_must_be_plain_bools(self):
+        # 1 and 0 are ints, 1.0 a float, None/"x" neither: all of them used to be accepted and
+        # hashed as 1, 1.0, null or "x" (a float in the canonical form of an integer-only sim).
+        for field in self.BOOL_FIELDS:
+            for v in (1, 0, 2, 1.0, None, "x", "", (), -1):
+                with self.assertRaises(ValueError, msg=(field, v)) as cm:
+                    A.AdventurePolicy(**{field: v})
+                self.assertEqual(str(cm.exception), "%s must be a bool" % field)
+            for v in (True, False):
+                self.assertIs(getattr(A.AdventurePolicy(**{field: v}), field), v)
+
+    def test_policy_flag_check_order(self):
+        # Flags are checked first, in field order; then the existing checks.
+        for i, a in enumerate(self.BOOL_FIELDS):      # every pair: the earlier field is reported
+            for b in self.BOOL_FIELDS[i + 1:]:
+                with self.assertRaisesRegex(ValueError, "^%s must be a bool$" % a):
+                    A.AdventurePolicy(**{a: 1, b: 1})
+                with self.assertRaisesRegex(ValueError, "^%s must be a bool$" % a):
+                    A.AdventurePolicy(**{b: 1, a: 1})
+        with self.assertRaisesRegex(ValueError, "diagonal_moves must be a bool"):
+            A.AdventurePolicy(diagonal_moves=1, zero_remainder=1, income_on_first_day=None)
+        with self.assertRaisesRegex(ValueError, "road_needs_both must be a bool"):
+            A.AdventurePolicy(road_needs_both=1, diagonal_moves=1)
+        with self.assertRaisesRegex(ValueError, "income_on_first_day must be a bool"):
+            A.AdventurePolicy(income_on_first_day=1, cost_from="both", diagonal_num=True)
+        with self.assertRaisesRegex(ValueError, "bad cost_from"):
+            A.AdventurePolicy(cost_from="both", diagonal_num=True)
+
     def test_policy_ints_are_bounded(self):
         # Extreme legal policies overflowed the 32-bit Kotlin port (ADR-0008 style bound).
         m = A.POLICY_INT_MAX
@@ -393,6 +424,15 @@ class TickTest(unittest.TestCase):
             s, ev = A.apply(s, A.EndTurn(p), NoRng())
             evs.extend(ev)
         return s, evs
+
+    def test_day_has_no_bound_in_python(self):
+        # Python ints do not overflow: the day passes 2**31-1 and 2**63-1 (the Kotlin port keeps
+        # the day in a Long and refuses only beyond 2**63-1, docs/specs/conformance-adventure.md).
+        for day in (2 ** 31 - 1, 2 ** 62, 2 ** 63 - 1):
+            s = replace(self.s, day=day)
+            s, ev = self.end_day(s)
+            self.assertEqual(s.day, day + 1)
+            self.assertEqual([e.day for e in ev if isinstance(e, A.DayStarted)], [day + 1])
 
     def test_daily_income(self):
         self.assertEqual(A.daily_income(self.players[0]),
