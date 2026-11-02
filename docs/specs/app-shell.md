@@ -76,3 +76,6 @@ parsed, played by a driver using only `onTap` x2 / `onDefend`, and end with a wi
 have never been compiled. First CI log: see the report of the milestone for the list of assumed
 APIs. Not done: autosave/resume (A7 follow-up), replay export, animation, zoom/pan, long-press
 card, accessibility.
+
+## Menu and setup logic (h3.presenter.ui, slice A)
+Pure logic in `:presenter`. Routes Home, Setup, Battle, Result, About. Legal edges: Home to Setup/About; Home to Battle only while an autosave exists (Continue); Setup to Battle; Battle to Result; Result to Setup. Back from any non-Home screen lands on Home; entering Battle drops Setup from the stack. Setup seed: ASCII digits only, 0..2^63-1, one error code per field; preset index default 0, preset count supplied by the app. These rules were chosen by the producer and await owner sign-off.
