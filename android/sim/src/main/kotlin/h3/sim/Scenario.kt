@@ -277,7 +277,7 @@ object Scenario {
             for ((slot, s) in army.withIndex()) {
                 val cr = s.creature
                 require(s.count > 0 && cr.hp > 0 && cr.speed >= 0) { "invalid stack setup" }
-                require(cr.dmgMin >= 1 && cr.dmgMin <= cr.dmgMax) { "invalid damage range" }
+                require(cr.dmgMin >= 0 && cr.dmgMin <= cr.dmgMax && cr.dmgMax >= 1) { "invalid damage range" }
                 val wide = if (cr.doubleWide) 1 else 0
                 val head = s.pos ?: if (sd == Hex.ATTACKER) Pair(1 + wide, rows[slot]) else Pair(Hex.WIDTH - 2 - wide, rows[slot])
                 val cells = Hex.cellsAt(HexCell(head.first, head.second), sd, cr.doubleWide)

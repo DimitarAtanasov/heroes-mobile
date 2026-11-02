@@ -454,7 +454,7 @@ class BattleCodec(
                 perSide[st.side]++
                 bounded(st.slot.toLong(), "stack slot", 0L, 6L)
                 val cr = st.creature
-                bounded(cr.dmgMin.toLong(), "creature dmg_min", 1L, MAX)
+                bounded(cr.dmgMin.toLong(), "creature dmg_min", 0L, MAX)
                 bounded(cr.dmgMax.toLong(), "creature dmg_max", 1L, MAX)
                 bounded(cr.hp.toLong(), "creature hp", 1L, MAX)
                 bounded(cr.speed.toLong(), "creature speed", 0L, MAX)

@@ -470,7 +470,7 @@ def create_battle(battle_id, attackers, defenders, *, obstacles=(),
             cr = s.creature
             if s.count <= 0 or cr.hp <= 0 or cr.speed < 0:
                 raise ValueError("invalid stack setup")
-            if not 1 <= cr.dmg_min <= cr.dmg_max:
+            if not 0 <= cr.dmg_min <= cr.dmg_max or cr.dmg_max < 1:
                 raise ValueError("invalid damage range")
             if s.pos is not None:
                 head = tuple(s.pos)
@@ -495,7 +495,7 @@ def create_battle(battle_id, attackers, defenders, *, obstacles=(),
     return state
 
 
-_CREATURE_INTS = (("attack", _MIN_INT), ("defense", _MIN_INT), ("dmg_min", 1),
+_CREATURE_INTS = (("attack", _MIN_INT), ("defense", _MIN_INT), ("dmg_min", 0),
                   ("dmg_max", 1), ("hp", 1), ("speed", 0), ("shots", 0))
 _HERO_INTS = ("attack", "defense", "offense", "archery", "armorer")
 

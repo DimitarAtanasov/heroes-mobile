@@ -403,7 +403,10 @@ the Python side (recorded here, per CLAUDE.md law 10). They only refuse input; `
   `slot` in 0..6; every footprint cell and obstacle on the grid; `round` >= 0; `active`, `done` and
   `waited` ids index a stack; `winner` and `last_side` are 0, 1 or None.
 - Stack values: `count` >= 0; `top_hp` is 0 for an empty stack and in 1..hp otherwise; `shots` and
-  `retaliations` >= 0; creature `hp` >= 1, `speed` >= 0, `shots` >= 0, 1 <= `dmg_min` <= `dmg_max`.
+  `retaliations` >= 0; creature `hp` >= 1, `speed` >= 0, `shots` >= 0, 0 <= `dmg_min` <= `dmg_max`, `dmg_max` >= 1.
+  Owner decision 2026-11-02: `dmg_min` 0 is a valid weak unit (base roll 0..`dmg_max`; the final damage keeps
+  its existing minimum of 1). Pinned vectors that encoded the old `1 <= dmg_min` floor need owner re-pin
+  review (law 6); they are not regenerated in this change.
 - Every integer fits a 32-bit Int (ADR-0008).
 - Caps on the derived products (ADR-0008 amendment): `count x dmg_max` <= 2**31-1, `count x hp`
   <= 2**31-1, creature plus hero attack within Int, creature plus hero defense within Int with and
