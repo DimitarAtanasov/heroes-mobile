@@ -68,3 +68,7 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - Adventure parity fixes (audit): policy ints bounded to 10000 and strict-int in Python (refuses more input than before: OWNER must confirm, ADR-0008 amendment in docs/specs/adventure.md s6); guard sort by code point; pyRepr ported. Adventure golden 179c5700 unchanged.
 - Open parity gaps: Python accepts non-bool values in boolean policy fields (Kotlin refuses); EndTurn at Int.MAX day throws in Kotlin; float repr not ported; h3m error text compared by class only.
 - Verified chain so far: 71 H3M, 72 adventure, 73 hero, 74 gzip cap, 75 adventure parity. App shell merged (CI green, APK built).
+
+## Checkpoint 77
+- 76: encounter + adventure stage E (Attack via AdventureEncounterHooks). 77: town core. All sim modules (battle, adventure, encounter, town, hero, h3m) now have Kotlin ports with conformance vectors; goldens unchanged.
+- Remaining: dedupe create_battle (Scenario.kt private copy in Encounter.kt); real-data tests (H3_DATA_DIR); app UI beyond shell; owner decisions listed earlier.
