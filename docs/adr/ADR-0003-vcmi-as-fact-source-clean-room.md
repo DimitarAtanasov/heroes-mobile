@@ -1,6 +1,6 @@
 # ADR-0003: VCMI as a fact source only (clean-room, GPL)
 
-Status: accepted. Amended by ADR-0010: the project is GPL-2.0-or-later, so reusing VCMI code is now permitted with provenance headers. The facts-only practice remains the default for specs and cross-check reports.
+Status: accepted. Amended by ADR-0010: the project is GPL-2.0-or-later, so reusing VCMI code is now permitted with provenance headers. The facts-only practice remains the default for specs and cross-check reports. Amended by ADR-0014: a creature-to-DEF fact table may be ported from VCMI's creature configuration, with per-entry source citations; no VCMI file is committed.
 
 Context: The rules and file formats in `docs/specs/` have `[uncertain]` items that no public
 document settles. VCMI, a GPL-2.0-or-later reimplementation, is the best available evidence.
