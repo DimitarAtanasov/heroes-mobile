@@ -25,6 +25,9 @@ object SpriteLoader {
     /** Sprite archives in search order; the first one holding a DEF wins. Both are optional here. */
     val LOD_NAMES = GameDataLayout.SPRITE_ARCHIVES
 
+    /** Integer upscale of the DEF art on the board (sprite-atlas.md, "Upscaling"). */
+    const val SPRITE_SCALE = 2
+
     /**
      * The sprite archives found under the first root that has any, in [LOD_NAMES] order. Empty
      * when nothing is staged (the normal case on a fresh install). Never throws. Which file is meant
@@ -93,7 +96,7 @@ object SpriteLoader {
     internal fun loadBlocking(files: List<File>, creatureNames: List<String>): Loaded {
         try {
             val lods = files.map { LodSource(it.name, it.readBytes()) }
-            val result = SpriteLoadPlan.load(creatureNames, lods)
+            val result = SpriteLoadPlan.load(creatureNames, lods, scale = SPRITE_SCALE)
             val notes = result.errors.map { it.describe() }
             val atlas = result.atlas ?: return Loaded(null, notes)
             val pages = ArrayList<Bitmap>()

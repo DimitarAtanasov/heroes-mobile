@@ -46,6 +46,17 @@ palette index 5 pixels (`Def.OVERLAY_INDEX`) cleared to transparent in the colou
 the selection index is left transparent there; `Def.toRgba` itself keeps it opaque) and set in the
 overlay. Keys are `prefix/BBB/IIII` (zero padded) so key order is block, then frame index.
 
+## Upscaling (0.2)
+
+`SpriteScale.scale(frame, k)` enlarges a frame by an integer `k` in 1..4 (`k = 1` returns the frame).
+The destination pixel centre maps to source position `(2*d + 1 - k) / (2k)`, and both axes use integer
+weights over `2k`. Colour and alpha are bilinear, with colour averaged premultiplied, so a transparent
+neighbour does not darken an edge. The overlay is sampled nearest, so the player-colour edge stays
+crisp. Offsets and full canvas size scale by `k`. `SpriteLoadPlan.load(..., scale)` applies it to every
+frame before packing (default 1, so the output is unchanged unless asked). The app requests
+`SpriteLoader.SPRITE_SCALE = 2`. Scaling multiplies the atlas by `k*k`, so the 96 MiB budget still
+applies and an over-budget atlas is reported as `OVER_BUDGET`, not partially loaded.
+
 ## Memory (4.5)
 
 `Atlas.bytes()` = sum of `width*height*4` over pages (masks add 1 byte per pixel,
