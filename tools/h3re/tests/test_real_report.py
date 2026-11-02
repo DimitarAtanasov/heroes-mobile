@@ -396,12 +396,17 @@ class SpriteCheck(Base):
     def test_matches_the_android_loader_contract(self):
         """The hard-coded names must not drift from what the Android code asks for."""
         kt_loader = REPO_ROOT / "android/app/src/main/kotlin/h3/app/SpriteLoader.kt"
+        kt_layout = REPO_ROOT / "android/presenter/src/main/kotlin/h3/presenter/ui/GameDataLayout.kt"
         kt_plan = REPO_ROOT / "android/presenter/src/main/kotlin/h3/presenter/ui/SpriteLoadPlan.kt"
-        if not (kt_loader.is_file() and kt_plan.is_file()):
+        if not (kt_loader.is_file() and kt_layout.is_file() and kt_plan.is_file()):
             self.skipTest("android sources not in this tree")
-        m = re.search(r"LOD_NAMES\s*=\s*listOf\(([^)]*)\)", kt_loader.read_text(encoding="utf-8"))
+        # The archive names live in GameDataLayout.SPRITE_ARCHIVES; the loader must use that list.
+        m = re.search(r"SPRITE_ARCHIVES\s*:\s*List<String>\s*=\s*listOf\(([^)]*)\)",
+                      kt_layout.read_text(encoding="utf-8"))
         self.assertIsNotNone(m)
         self.assertEqual(tuple(re.findall(r'"([^"]+)"', m.group(1))), real_report.SPRITE_LODS)
+        self.assertRegex(kt_loader.read_text(encoding="utf-8"),
+                         r"LOD_NAMES\s*=\s*GameDataLayout\.SPRITE_ARCHIVES")
         m = re.search(r"DEFAULT_TABLE[^=]*=\s*linkedMapOf\((.*?)\n    \)",
                       kt_plan.read_text(encoding="utf-8"), re.S)
         self.assertIsNotNone(m)
