@@ -77,6 +77,22 @@ behaviour; (c) `hates` and presets name creatures, so a dropped row breaks refer
 The error shown is the existing `ContentError` text (row, column, category), never file contents.
 This is a judgement call; recorded as Q1 for the owner to confirm.
 
+**Zero damage (owner decision, 2026-11-02).** Keep every row the loader accepts. The
+data-row index counts every accepted record, including zero-damage ones, so later creatures keep
+their sprite index. Owner's meaning of the two damage cells:
+- A: `dmg_min` 0, `dmg_max` > 0: a weak unit dealing 0..`dmg_max`. Loads normally.
+- B: `dmg_min` >= 1, `dmg_max` 0: no upper limit. The loader still refuses it (`dmg_min >
+  dmg_max`); how to represent an unbounded maximum within ADR-0008's 32-bit pack values is an
+  open owner question (Q4). No numeric cap is invented and 0 is not stored as a real maximum.
+- C: `dmg_min` 0, `dmg_max` 0: no fixed damage; the attack comes from an ability. Loads, and the
+  name is listed in the side set `ContentResult.no_fixed_damage` / `noFixedDamage` (not in the
+  record, `toMap`, `content_hash` or battle state). It is not "non-combat".
+Battle creation requires `0 <= dmg_min <= dmg_max` with `dmg_max >= 1` (battle.md section 10): it accepts A
+and refuses C with "invalid damage range" (Python `battle.py:473` `create_battle`, `:498` `_CREATURE_INTS` via
+`check_state`, `rules.py:96` `base_damage`, `:227` `resolve_damage`; Kotlin `Scenario.kt:280`,
+`BattleState.kt:457`, `Rules.kt:101`, `Rules.kt:142`). No roster builder reads CRTRAITS content in
+code yet, so no exclusion rule is implemented; whether the roster offers A and C creatures is Q5.
+
 ## 4. Hash impact
 
 Goldens that change: none. Reason: the five pins (adventure `179c5700`, encounter `512b53ca`,
@@ -125,6 +141,10 @@ Open questions for the owner:
   built-in fixture roster as a demo?
 - Q3. If two rows share a name in the real file: keep refusing (today's rule), or disambiguate by
   index? Needs a look at the real file, which only the owner has.
+- Q4. Case B (`dmg_min` >= 1, `dmg_max` 0 = no upper limit): how to represent it (ADR-0008 holds
+  pack values in 32 bits), and what battle does with it.
+- Q5. Cases A (`dmg_min` 0) and C (no fixed damage): offer them in the battle roster or not, and
+  whether battle rules should ever accept `dmg_min` 0 (today refused, see section 3).
 
 ## 7. Slices
 
