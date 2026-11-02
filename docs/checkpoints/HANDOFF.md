@@ -113,3 +113,27 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - Device test: not done. Runbook docs/runbooks/device-test.md; the owner runs the CI APK `heroes-mobile-debug-apk`.
 - Owner decisions still open: creature-to-DEF mapping (Q2; a = owner writes the table, b = VCMI port with ADR amendment); bad-morale (24,24,24) rule; ADR-0008/0012 acceptance; allowBackup mismatch (ADR-0013); app name and package id; editions (Q3); sdlc-sandbix license. Game-data picker stays off (sideload only).
 - Tooling: Graphify is installed locally as graphifyy 0.9.100 in C:\Users\mitet\tools\graphify-venv (not in the repo).
+
+## Checkpoint 2026-11-02b (status)
+- Merged to main (verified via the GitHub PR list): #12, #13, #15, #16, #17, #18, #19, #21, #22 (also #14, #11, #10, #9 earlier today). Main HEAD seen: 754624f (merge of #22).
+- Open PR #20 (sprite table v2, `feature/sprite-map-table`): kotlin-sim failed earlier; fix is 8714ca7 (SpriteTable tests: escape tab in the test JSON string helper), already the PR head. CI on 8714ca7: unittest, determinism, android-app, kotlin-sim green; real-files skipped. Not merged.
+- Open PR #23 (`feature/battle-min-damage-zero`, 9b45ae8): weak units (dmg_min 0) with re-pinned vectors. Needs owner review; not merged. The owner has not yet approved merging it (law 6: re-pin is a reviewed change).
+- Pending branch `fix/crtraits-noncombat` (3b5720e, local, not pushed): zero-damage rows kept, `no_fixed_damage` flag, no hash change. The hit-point change (allow hp 0) is UNCOMMITTED in worktree C:\shemhahealth\wt-noncombat. It is blocked on the content.json re-pin, which the owner APPROVED but which must follow the battle branch's generator fix (PR #23).
+- Owner decisions made 2026-11-02:
+  - Creature sprite key = CRTRAITS row, zero-based.
+  - Creature table ported from VCMI as facts (ADR-0014).
+  - Weak units: dmg_min 0 is valid; a hit still deals min 1. Datapack dmg_min floor is 0.
+  - Zero-damage rows are kept with a `no_fixed_damage` flag, not treated as non-combat.
+  - Zero max with nonzero min = no upper limit (unbounded; not yet representable; 0 real rows in the owner's file).
+  - Zero min and zero max = no fixed damage (7 rows in the owner's file).
+  - hp 0 allowed on import.
+  - Graphify index kept with the game-file community label.
+- Open owner questions: representation of unbounded max; whether a battle roster offers `no_fixed_damage` creatures; Q2/Q3/Q1; bad-morale rule (24,24,24); app name and package id; allowBackup mismatch (ADR-0013); attribution trailer (commits used Opus and Sonnet trailers, owner asked for Haiku; not force-pushed).
+- Vision: v1 scope proposal on `docs/v1-scope` (e554c2e, local, not pushed to origin), pending owner approval.
+- Next steps, in order:
+  1. Owner reviews PR #23 (weak units, re-pinned vectors); merge only after approval.
+  2. Read CI on PR #20 head (8714ca7 is green) and merge it when the owner agrees.
+  3. Fix the vector generator on the battle branch, then re-pin content.json (approved), then commit the hp 0 change in wt-noncombat and push `fix/crtraits-noncombat`.
+  4. Owner answers the open questions above (unbounded max and roster first).
+  5. Owner approves or revises `docs/v1-scope`.
+  6. Device test of the CI APK `heroes-mobile-debug-apk` (runbook docs/runbooks/device-test.md); none done yet.
