@@ -559,6 +559,10 @@ def _gzip_cases(c):
     c.add("gz_bomb_64mib_plus_1", gz(bytes(H.MAX_DECOMPRESSED + 1)))
     big = u32(SOD) + bytes(H.MAX_DECOMPRESSED - 4 - 8)
     c.add("gz_bomb_just_under_cap", gz(big))
+    # the cap is on output size: a valid map padded with zeros to exactly 64 MiB parses
+    # (bytes after the tiles are ignored); one byte more is refused
+    c.add("gz_valid_exactly_64mib", gz(m + bytes(H.MAX_DECOMPRESSED - len(m))))
+    c.add("gz_valid_64mib_plus_1", gz(m + bytes(H.MAX_DECOMPRESSED + 1 - len(m))))
     c.add("plain_starting_like_gzip_magic", b"\x1f\x8b" + bytes(60))
 
 

@@ -15,6 +15,10 @@ detected by the `1f 8b` magic, otherwise plain).
 `expect`: `{"ok": false, "error": "H3mError"}` (`"hota": true` when the error is the HotA
 one, Kotlin `H3mHotaError`), or `{"ok": true, "header": DUMP}`.
 
+Error messages are compared by class only (current behaviour): the Kotlin test checks that
+`H3mError` (or `H3mHotaError` when `hota` is set) is thrown, never the message text. The
+vectors carry no message, so Python and Kotlin wording may differ.
+
 ## Canonical dump
 
 Sorted keys, compact, ASCII (`ensure_ascii`, so non-ASCII strings are `\uXXXX`). Masks are
@@ -36,8 +40,11 @@ builds the same tree from the typed header and compares the canonical text.
   skills 28; each count is also checked against the bytes that remain before any loop.
 - Gzip: single member only. Header flags with reserved bits, a method other than 8, a bad
   header CRC, a bad data CRC or length, a truncated stream and any byte after the member
-  (trailing junk or a second member) are refused. Output of 64 MiB or more is refused (zlib
-  leaves the trailer unconsumed at the cap, so Python rejects exactly that range).
+  (trailing junk or a second member) are refused. Output of exactly 64 MiB (67108864 bytes) is
+  accepted; the cap refuses only a stream that still has output past 64 MiB (vectors
+  `gz_valid_exactly_64mib`, accepted, and `gz_valid_64mib_plus_1`, refused). Python sets the
+  cap as `max_length` and rejects when input is left unconsumed; Kotlin probes for one more
+  byte once 64 MiB is filled.
 - Bytes after the tiles of a plain map are ignored (objects are not parsed).
 
 ## Not ported

@@ -102,6 +102,14 @@ class H3mVectorTests(unittest.TestCase):
             self.assertTrue(c["expect"]["ok"], c["name"])
             self.assertEqual(c["expect"]["header"], M.dump_header(h), c["name"])
 
+    def test_decompression_cap_is_on_output_size(self):
+        by = {c["name"]: c for c in self.cases}
+        self.assertTrue(by["gz_valid_exactly_64mib"]["expect"]["ok"])
+        self.assertEqual(by["gz_valid_exactly_64mib"]["expect"]["header"],
+                         by["gz_valid"]["expect"]["header"])
+        self.assertEqual(by["gz_valid_64mib_plus_1"]["expect"],
+                         {"ok": False, "error": "H3mError"})
+
     def test_small_maps_carry_raw_tiles_large_maps_only_hash(self):
         by = {c["name"]: c for c in self.cases}
         self.assertIn("raw", by["sod_tiny_2x2"]["expect"]["header"]["tiles"])

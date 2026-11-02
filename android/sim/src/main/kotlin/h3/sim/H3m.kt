@@ -196,8 +196,8 @@ object H3m {
             if (want.toLong() != (crc.value and 0xFFFFL)) throw H3mError("bad gzip stream: header crc mismatch")
             p += 2
         }
-        // Body: raw deflate, capped. zlib stops at the cap and leaves the final block and
-        // the 8-byte trailer unconsumed, so Python rejects any output of 64 MiB or more.
+        // Body: raw deflate, capped. Output of exactly 64 MiB is accepted; Python rejects only
+        // when the stream still has output past the cap, so at the cap we probe for one more byte.
         val inf = Inflater(true)
         try {
             inf.setInput(d, p, d.size - p)
@@ -205,7 +205,16 @@ object H3m {
             var n = 0
             while (!inf.finished()) {
                 if (n == out.size) {
-                    if (n >= H3M_MAX_DECOMPRESSED) throw H3mError("decompressed map exceeds size limit")
+                    if (n >= H3M_MAX_DECOMPRESSED) {
+                        val probe = try {
+                            inf.inflate(ByteArray(1))
+                        } catch (e: DataFormatException) {
+                            throw H3mError("bad gzip stream: ${e.message}")
+                        }
+                        if (probe > 0) throw H3mError("decompressed map exceeds size limit")
+                        if (inf.finished()) break
+                        throw H3mError("truncated gzip stream")
+                    }
                     out = out.copyOf(minOf(out.size * 2, H3M_MAX_DECOMPRESSED))
                 }
                 val got = try {
@@ -214,7 +223,6 @@ object H3m {
                     throw H3mError("bad gzip stream: ${e.message}")
                 }
                 n += got
-                if (n >= H3M_MAX_DECOMPRESSED) throw H3mError("decompressed map exceeds size limit")
                 if (got == 0 && !inf.finished() && (inf.needsInput() || inf.needsDictionary())) {
                     throw H3mError("truncated gzip stream")
                 }
