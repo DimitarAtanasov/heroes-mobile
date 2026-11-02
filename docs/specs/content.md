@@ -24,7 +24,25 @@ growth, hit points, speed, attack, defense, damage min, damage max, shots,
 [spell points, absent for RoE data: `roe=True`], adventure-map amount min,
 max, ability text (long description), abilities (short list).
 Datapack fields filled: name (singular), hp, speed, attack, defense, dmg_min,
-dmg_max, shots (omitted when 0) and the boolean flags. Everything else
+dmg_max, shots (omitted when 0) and the boolean flags.
+Creature field ranges (the datapack bounds): `dmg_min` 0..10000 (floor 0: real
+CRTRAITS rows have minimum damage 0; owner decision, 2026-11-02), `dmg_max`
+1..10000, `dmg_max >= dmg_min`. The CRTRAITS loader alone lowers the `dmg_max`
+floor to 0 (owner decision, 2026-11-02; `creatures.json` keeps 1), so with
+`dmg_max >= dmg_min` the only new row it admits is dmg 0/0.
+The CRTRAITS loader also lowers the `hp` floor to 0 (owner decision, 2026-11-02;
+`creatures.json` keeps 1); battle creation still refuses hp 0.
+Owner's meaning of the damage cells (2026-11-02):
+- A: `dmg_min` 0, `dmg_max` > 0: a weak unit dealing 0..`dmg_max`. Loads.
+- B: `dmg_min` >= 1, `dmg_max` 0: no upper limit. Still refused (`dmg_min >
+  dmg_max`); its representation is an open owner question (ADR-0008 holds
+  pack values in 32 bits; no cap is invented and 0 is not stored as a real
+  maximum).
+- C: `dmg_min` 0, `dmg_max` 0: no fixed damage (the attack comes from an
+  ability). Loads; the name is listed in `result.no_fixed_damage`.
+Battle creation needs `0 <= dmg_min <= dmg_max` and `dmg_max >= 1` (battle.md), so
+creatures in C (and hp 0) are refused there; A is accepted. Whether
+the battle roster offers them is an owner question. Everything else
 (plural, costs, values, growth, spell points, map amounts) lands in
 `result.extras[name]`; the schema has no slot for it yet.
 
@@ -47,8 +65,13 @@ header included) and, where applicable, `column 'name' (index i)`.
 
 ## API
 `load_mapping(path=None)`, `parse_creatures(bytes, mapping=None, roe=False,
-encoding="cp1252") -> ContentResult(creatures, extras, unknown)`,
-`load_creatures(path, ...)`. Creatures are sorted by name (datapack order).
+encoding="cp1252") -> ContentResult(creatures, extras, unknown, creature_rows,
+no_fixed_damage)`, `load_creatures(path, ...)`. Creatures are sorted by name
+(datapack order). `no_fixed_damage` (Kotlin `noFixedDamage`) is a frozenset of
+the names of accepted creatures with dmg 0/0 (case C). Like `creature_rows` it
+is a side structure: not in the creature record, `toMap`, `content_hash` or any
+battle state, so no hash moves. Those creatures stay in `creatures` and keep
+their data-row index; later creatures' indices are unchanged.
 
 ## Tests
 `tests/test_content.py`: synthetic fixtures only. `RealCrtraitsTest` is gated

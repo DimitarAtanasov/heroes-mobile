@@ -187,7 +187,11 @@ _CR_FLAGS = ("flyer", "double_wide", "no_enemy_retaliation", "unlimited_retaliat
 _CR_OPT = _CR_FLAGS + ("shots", "hates")
 
 
-def _check_creatures(d):
+def _check_creatures(d, dmg_max_floor=1, hp_floor=1):
+    # dmg_max_floor: 1 for creatures.json; the CRTRAITS loader (content.py) passes 0
+    # (owner decision 2026-11-02, content.md). Battle creation still needs dmg >= 1.
+    # hp_floor: 1 for creatures.json; the CRTRAITS loader passes 0 (owner decision
+    # 2026-11-02, content.md). The battle hp rule is unchanged.
     _obj(d, "creatures", ("schema_version", "creatures"))
     if _int(d["schema_version"], "creatures.schema_version", 0, MAX_INT) != SCHEMA_VERSION:
         raise DataPackError("creatures.schema_version: unsupported")
@@ -205,8 +209,8 @@ def _check_creatures(d):
             raise DataPackError("%s.name: duplicate %r" % (p, name))
         r = {"name": name}
         for k, lo, hi in (("attack", 0, 255), ("defense", 0, 255), ("dmg_min", 0, 10000),
-                          ("dmg_max", 1, 10000), ("hp", 1, 100000), ("speed", 0, 100),
-                          ("shots", 0, 1000)):
+                          ("dmg_max", dmg_max_floor, 10000), ("hp", hp_floor, 100000),
+                          ("speed", 0, 100), ("shots", 0, 1000)):
             if k in c or k in _CR_REQ:
                 r[k] = _int(c[k], "%s.%s" % (p, k), lo, hi)
         if r["dmg_min"] > r["dmg_max"]:

@@ -33,6 +33,9 @@ class ContentResult:
     # name -> zero-based data-row index among creature records (header skipped, blank and
     # empty-name rows not counted), file order. Side map for sprite lookup; not hashed.
     creature_rows: dict = field(default_factory=dict)
+    # names of accepted creatures with dmg 0/0 (case C): no fixed damage (the attack comes from
+    # an ability). Side set, not hashed; battle creation still refuses them (dmg_max >= 1).
+    no_fixed_damage: frozenset = frozenset()
 
 
 def load_mapping(path=None) -> dict:
@@ -96,7 +99,7 @@ def parse_creatures(data: bytes, mapping=None, *, roe=False, encoding="cp1252") 
     table = {_norm(k): v for k, v in m["ability_flags"].items()}
 
     records, extras, unknown, rowno = [], {}, [], {}
-    creature_rows = {}
+    creature_rows, no_fixed_damage = {}, set()
     for i, row in enumerate(t.rows):
         r = i + 1 + m["header_rows"]
         if not any(c.strip() for c in row):
@@ -140,7 +143,8 @@ def parse_creatures(data: bytes, mapping=None, *, roe=False, encoding="cp1252") 
             elif table[key] is not None:
                 rec[table[key]] = True
         try:
-            datapack._check_creatures({"schema_version": 1, "creatures": [rec]})
+            datapack._check_creatures({"schema_version": 1, "creatures": [rec]}, dmg_max_floor=0,
+                                      hp_floor=0)
         except datapack.DataPackError as e:
             raise ContentError("row %d: %s" % (r, e)) from None
         if name in extras:
@@ -149,11 +153,15 @@ def parse_creatures(data: bytes, mapping=None, *, roe=False, encoding="cp1252") 
         extras[name] = ex
         rowno[name] = r
         creature_rows[name] = len(records)
+        if rec["dmg_max"] == 0:
+            no_fixed_damage.add(name)
         records.append(rec)
     if not records:
         raise ContentError("table: no creature rows")
-    creatures = datapack._check_creatures({"schema_version": 1, "creatures": records})
-    return ContentResult(tuple(creatures), extras, tuple(unknown), creature_rows)
+    creatures = datapack._check_creatures({"schema_version": 1, "creatures": records},
+                                          dmg_max_floor=0, hp_floor=0)
+    return ContentResult(tuple(creatures), extras, tuple(unknown), creature_rows,
+                         frozenset(no_fixed_damage))
 
 
 def load_creatures(path, mapping=None, *, roe=False, encoding="cp1252") -> ContentResult:
