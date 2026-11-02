@@ -1,0 +1,735 @@
+{
+ "schema_version": 2,
+ "entries": [
+  {
+   "row": 0,
+   "def": "CPKMAN.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 0"
+  },
+  {
+   "row": 1,
+   "def": "CHALBD.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 1"
+  },
+  {
+   "row": 2,
+   "def": "CLCBOW.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 2"
+  },
+  {
+   "row": 3,
+   "def": "CHCBOW.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 3"
+  },
+  {
+   "row": 4,
+   "def": "CGRIFF.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 4"
+  },
+  {
+   "row": 5,
+   "def": "CRGRIF.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 5"
+  },
+  {
+   "row": 6,
+   "def": "CSWORD.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 6"
+  },
+  {
+   "row": 7,
+   "def": "CCRUSD.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 7"
+  },
+  {
+   "row": 8,
+   "def": "CMONKK.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 8"
+  },
+  {
+   "row": 9,
+   "def": "CZEALT.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 9"
+  },
+  {
+   "row": 10,
+   "def": "CCAVLR.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 10"
+  },
+  {
+   "row": 11,
+   "def": "CCHAMP.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 11"
+  },
+  {
+   "row": 12,
+   "def": "CANGEL.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 12"
+  },
+  {
+   "row": 13,
+   "def": "CRANGL.DEF",
+   "source": "VCMI config/creatures/castle.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 13"
+  },
+  {
+   "row": 14,
+   "def": "CCENTR.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 14"
+  },
+  {
+   "row": 15,
+   "def": "CECENT.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 15"
+  },
+  {
+   "row": 16,
+   "def": "CDWARF.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 16"
+  },
+  {
+   "row": 17,
+   "def": "CBDWAR.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 17"
+  },
+  {
+   "row": 18,
+   "def": "CELF.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 18"
+  },
+  {
+   "row": 19,
+   "def": "CGRELF.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 19"
+  },
+  {
+   "row": 20,
+   "def": "CPEGAS.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 20"
+  },
+  {
+   "row": 21,
+   "def": "CAPEGS.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 21"
+  },
+  {
+   "row": 22,
+   "def": "CTREE.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 22"
+  },
+  {
+   "row": 23,
+   "def": "CBTREE.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 23"
+  },
+  {
+   "row": 24,
+   "def": "CUNICO.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 24"
+  },
+  {
+   "row": 25,
+   "def": "CWUNIC.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 25"
+  },
+  {
+   "row": 26,
+   "def": "CGDRAG.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 26"
+  },
+  {
+   "row": 27,
+   "def": "CDDRAG.DEF",
+   "source": "VCMI config/creatures/rampart.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 27"
+  },
+  {
+   "row": 28,
+   "def": "CGREMA.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 28"
+  },
+  {
+   "row": 29,
+   "def": "CGREMM.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 29"
+  },
+  {
+   "row": 30,
+   "def": "CGARGO.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 30"
+  },
+  {
+   "row": 31,
+   "def": "COGARG.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 31"
+  },
+  {
+   "row": 32,
+   "def": "CSGOLE.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 32"
+  },
+  {
+   "row": 33,
+   "def": "CIGOLE.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 33"
+  },
+  {
+   "row": 34,
+   "def": "CMAGE.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 34"
+  },
+  {
+   "row": 35,
+   "def": "CAMAGE.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 35"
+  },
+  {
+   "row": 36,
+   "def": "CGENIE.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 36"
+  },
+  {
+   "row": 37,
+   "def": "CSULTA.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 37"
+  },
+  {
+   "row": 38,
+   "def": "CNAGA.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 38"
+  },
+  {
+   "row": 39,
+   "def": "CNAGAG.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 39"
+  },
+  {
+   "row": 40,
+   "def": "CLTITA.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 40"
+  },
+  {
+   "row": 41,
+   "def": "CGTITA.DEF",
+   "source": "VCMI config/creatures/tower.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 41"
+  },
+  {
+   "row": 42,
+   "def": "CIMP.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 42"
+  },
+  {
+   "row": 43,
+   "def": "CFAMIL.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 43"
+  },
+  {
+   "row": 44,
+   "def": "CGOG.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 44"
+  },
+  {
+   "row": 45,
+   "def": "CMAGOG.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 45"
+  },
+  {
+   "row": 46,
+   "def": "CHHOUN.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 46"
+  },
+  {
+   "row": 47,
+   "def": "CCERBU.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 47"
+  },
+  {
+   "row": 48,
+   "def": "COHDEM.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 48"
+  },
+  {
+   "row": 49,
+   "def": "CTHDEM.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 49"
+  },
+  {
+   "row": 50,
+   "def": "CPFIEN.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 50"
+  },
+  {
+   "row": 51,
+   "def": "CPFOE.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 51"
+  },
+  {
+   "row": 52,
+   "def": "CEFREE.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 52"
+  },
+  {
+   "row": 53,
+   "def": "CEFRES.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 53"
+  },
+  {
+   "row": 54,
+   "def": "CDEVIL.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 54"
+  },
+  {
+   "row": 55,
+   "def": "CADEVL.DEF",
+   "source": "VCMI config/creatures/inferno.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 55"
+  },
+  {
+   "row": 56,
+   "def": "CSKELE.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 56"
+  },
+  {
+   "row": 57,
+   "def": "CWSKEL.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 57"
+  },
+  {
+   "row": 58,
+   "def": "CZOMBI.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 58"
+  },
+  {
+   "row": 59,
+   "def": "CZOMLO.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 59"
+  },
+  {
+   "row": 60,
+   "def": "CWIGHT.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 60"
+  },
+  {
+   "row": 61,
+   "def": "CWRAIT.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 61"
+  },
+  {
+   "row": 62,
+   "def": "CVAMP.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 62"
+  },
+  {
+   "row": 63,
+   "def": "CNOSFE.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 63"
+  },
+  {
+   "row": 64,
+   "def": "CLICH.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 64"
+  },
+  {
+   "row": 65,
+   "def": "CPLICH.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 65"
+  },
+  {
+   "row": 66,
+   "def": "CBKNIG.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 66"
+  },
+  {
+   "row": 67,
+   "def": "CBLORD.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 67"
+  },
+  {
+   "row": 68,
+   "def": "CNDRGN.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 68"
+  },
+  {
+   "row": 69,
+   "def": "CHDRGN.DEF",
+   "source": "VCMI config/creatures/necropolis.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 69"
+  },
+  {
+   "row": 70,
+   "def": "CTROGL.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 70"
+  },
+  {
+   "row": 71,
+   "def": "CITROG.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 71"
+  },
+  {
+   "row": 72,
+   "def": "CHARPY.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 72"
+  },
+  {
+   "row": 73,
+   "def": "CHARPH.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 73"
+  },
+  {
+   "row": 74,
+   "def": "CBEHOL.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 74"
+  },
+  {
+   "row": 75,
+   "def": "CEVEYE.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 75"
+  },
+  {
+   "row": 76,
+   "def": "CMEDUS.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 76"
+  },
+  {
+   "row": 77,
+   "def": "CMEDUQ.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 77"
+  },
+  {
+   "row": 78,
+   "def": "CMINOT.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 78"
+  },
+  {
+   "row": 79,
+   "def": "CMINOK.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 79"
+  },
+  {
+   "row": 80,
+   "def": "CMCORE.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 80"
+  },
+  {
+   "row": 81,
+   "def": "CCMCOR.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 81"
+  },
+  {
+   "row": 82,
+   "def": "CRDRGN.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 82"
+  },
+  {
+   "row": 83,
+   "def": "CBDRGN.DEF",
+   "source": "VCMI config/creatures/dungeon.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 83"
+  },
+  {
+   "row": 84,
+   "def": "CGOBLI.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 84"
+  },
+  {
+   "row": 85,
+   "def": "CHGOBL.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 85"
+  },
+  {
+   "row": 86,
+   "def": "CBWLFR.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 86"
+  },
+  {
+   "row": 87,
+   "def": "CUWLFR.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 87"
+  },
+  {
+   "row": 88,
+   "def": "CORC.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 88"
+  },
+  {
+   "row": 89,
+   "def": "CORCCH.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 89"
+  },
+  {
+   "row": 90,
+   "def": "COGRE.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 90"
+  },
+  {
+   "row": 91,
+   "def": "COGMAG.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 91"
+  },
+  {
+   "row": 92,
+   "def": "CROC.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 92"
+  },
+  {
+   "row": 93,
+   "def": "CTBIRD.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 93"
+  },
+  {
+   "row": 94,
+   "def": "CCYCLR.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 94"
+  },
+  {
+   "row": 95,
+   "def": "CCYCLLOR.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 95"
+  },
+  {
+   "row": 96,
+   "def": "CYBEHE.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 96"
+  },
+  {
+   "row": 97,
+   "def": "CABEHE.DEF",
+   "source": "VCMI config/creatures/stronghold.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 97"
+  },
+  {
+   "row": 98,
+   "def": "CGNOLL.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 98"
+  },
+  {
+   "row": 99,
+   "def": "CGNOLM.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 99"
+  },
+  {
+   "row": 100,
+   "def": "CPLIZA.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 100"
+  },
+  {
+   "row": 101,
+   "def": "CALIZA.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 101"
+  },
+  {
+   "row": 102,
+   "def": "CCGORG.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 102"
+  },
+  {
+   "row": 103,
+   "def": "CBGOG.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 103"
+  },
+  {
+   "row": 104,
+   "def": "CDRFLY.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 104"
+  },
+  {
+   "row": 105,
+   "def": "CDRFIR.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 105"
+  },
+  {
+   "row": 106,
+   "def": "CBASIL.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 106"
+  },
+  {
+   "row": 107,
+   "def": "CGBASI.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 107"
+  },
+  {
+   "row": 108,
+   "def": "CWYVER.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 108"
+  },
+  {
+   "row": 109,
+   "def": "CWYVMN.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 109"
+  },
+  {
+   "row": 110,
+   "def": "CHYDRA.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 110"
+  },
+  {
+   "row": 111,
+   "def": "CCHYDR.DEF",
+   "source": "VCMI config/creatures/fortress.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 111"
+  },
+  {
+   "row": 112,
+   "def": "CAELEM.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 112"
+  },
+  {
+   "row": 113,
+   "def": "CEELEM.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 113"
+  },
+  {
+   "row": 114,
+   "def": "CFELEM.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 114"
+  },
+  {
+   "row": 115,
+   "def": "CWELEM.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 115"
+  },
+  {
+   "row": 116,
+   "def": "CGGOLE.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 116"
+  },
+  {
+   "row": 117,
+   "def": "CDGOLE.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 117"
+  },
+  {
+   "row": 118,
+   "def": "CPIXIE.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 118"
+  },
+  {
+   "row": 119,
+   "def": "CSPRITE.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 119"
+  },
+  {
+   "row": 120,
+   "def": "CPSYEL.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 120"
+  },
+  {
+   "row": 121,
+   "def": "CMAGEL.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 121"
+  },
+  {
+   "row": 123,
+   "def": "CICEE.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 123"
+  },
+  {
+   "row": 125,
+   "def": "CSTONE.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 125"
+  },
+  {
+   "row": 127,
+   "def": "CSTORM.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 127"
+  },
+  {
+   "row": 129,
+   "def": "CNRG.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 129"
+  },
+  {
+   "row": 130,
+   "def": "CFBIRD.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 130"
+  },
+  {
+   "row": 131,
+   "def": "CPHX.DEF",
+   "source": "VCMI config/creatures/conflux.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 131"
+  },
+  {
+   "row": 132,
+   "def": "CADRGN.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 132"
+  },
+  {
+   "row": 133,
+   "def": "CCDRGN.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 133"
+  },
+  {
+   "row": 134,
+   "def": "CFDRGN.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 134"
+  },
+  {
+   "row": 135,
+   "def": "CRSDGN.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 135"
+  },
+  {
+   "row": 136,
+   "def": "CENCH.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 136"
+  },
+  {
+   "row": 137,
+   "def": "CSHARP.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 137"
+  },
+  {
+   "row": 138,
+   "def": "CHALF.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 138"
+  },
+  {
+   "row": 139,
+   "def": "CPEAS.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 139"
+  },
+  {
+   "row": 140,
+   "def": "CBOAR.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 140"
+  },
+  {
+   "row": 141,
+   "def": "CMUMMY.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 141"
+  },
+  {
+   "row": 142,
+   "def": "CNOMAD.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 142"
+  },
+  {
+   "row": 143,
+   "def": "CROGUE.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 143"
+  },
+  {
+   "row": 144,
+   "def": "CTROLL.DEF",
+   "source": "VCMI config/creatures/neutral.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 144"
+  },
+  {
+   "row": 145,
+   "def": "SMCATA.DEF",
+   "source": "VCMI config/creatures/special.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 145"
+  },
+  {
+   "row": 146,
+   "def": "SMBAL.DEF",
+   "source": "VCMI config/creatures/special.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 146"
+  },
+  {
+   "row": 147,
+   "def": "SMTENT.DEF",
+   "source": "VCMI config/creatures/special.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 147"
+  },
+  {
+   "row": 148,
+   "def": "SMCART.DEF",
+   "source": "VCMI config/creatures/special.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 148"
+  },
+  {
+   "row": 149,
+   "def": "CLCBOW.DEF",
+   "source": "VCMI config/creatures/special.json @ dd4418157b58c30878f723e4a43b304be9a7b873, creature 149"
+  }
+ ]
+}
