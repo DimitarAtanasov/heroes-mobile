@@ -1,6 +1,7 @@
 package h3.app
 
 import android.graphics.Bitmap
+import h3.presenter.ui.GameDataLayout
 import h3.presenter.ui.LodSource
 import h3.presenter.ui.PagePixels
 import h3.presenter.ui.SpriteLoadPlan
@@ -22,35 +23,39 @@ import java.nio.ByteBuffer
  */
 object SpriteLoader {
     /** Sprite archives in search order; the first one holding a DEF wins. Both are optional here. */
-    val LOD_NAMES = listOf("H3sprite.lod", "H3ab_spr.lod")
+    val LOD_NAMES = GameDataLayout.SPRITE_ARCHIVES
 
     /**
      * The sprite archives found under the first root that has any, in [LOD_NAMES] order. Empty
-     * when nothing is staged (the normal case on a fresh install). Never throws.
+     * when nothing is staged (the normal case on a fresh install). Never throws. Which file is meant
+     * is decided by [GameDataLayout.resolveArchives], the same rule the import uses; this code only
+     * lists the root and one folder level below it.
      */
     fun findLodFiles(roots: List<File>): List<File> {
         for (root in roots) {
-            val candidates = listOfNotNull(subdir(root, "Data"), root)
-            for (dir in candidates) {
-                val found = lodFilesIn(dir)
-                if (found.isNotEmpty()) return found
-            }
+            val found = GameDataLayout.resolveArchives(relativePaths(root), LOD_NAMES).map { File(root, it) }
+            if (found.isNotEmpty()) return found
         }
         return emptyList()
+    }
+
+    /** Files directly in [root] and files directly in its subfolders, as `/` separated relative paths. */
+    private fun relativePaths(root: File): List<String> {
+        val out = ArrayList<String>()
+        for (child in children(root)) {
+            if (child.isFile) {
+                out.add(child.name)
+            } else if (child.isDirectory) {
+                for (grandchild in children(child)) if (grandchild.isFile) out.add(child.name + "/" + grandchild.name)
+            }
+        }
+        return out
     }
 
     private fun children(dir: File): List<File> = try {
         dir.listFiles()?.toList() ?: emptyList()
     } catch (e: SecurityException) {
         emptyList()
-    }
-
-    private fun subdir(dir: File, name: String): File? =
-        children(dir).firstOrNull { it.isDirectory && it.name.equals(name, ignoreCase = true) }
-
-    private fun lodFilesIn(dir: File): List<File> {
-        val all = children(dir)
-        return LOD_NAMES.mapNotNull { n -> all.firstOrNull { it.isFile && it.name.equals(n, ignoreCase = true) } }
     }
 
     /**
