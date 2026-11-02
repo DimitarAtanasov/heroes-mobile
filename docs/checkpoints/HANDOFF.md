@@ -100,4 +100,4 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 ## Checkpoint 84 (import UI wired)
 - Slice U (GameDataStore, ImportScreen, ImportText) landed and wired: Home Game data button, Screen.Import, SpriteLoader root only noBackupFilesDir/gamedata. Device runbook: docs/runbooks/device-test.md. Branch `feature/game-data-wiring`; :app verified by CI only.
 - Law 10 mismatch for the owner: android-app.md says allowBackup="false" but the manifest has no such attribute, so files/saves (filesDir) can go to cloud backup. Decide: change the manifest or the spec.
-- Still open: cross-check test that SpriteLoader and ImportPlan agree on name matching; sprites need an app restart after a new import; 3 surviving mutants in GameDataStore (non-atomic manifest write, no fsync, ignored recover failure: need a real crash to test); no Cancel in the import.
+- Still open: cross-check test that SpriteLoader and ImportPlan agree on name matching; 3 surviving mutants in GameDataStore (non-atomic manifest write, no fsync, ignored recover failure: need a real crash to test); no Cancel in the import.
