@@ -77,9 +77,7 @@ class ContentTest {
                 listOf("long text", "")
         val head = listOf(listOf("Creature table"), listOf("Singular", "Plural", "Wood", "Mercury"))
         val text = (head + listOf(row("Zork"), row("Blip"), row("Mump")))
-            .joinToString("
-", postfix = "
-") { it.joinToString("	") }
+            .joinToString("\r\n", postfix = "\r\n") { it.joinToString("\t") }
         val r = Content.parseCreatures(text.toByteArray(Charsets.ISO_8859_1), mapping)
         assertEquals(listOf("Zork", "Blip", "Mump"), r.creatures.map { it.name })
         assertEquals(listOf(0, 1, 2), r.creatures.map { r.creatureRows.getValue(it.name) })

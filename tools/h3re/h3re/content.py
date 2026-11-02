@@ -27,7 +27,7 @@ class ContentError(ValueError):
 
 @dataclass(frozen=True)
 class ContentResult:
-    creatures: tuple      # validated creature dicts, sorted by name (datapack order)
+    creatures: tuple      # validated creature dicts, in file order (data-row index; see creature_rows)
     extras: dict          # name -> dict of columns with no datapack slot (cost, growth, ...)
     unknown: tuple        # (row, creature name, ability text) for unmapped ability texts
     # name -> zero-based data-row index among creature records (header skipped, blank and
@@ -158,8 +158,12 @@ def parse_creatures(data: bytes, mapping=None, *, roe=False, encoding="cp1252") 
         records.append(rec)
     if not records:
         raise ContentError("table: no creature rows")
-    creatures = datapack._check_creatures({"schema_version": 1, "creatures": records},
+    validated = datapack._check_creatures({"schema_version": 1, "creatures": records},
                                           dmg_max_floor=0, hp_floor=0)
+    # _check_creatures returns name-sorted (datapack canonical order); restore file order so the
+    # name sort never leaks past the datapack (roster order = data-row index).
+    by_name = {c["name"]: c for c in validated}
+    creatures = [by_name[r["name"]] for r in records]
     return ContentResult(tuple(creatures), extras, tuple(unknown), creature_rows,
                          frozenset(no_fixed_damage))
 
