@@ -243,6 +243,18 @@ class ArchiveParsing(Base):
         d = self.kind(self.archive(self.report(sample=1), "a.lod"), "def")
         self.assertEqual((d["ok"], d["failed"]), (0, 1))
 
+    def test_sampled_members_are_the_first_two_in_sorted_order_from_a_scrambled_directory(self):
+        # Directory order B, D, A, C. The first two by sorted name are A and B (both corrupt). Sorted
+        # descending would pick D and C (both good); directory order picks B and D; reversed directory
+        # order picks C and A. Only the real ordering gives 0 ok and 2 failed.
+        write(self.root, "a.lod", lod([("B.DEF", b"junk"), ("D.DEF", idle_def()),
+                                       ("A.DEF", b"junk"), ("C.DEF", idle_def())]))
+        d = self.kind(self.archive(self.report(sample=2), "a.lod"), "def")
+        self.assertEqual((d["total"], d["sampled"], d["ok"], d["failed"]), (4, 2, 0, 2))
+        # one step wider: A, B, C are sampled and D is not
+        d = self.kind(self.archive(self.report(sample=3), "a.lod"), "def")
+        self.assertEqual((d["sampled"], d["ok"], d["failed"]), (3, 1, 2))
+
     def test_member_over_cap_is_skipped_not_decoded(self):
         big = TL.member("BIG.DEF", b"\xff" * (8 * 1024 * 1024 + 1), compress=True)
         small = TL.member("SMALL.DEF", idle_def())
