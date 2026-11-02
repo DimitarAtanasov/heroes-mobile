@@ -121,6 +121,7 @@ class CreatureMapping(
 data class UnknownAbility(val row: Int, val name: String, val text: String)
 
 class ContentResult(
+    /** Accepted creatures in CRTRAITS file order (data-row index ascending), not by name. */
     val creatures: List<Creature>,
     /** creature name -> columns with no datapack slot; values are Long or String */
     val extras: Map<String, Map<String, Any>>,
@@ -290,6 +291,6 @@ object Content {
             records.add(rec)
         }
         if (records.isEmpty()) throw ContentError(ContentErrorCategory.NO_ROWS, null, null, "table: no creature rows")
-        return ContentResult(records.sortedBy { it.name }, extras, unknown, creatureRows, noFixedDamage)
+        return ContentResult(records, extras, unknown, creatureRows, noFixedDamage)
     }
 }
