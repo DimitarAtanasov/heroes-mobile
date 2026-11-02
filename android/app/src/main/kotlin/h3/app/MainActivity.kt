@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
     private var engineError: String? = null
     private var controller: GameController? = null
     private var saver: SaveFolderWriter? = null
+    private var sprites by mutableStateOf<BoardSprites?>(null) // the player's own sprites, when found
     private var generation = 0 // bumped per game, so a late post from a closed game is dropped
 
     private fun readAsset(name: String): String = assets.open(name).bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -48,6 +49,11 @@ class MainActivity : ComponentActivity() {
             val eng = AppEngine.fromTexts(readAsset("rules.json"), readAsset("battle_policy.json"), readAsset("creatures.json"))
             engine = eng
             saver = SaveFolderWriter(File(filesDir, "saves"), eng.packs)
+            // Looks for the player's own game files under gamedata; quietly does nothing when absent.
+            SpriteLoader.start(
+                roots = listOf(File(noBackupFilesDir, "gamedata"), File(filesDir, "gamedata")),
+                creatureNames = eng.roster.map { c -> c.name },
+            ) { sp, _ -> main.post { sprites = sp } }
         } catch (e: Exception) {
             engineError = e.toString()
         }
@@ -187,6 +193,7 @@ class MainActivity : ComponentActivity() {
                 controller = controller,
                 roster = ui?.let { u -> engine?.let { e -> StackRoster.build(e.battle, u.state) } },
                 log = ui?.log,
+                sprites = sprites,
                 onSave = { openSaves() },
                 onFinished = {
                     val gc = controller
