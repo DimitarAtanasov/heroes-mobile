@@ -13,6 +13,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import h3.presenter.ReplayAutosave
+import h3.presenter.ui.ImportPlan
+import h3.presenter.ui.ImportResult
 import h3.presenter.ui.MenuModel
 import h3.presenter.ui.ResultSummary
 import h3.presenter.ui.SaveSlots
@@ -23,7 +25,7 @@ import h3.sim.Scenario
 import java.io.File
 import java.math.BigInteger
 
-enum class Screen { Home, Setup, Battle, Result, About, Saves }
+enum class Screen { Home, Setup, Battle, Result, About, Saves, Import }
 
 /**
  * Single activity, state-based navigation (no navigation library). The activity handles its own
@@ -38,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private var engineError: String? = null
     private var controller: GameController? = null
     private var saver: SaveFolderWriter? = null
+    private var dataStore: GameDataStore? = null // the player's own game files; I/O on its own thread
     private var sprites by mutableStateOf<BoardSprites?>(null) // the player's own sprites, when found
     private var generation = 0 // bumped per game, so a late post from a closed game is dropped
 
@@ -45,13 +48,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dataStore = GameDataStore(noBackupFilesDir)
         try {
             val eng = AppEngine.fromTexts(readAsset("rules.json"), readAsset("battle_policy.json"), readAsset("creatures.json"))
             engine = eng
             saver = SaveFolderWriter(File(filesDir, "saves"), eng.packs)
             // Looks for the player's own game files under gamedata; quietly does nothing when absent.
             SpriteLoader.start(
-                roots = listOf(File(noBackupFilesDir, "gamedata"), File(filesDir, "gamedata")),
+                roots = listOf(File(noBackupFilesDir, "gamedata")), // not filesDir: that can go to cloud backup
                 creatureNames = eng.roster.map { c -> c.name },
             ) { sp, _ -> main.post { sprites = sp } }
         } catch (e: Exception) {
@@ -71,6 +75,8 @@ class MainActivity : ComponentActivity() {
         controller = null
         saver?.close()
         saver = null
+        dataStore?.close()
+        dataStore = null
         super.onDestroy()
     }
 
@@ -83,6 +89,8 @@ class MainActivity : ComponentActivity() {
         var rows by remember { mutableStateOf<List<SaveSlots.SlotRow>?>(null) }
         var saveMessage by remember { mutableStateOf<String?>(null) }
         var summary by remember { mutableStateOf<ResultSummary?>(null) }
+        var importStatus by remember { mutableStateOf<ImportPlan.DataStatus?>(null) }
+        var importResult by remember { mutableStateOf<ImportResult?>(null) }
 
         fun closeGame() {
             controller?.close()
@@ -139,6 +147,11 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Asks the data store (its own thread) for the status of the player's game files.
+        fun refreshImportStatus() {
+            dataStore?.status { st -> main.post { importStatus = st } }
+        }
+
         fun openSaves() {
             saveMessage = null
             rows = null
@@ -169,10 +182,23 @@ class MainActivity : ComponentActivity() {
                         if (auto != null) loadSave(auto.fileName)
                     },
                     onLoad = { openSaves() },
+                    onImport = { importStatus = null; importResult = null; refreshImportStatus(); screen = Screen.Import },
                     onAbout = { screen = Screen.About },
                 )
             }
             Screen.About -> AboutScreen(onBack = { screen = Screen.Home })
+            Screen.Import -> ImportScreen(
+                status = importStatus,
+                progress = null,
+                result = importResult,
+                onCheckAgain = {
+                    dataStore?.checkInPlace { r ->
+                        main.post { importResult = r }
+                        refreshImportStatus()
+                    }
+                },
+                onBack = { screen = Screen.Home },
+            )
             Screen.Setup -> SetupScreen(
                 form = form,
                 presets = Preset.ALL,

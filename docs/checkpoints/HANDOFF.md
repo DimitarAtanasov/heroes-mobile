@@ -96,3 +96,8 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - Landed and verified: `real-report` tool + runbook (docs/runbooks/real-data-check.md; full Python suite 870 OK; a reversed-member-order mutation survived - minor test gap), GameDataCheck (V) and ImportPlan (P) in :presenter ui (presenter suite green, lead mutations caught).
 - Not built yet: slice U (GameDataStore + ImportScreen), lead wiring (Home Import button, drop `File(filesDir, "gamedata")` in MainActivity.kt:54, cross-check SpriteLoader vs ImportPlan name matching), device-test checklist. ImportPlan mutants M22-M26 never ran.
 - Owner next: run `python3 -m h3re real-report <your Data dir> --out report.json` on your machine and send report.json (see the runbook).
+
+## Checkpoint 84 (import UI wired)
+- Slice U (GameDataStore, ImportScreen, ImportText) landed and wired: Home Game data button, Screen.Import, SpriteLoader root only noBackupFilesDir/gamedata. Device runbook: docs/runbooks/device-test.md. Branch `feature/game-data-wiring`; :app verified by CI only.
+- Law 10 mismatch for the owner: android-app.md says allowBackup="false" but the manifest has no such attribute, so files/saves (filesDir) can go to cloud backup. Decide: change the manifest or the spec.
+- Still open: cross-check test that SpriteLoader and ImportPlan agree on name matching; sprites need an app restart after a new import; 3 surviving mutants in GameDataStore (non-atomic manifest write, no fsync, ignored recover failure: need a real crash to test); no Cancel in the import.

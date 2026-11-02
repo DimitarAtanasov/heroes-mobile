@@ -39,6 +39,7 @@ fun HomeScreen(
     onNew: () -> Unit,
     onContinue: () -> Unit,
     onLoad: () -> Unit,
+    onImport: () -> Unit,
     onAbout: () -> Unit,
 ) {
     Page {
@@ -55,6 +56,8 @@ fun HomeScreen(
         OutlinedButton(onClick = onContinue, enabled = model.continueEnabled, modifier = Modifier.fillMaxWidth()) { Text("Continue") }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onLoad, enabled = engineError == null, modifier = Modifier.fillMaxWidth()) { Text("Load game") }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Game data") }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onAbout, modifier = Modifier.fillMaxWidth()) { Text("About") }
     }
