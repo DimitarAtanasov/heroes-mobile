@@ -64,3 +64,40 @@ The other 80 attempts of the variant, the other variants and the golden block ar
   damage, and they are not part of this change (left as committed).
 - Golden hashes: no golden pin in `tools/h3re/tests` moved (battle `fbe9015b...`, and the adventure,
   encounter, hero and town goldens). The golden tests pass unchanged.
+
+## Data pack and content floor (second commit)
+
+Owner decision 2026-11-02, part 3: the creature `dmg_min` floor in the data pack goes from 1 to 0
+(`tools/h3re/h3re/datapack.py`, Kotlin `Datapack.CR_INTS` and `DefaultCreatureValidator` in
+`Content.kt`). `dmg_max` stays 1..10000 and `dmg_min <= dmg_max` stays. Python content validation
+goes through `datapack.py`, so it follows. Generator changes:
+
+- `vectors_pack.py`: the invalid case "dmg_min 0" is now valid, so it is replaced in place by
+  "dmg_min 0 dmg_max 0" (refused by the `dmg_max` floor). A plain "dmg_min -1" was not used: the
+  mutation walker already makes that text, so it would be de-duplicated and shift later indices.
+  The valid "boundary stats" creature (`\U0001F600 Test`) moves from `dmg_min` 1 to 0, the new
+  lower bound, so acceptance of 0 is pinned.
+- `vectors_txt.py`: the content case `err_dmg_min_zero` is renamed `err_dmg_min_zero_ok` (as the
+  existing `err_cost_negative_ok`), because it is now accepted.
+
+### datapack.json
+
+sha256 of the file: `9a7344a3bc368b9c9f369631f126bfe727c4d76e942588e83119c39b608a6894` ->
+`d0eeff8b630a629eb100fc9b28a6968a22227fab0282773a0ba87fcfb5864aea`. Section sizes are unchanged.
+
+| Case | Old | New |
+|---|---|---|
+| `invalid[726..728]`, `[772..774]`, `[824..826]`, `[876..878]` (dmg_min 2147483648 / -1 / 10**30 on creatures 0..3) | message `... out of range 1..10000` | message `... out of range 0..10000` (still refused) |
+| `invalid[910]` | id `creatures: dmg_min 0`, message `creatures[0].dmg_min: 0 out of range 1..10000` | id `creatures: dmg_min 0 dmg_max 0`, message `creatures[0].dmg_max: 0 out of range 1..10000` |
+| `valid[35..37]` (non-ascii names and boundary stats, 3 encodings) | creature `dmg_min` 1, hash `39524dfd...b240` | creature `dmg_min` 0, hash `87424c89...3b27` |
+
+### content.json
+
+sha256 of the file: `976f424d0e0cce66ba4ee5f9b137777520507ce42c60e224c647caaa193f5aa3` ->
+`8daea1e5eb886b35d779a9bf6f9516e965e30f4cdb29387b5b73218982921598`.
+
+| Case | Old | New |
+|---|---|---|
+| `cases[34]` | name `err_dmg_min_zero`, `error: {category: schema, row: 3}` | name `err_dmg_min_zero_ok`, `expect`: Glimmerwisp with `dmg_min` 0, `dmg_max` 5 |
+
+All other vector files are unchanged by this commit.

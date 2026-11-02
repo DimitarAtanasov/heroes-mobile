@@ -17,7 +17,13 @@ Reference implementation: `tools/h3re/h3re/datapack.py` (stdlib only).
   data. Required per creature: `name`, `attack`, `defense`, `dmg_min`,
   `dmg_max`, `hp`, `speed`. Optional: `shots`, boolean flags matching
   `battle.Creature` (`flyer`, `double_wide`, ...), `hates` (list of roster
-  names).
+  names). Ranges: `attack` and `defense` 0..255, `dmg_min` 0..10000,
+  `dmg_max` 1..10000 with `dmg_min <= dmg_max`, `hp` 1..100000, `speed`
+  0..100, `shots` 0..1000. `dmg_min` 0 is a weak unit (owner decision
+  2026-11-02; it was 1..10000 before). Its base roll is 0..`dmg_max` and a
+  hit still deals at least 1 (`battle.md` section 10). The Kotlin
+  `Datapack` and the content loader's `DefaultCreatureValidator` apply the
+  same ranges.
 
 - `data/battle_policy.json`: the `BattlePolicy` defaults (rule choices).
   Keys: `schema_version`, `row_offset`, `edge_columns_walkable`,

@@ -277,7 +277,7 @@ def _content_cases(mapping):
                             ("attack_float", 15, "7.5"), ("hp_hex", 13, "0x10"),
                             ("hp_zero", 13, "0"), ("speed_too_high", 14, "101"),
                             ("attack_negative", 15, "-1"), ("defense_too_high", 16, "256"),
-                            ("dmg_min_zero", 17, "0"), ("shots_too_many", 19, "1001"),
+                            ("dmg_min_zero_ok", 17, "0"), ("shots_too_many", 19, "1001"),
                             ("cost_not_int", 8, "lots"), ("cost_negative_ok", 8, "-3"),
                             ("growth_underscore_edge", 11, "1__0")):
         r2 = list(row)

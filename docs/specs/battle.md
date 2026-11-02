@@ -440,3 +440,6 @@ rule itself is unchanged. The vectors that pinned a refusal of `dmg_min` 0 now p
 
 Old and new values per case, and the file hashes, are in `docs/checkpoints/weak-unit-repin.md`. The
 owner reviews this diff before merge.
+
+Follow-up in the same branch: the data pack and the content loader accept `dmg_min` 0 too
+(`datapack.md`); their vectors (`datapack.json`, `content.json`) are listed in the same report.

@@ -60,7 +60,7 @@ object DefaultCreatureValidator : CreatureValidator {
         fun rng(k: String, v: Long, lo: Long, hi: Long) =
             require(v in lo..hi) { "creatures[0].$k: out of range $lo..$hi" }
         rng("attack", c.attack, 0, 255); rng("defense", c.defense, 0, 255)
-        rng("dmg_min", c.dmgMin, 1, 10000); rng("dmg_max", c.dmgMax, 1, 10000)
+        rng("dmg_min", c.dmgMin, 0, 10000); rng("dmg_max", c.dmgMax, 1, 10000)
         rng("hp", c.hp, 1, 100000); rng("speed", c.speed, 0, 100); rng("shots", c.shots, 0, 1000)
         require(c.dmgMin <= c.dmgMax) { "creatures[0]: dmg_min > dmg_max" }
     }
