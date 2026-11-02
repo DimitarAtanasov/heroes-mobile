@@ -9,7 +9,7 @@ A knowledge graph of the project's code, built by [Graphify](https://github.com/
 | `graph.html` | Interactive graph; open it in a browser |
 | `graph.json` | The full graph for queries |
 
-Indexed at commit `419b3ab`: 183 code files, 3,582 nodes, 8,367 edges, 211 communities (93% edges read directly
+Indexed at commit `67ae9b8`: 183 code files, 3,582 nodes, 8,367 edges, 211 communities (93% edges read directly
 from the source, 7% inferred). Generated conformance vectors are excluded because they are data.
 
 ## Query it

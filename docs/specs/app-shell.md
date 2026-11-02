@@ -79,3 +79,6 @@ card, accessibility.
 
 ## Menu and setup logic (h3.presenter.ui, slice A)
 Pure logic in `:presenter`. Routes Home, Setup, Battle, Result, About. Legal edges: Home to Setup/About; Home to Battle only while an autosave exists (Continue); Setup to Battle; Battle to Result; Result to Setup. Back from any non-Home screen lands on Home; entering Battle drops Setup from the stack. Setup seed: ASCII digits only, 0..2^63-1, one error code per field; preset index default 0, preset count supplied by the app. These rules were chosen by the producer and await owner sign-off.
+
+## App screens (Compose, loop app-screens)
+Home shows New skirmish, Continue (enabled iff a usable autosave exists, MenuModel.continueEnabled), Load game (opens the save list) and About. Setup shows the preset list and a seed field; errors come from SetupForm via MenuText.setupFormMessage; Start is enabled only while SetupForm.isValid. The battle screen shows the board (sprites from the player's own data via the atlas when loaded, otherwise token plus letter), a roster with turn order, a round-grouped log, Wait, Defend, Save and Quit. Saves: autosave after every accepted command, manual saves, and a list from which the player picks an exact save; no import or export. All file I/O runs on the SaveFolderWriter thread. Provisional: sprite loading is not wired yet (sprites = null).

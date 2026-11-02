@@ -1,7 +1,10 @@
 package h3.app
 
+import h3.presenter.AutosaveSink
 import h3.presenter.BattleSession
 import h3.presenter.Origin
+import h3.presenter.ReplayResume
+import h3.presenter.Resumed
 import h3.presenter.Snapshot
 import h3.presenter.SubmitResult
 import h3.presenter.TapEvent
@@ -12,6 +15,8 @@ import h3.sim.BattleEvent
 import h3.sim.BattleState
 import h3.sim.Hex
 import h3.sim.HexCell
+import h3.presenter.ui.BattleLog
+import h3.sim.Replay
 import h3.sim.legalCommands
 import java.math.BigInteger
 
@@ -32,6 +37,8 @@ data class GameUi(
     val fault: String?,
     val stalled: Boolean,
     val recent: List<String>,
+    /** The capped battle log (see BattleLog); screens group it by round. */
+    val log: BattleLog,
 )
 
 /**
@@ -43,20 +50,26 @@ data class GameUi(
  */
 class GameController(
     private val engine: AppEngine,
-    initial: BattleState,
-    masterSeed: BigInteger,
+    /** The state the battle started from; the result screen compares it with the final state. */
+    val initialState: BattleState,
+    /** Canonical scenario JSON, needed to write replay (save) files. */
+    private val scenarioJson: String,
+    private val masterSeed: BigInteger,
+    /** Autosave after every accepted command (a ReplayAutosave), or null for none. */
+    autosave: AutosaveSink?,
     private val onChange: (GameUi) -> Unit,
 ) {
     private val worker = BattleSession.newWorker()
     private val session = BattleSession(
-        engine.battle, engine.codec, engine.ai, initial, masterSeed,
-        setOf(Hex.ATTACKER), worker, MAX_AI_COMMANDS,
+        engine.battle, engine.codec, engine.ai, initialState, masterSeed,
+        setOf(Hex.ATTACKER), worker, MAX_AI_COMMANDS, autosave,
     )
     private val reducer = TapReducer(engine.battle)
     private val lock = Any()
     private var tap: TapState = TapState.Idle
     private var message: String? = null
     private var recent: List<String> = emptyList()
+    private var battleLog: BattleLog = BattleLog.empty()
 
     init {
         session.addListener { snap -> onSnapshot(snap) }
@@ -66,6 +79,15 @@ class GameController(
     fun start() {
         session.start()
     }
+
+    /** Resumes from a verified save instead of [start]: feeds the whole log to the fresh session. */
+    fun resume(resumed: Resumed, reply: (h3.presenter.SubmitResult) -> Unit = {}) {
+        ReplayResume.into(session, resumed, reply)
+    }
+
+    /** The replay file bytes of the game so far (for a manual save). Safe to call from any thread. */
+    fun replayBytes(): ByteArray =
+        Replay.record(scenarioJson, session.log().map { it.command }, masterSeed, engine.packs)
 
     /** The newest view, safe to call from any thread. */
     fun current(): GameUi = synchronized(lock) { build(session.latest()) }
@@ -82,6 +104,7 @@ class GameController(
             message = null
             val lines = snap.events.map { describe(it) }
             if (lines.isNotEmpty()) recent = (lines + recent).take(MAX_RECENT)
+            battleLog = battleLog.add(snap.state, snap.events)
             build(snap)
         }
         onChange(ui)
@@ -200,7 +223,7 @@ class GameController(
         }
         return GameUi(
             snap.seq, st, snap.stateHash, tap, human, moves, targets, canWait, canDefend,
-            message, snap.fault ?: session.fault(), session.isStalled(), recent,
+            message, snap.fault ?: session.fault(), session.isStalled(), recent, battleLog,
         )
     }
 
