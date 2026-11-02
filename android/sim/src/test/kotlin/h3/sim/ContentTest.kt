@@ -53,6 +53,21 @@ class ContentTest {
         assertTrue(ok >= 15 && bad >= 15, "ok=$ok bad=$bad")
     }
 
+    /** Same synthetic fixture as test_content.py test_creature_rows_data_row_index. */
+    @Test
+    fun creatureRowsDataRowIndex() {
+        fun row(name: String): List<String> =
+            listOf(name, "Xs") + List(6) { "0" } + listOf("100") +
+                listOf(50, 60, 7, 0, 10, 4, 5, 4, 1, 3, 0, 0, 1, 5).map { it.toString() } +
+                listOf("long text", "")
+        val head = listOf(listOf("Creature table"), listOf("Singular", "Plural", "Wood", "Mercury"))
+        val rows = listOf(row("Zork"), listOf(""), row("Blip"), listOf("", "x"), row("Mump"))
+        val text = (head + rows).joinToString("\r\n", postfix = "\r\n") { it.joinToString("\t") }
+        val r = Content.parseCreatures(text.toByteArray(Charsets.ISO_8859_1), mapping)
+        assertEquals(mapOf("Zork" to 0, "Blip" to 1, "Mump" to 2), r.creatureRows)
+        assertEquals(listOf("Blip", "Mump", "Zork"), r.creatures.map { it.name })
+    }
+
     @Test
     fun mappingRejectsUnknownFlagAndVersion() {
         @Suppress("UNCHECKED_CAST")
