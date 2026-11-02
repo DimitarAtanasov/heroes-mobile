@@ -203,6 +203,7 @@ class AdventureTest {
     fun policyCasesMatchPythonVerdictAndMessage() {
         val pcs = doc["policy_cases"].list().map { it.obj() }
         assertTrue(pcs.size >= 30)
+        assertTrue(pcs.count { (it["name"] as String).startsWith("enum-") } >= 120)
         assertTrue(pcs.any { it["error"] == null } && pcs.any { it["error"] != null })
         val failures = ArrayList<String>()
         for (pc in pcs) {
@@ -253,6 +254,45 @@ class AdventureTest {
         assertEquals("diagonal_moves must be a bool", msg("zero_remainder" to BigInteger.ONE, "diagonal_moves" to null, "income_on_first_day" to "x"))
         assertEquals("income_on_first_day must be a bool", msg("income_on_first_day" to BigInteger.ONE, "diagonal_num" to true, "move_cost_floor" to BigInteger.ZERO))
         assertEquals("bad cost_from", msg("cost_from" to "both", "diagonal_num" to true))
+    }
+
+    @Test
+    fun stringEnumPolicyFieldsAreRefusedWithPythonsMessageAndOrder() {
+        val base = doc["policies"].obj().getValue("default").obj()
+        fun msg(vararg kv: Pair<String, Any?>) = assertFailsWith<IllegalArgumentException> { codec.policyFrom(base + kv) }.message
+        // The seven string-enum fields in Python's check order (literals); a JSON list is a tuple in the message.
+        val fields = listOf("cost_from", "road_rate_from", "diagonal_mode", "pathfinding_mode", "last_step", "diagonal_rounding", "pathfinding_rounding")
+        val values = listOf<Pair<Any?, String>>(
+            null to "None", BigInteger.valueOf(5) to "5", true to "True", false to "False", emptyList<Any?>() to "()",
+            listOf(BigInteger.ONE) to "(1,)", emptyMap<String, Any?>() to "{}", "bogus" to "'bogus'", "it's" to "\"it's\"",
+            "Floor" to "'Floor'", "" to "''", java.lang.Double.valueOf("5") to "5.0", BigInteger.TWO.pow(70) to "1180591620717411303424",
+        )
+        for (f in fields) for ((v, rep) in values) {
+            val want = if (f.endsWith("rounding")) "bad rounding mode $rep" else "bad $f"
+            assertEquals(want, msg(f to v), "$f $v")
+        }
+        // Accepted values still pass.
+        for ((f, ok) in listOf("cost_from" to "dest", "road_rate_from" to "max", "diagonal_mode" to "ratio", "pathfinding_mode" to "percent",
+            "last_step" to "allow_if_fresh", "diagonal_rounding" to "nearest", "pathfinding_rounding" to "ceil")) {
+            assertEquals(null, runCatching { codec.policyFrom(base + (f to ok)) }.exceptionOrNull()?.message, f)
+        }
+        // Order: field order of __post_init__, whatever the kind of fault or the order the map holds the keys.
+        for ((i, a) in fields.withIndex()) for (b in fields.drop(i + 1)) {
+            val wantRep = if (a.endsWith("rounding")) "bad rounding mode None" else "bad $a"
+            assertEquals(wantRep, msg(b to BigInteger.valueOf(5), a to null), "$a before $b")
+            assertEquals(wantRep.replace("None", "'x'"), msg(b to null, a to "x"), "$a before $b (unknown)")
+        }
+        // Flags first; then strings and integer checks interleave as in __post_init__.
+        for (f in fields) assertEquals("zero_remainder must be a bool", msg(f to null, "zero_remainder" to BigInteger.ONE), f)
+        val flat = "pathfinding_flat needs 4 ints in 0..10000"
+        assertEquals("bad pathfinding_mode", msg("pathfinding_mode" to null, "pathfinding_flat" to listOf(BigInteger.ZERO, true, BigInteger.TWO, BigInteger.TEN)))
+        assertEquals(flat, msg("last_step" to null, "pathfinding_flat" to listOf(BigInteger.ZERO, true, BigInteger.TWO, BigInteger.TEN)))
+        assertEquals("move_cost_floor needs an int in 1..10000", msg("last_step" to null, "move_cost_floor" to true))
+        assertEquals("bad last_step", msg("diagonal_rounding" to null, "last_step" to BigInteger.ONE))
+        assertEquals("bad rounding mode None", msg("diagonal_rounding" to null, "diagonal_num" to true))
+        assertEquals("bad rounding mode {}", msg("pathfinding_rounding" to emptyMap<String, Any?>(), "diagonal_den" to BigInteger.ZERO))
+        assertEquals("bad rounding mode 'x'", msg("diagonal_rounding" to "x", "pathfinding_pct" to listOf(BigInteger.ZERO, BigInteger.valueOf(101), BigInteger.ZERO, BigInteger.ZERO)))
+        assertEquals("bad rounding mode True", msg("pathfinding_rounding" to true, "road_cost" to listOf(listOf("cobblestone", BigInteger.ZERO), listOf("dirt", BigInteger.TEN), listOf("gravel", BigInteger.TEN))))
     }
 
     @Test

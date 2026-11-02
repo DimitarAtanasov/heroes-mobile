@@ -115,6 +115,75 @@ class TestAdventureVectors(unittest.TestCase):
         self.assertEqual(pc["order-flag-before-int"]["error"],
                          "income_on_first_day must be a bool")
 
+    # Every string-enum policy field, in __post_init__'s check order (literals, not the generator's
+    # own tuple, so a field dropped from both is caught below by the dataclass scan).
+    ENUM_ORDER = ("cost_from", "road_rate_from", "diagonal_mode", "pathfinding_mode", "last_step",
+                  "diagonal_rounding", "pathfinding_rounding")
+    ENUM_BAD = {"null": "None", "int": "5", "true": "True", "list": "()", "dict": "{}",
+                "unknown": "'bogus'"}
+
+    def test_enum_fields_are_every_str_policy_field(self):
+        import dataclasses
+        strs = [f.name for f in dataclasses.fields(A.AdventurePolicy) if isinstance(f.default, str)]
+        self.assertEqual(sorted(strs), sorted(self.ENUM_ORDER))
+        self.assertEqual([f for f, _ in VA.ENUM_FIELDS], list(self.ENUM_ORDER))
+
+    def test_policy_cases_cover_string_enums(self):
+        pc = {c["name"]: c for c in self.doc["policy_cases"]}
+        for f in self.ENUM_ORDER:
+            for kind, rep in self.ENUM_BAD.items():
+                want = ("bad rounding mode " + rep) if f.endswith("rounding") else "bad " + f
+                self.assertEqual(pc["enum-%s-%s" % (f, kind)]["error"], want, (f, kind))
+        oks = [n for n in pc if n.startswith("enum-ok-")]
+        self.assertEqual(len(oks), 18)   # 2 + 3 + 2 + 2 + 3 + 3 + 3 accepted values
+        self.assertTrue(all(pc[n]["error"] is None for n in oks))
+        # repr of the offending value is Python's (quotes, escapes, a tuple for a JSON list).
+        self.assertEqual(pc["enum-repr-diagonal_rounding-0"]["error"], 'bad rounding mode "it\'s"')
+        self.assertEqual(pc["enum-repr-pathfinding_rounding-2"]["error"],
+                         'bad rounding mode \'both \\\' and "\'')
+        self.assertEqual(pc["enum-repr-diagonal_rounding-3"]["error"],
+                         "bad rounding mode 'tab\\there'")
+        self.assertEqual(pc["enum-repr-diagonal_rounding-8"]["error"], "bad rounding mode (1,)")
+        self.assertEqual(pc["enum-repr-diagonal_rounding-9"]["error"],
+                         "bad rounding mode ([1], 'a')")
+        self.assertEqual(pc["enum-repr-pathfinding_rounding-11"]["error"],
+                         "bad rounding mode 1180591620717411303424")
+
+    def test_policy_cases_pin_string_enum_order(self):
+        pc = {c["name"]: c for c in self.doc["policy_cases"]}
+        # Adjacent fields in check order, whatever the kind of fault.
+        for a, b in zip(self.ENUM_ORDER, self.ENUM_ORDER[1:]):
+            for suffix, wantrep in (("", "None"), ("-unknown", "'x'"), ("-late", "5")):
+                want = ("bad rounding mode " + wantrep) if a.endswith("rounding") else "bad " + a
+                self.assertEqual(pc["enum-order-%s-before-%s%s" % (a, b, suffix)]["error"], want)
+        self.assertEqual(pc["enum-order-first-before-last"]["error"], "bad cost_from")
+        # Flags first, then the interleaving of string and integer checks of __post_init__.
+        for f in self.ENUM_ORDER:
+            self.assertEqual(pc["enum-order-flag-before-%s" % f]["error"],
+                             "zero_remainder must be a bool")
+        flat = "pathfinding_flat needs 4 ints in 0..10000"
+        floor = "move_cost_floor needs an int in 1..10000"
+        for name, want in (
+                ("pathfinding_mode-before-flat", "bad pathfinding_mode"),
+                ("flat-before-last_step", flat), ("flat-short-before-last_step", flat),
+                ("floor-before-last_step", floor), ("floor-bool-before-last_step", floor),
+                ("last_step-before-rounding", "bad last_step"),
+                ("rounding-before-diagonal-num", "bad rounding mode None"),
+                ("pf-rounding-before-diagonal-den", "bad rounding mode {}"),
+                ("rounding-before-pct", "bad rounding mode 'x'"),
+                ("pf-rounding-before-road", "bad rounding mode True")):
+            self.assertEqual(pc["enum-order-" + name]["error"], want, name)
+        self.assertEqual(pc["enum-last_step-ok-then-diagonal-num"]["error"],
+                         "diagonal_num and diagonal_den need ints in 1..10000")
+        # An order case is only an order case while it carries two faults (the later one is ignored).
+        default = VA._policy_json()
+        for n, c in pc.items():
+            if n.startswith("enum-order-"):
+                differs = [k for k in default if json.dumps(c["policy"][k]) != json.dumps(default[k])]
+                self.assertGreaterEqual(len(differs), 2, n)
+        short = pc["enum-order-flat-short-before-last_step"]["policy"]
+        self.assertEqual(len([k for k in default if json.dumps(short[k]) != json.dumps(default[k])]), 2)
+
     def test_edge_day_cases_pass_int_and_reach_long_max(self):
         edge = {n: c for n, c in self.cases.items() if c["kind"] == "edge"}
         self.assertEqual(set(edge), {"edge-day-int-max", "edge-day-int-max-week",
