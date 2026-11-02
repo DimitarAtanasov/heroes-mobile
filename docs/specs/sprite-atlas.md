@@ -57,6 +57,40 @@ frame before packing (default 1, so the output is unchanged unless asked). The a
 `SpriteLoader.SPRITE_SCALE = 2`. Scaling multiplies the atlas by `k*k`, so the 96 MiB budget still
 applies and an over-budget atlas is reported as `OVER_BUDGET`, not partially loaded.
 
+## Creature sprite table (0.2)
+
+The loader side of android-app.md section 14 Q2 option (a): a creature-to-DEF table the owner writes,
+each entry citing its source (ADR-0003). The repo ships no entries; `data/sprite_map.json` does not
+exist until the owner supplies it. Parser: `SpriteTable.parse(text)` in `:presenter`
+(`.../ui/SpriteTable.kt`); it is pure (the caller reads the file) and nothing in `:app` calls it yet.
+
+```json
+{
+  "schema_version": 1,
+  "entries": [
+    { "creature": "<name as in creatures.json>", "def": "<MEMBER>.DEF", "source": "<citation>" }
+  ]
+}
+```
+
+- Keys are exactly `schema_version` and `entries` at the top, and `creature`, `def`, `source` per
+  entry; anything missing, unknown or of the wrong type is `BAD_SHAPE`.
+- `schema_version` is the integer 1; any other value is `BAD_SCHEMA_VERSION`.
+- `creature` is a non-empty name (`EMPTY_CREATURE`), matched exactly and case-sensitively, as
+  `SpriteLoadPlan.defFor` does. A second entry for the same name is `DUPLICATE_CREATURE`.
+- `def` is a bare archive member name that ends in `.DEF` (exact case) with a stem. A `/` or `\` is
+  `DEF_HAS_PATH`; anything else wrong is `BAD_DEF_NAME`. Whether the member exists is not checked
+  here: `SpriteLoadPlan` reports `MISSING_DEF` at load time.
+- `source` is required and must not be empty or only whitespace (`MISSING_SOURCE`). It states where
+  the owner learned the fact, in the owner's words (ADR-0003). It is validated, not kept in the table.
+- Text is read with the strict data-pack reader (`PackJson`, made public in `:sim` for this): integers
+  only, duplicate object keys rejected. Invalid JSON, floats and duplicate keys are `INVALID_JSON`.
+- The result is all or nothing. `SpriteTableResult.Ok(table)` holds `Map<String, String>` in file
+  order, usable as `SpriteLoadPlan.load(table = ...)`. `Failed(errors)` lists every entry error in
+  file order; structural errors (JSON, top-level shape, version) stop before any entry is read. It never throws.
+- Open: the Q2 note keys the real mapping by `CRTRAITS.TXT` row, not by name. This format keys by name
+  (what `defFor` takes today); a row key would be a schema version 2.
+
 ## Memory (4.5)
 
 `Atlas.bytes()` = sum of `width*height*4` over pages (masks add 1 byte per pixel,
