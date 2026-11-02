@@ -8,6 +8,7 @@ Decision:
 - In the Kotlin engine, a pack integer (any integer read from `data/*.json`) is a 32-bit `Int` with the accepted range 0 to 2**31-1 inclusive. Python's `datapack.MAX_INT` is the same value, so both sides refuse the same packs.
 - Intermediate sums in state hashing (byte counts and totals of canonical JSON) and experience accumulation use `Long` (64-bit). A value that the state stores as a pack integer stays within `Int`; a value that is only a running sum does not.
 - Amendment (owner decision, 2026-11-02): the creature `dmg_min` floor is 0, not 1, because real CRTRAITS rows have minimum damage 0. The upper bound 10000 and `dmg_min <= dmg_max` are unchanged, in both Python (`datapack._check_creatures`) and Kotlin (`Datapack.CR_INTS`, `DefaultCreatureValidator`).
+- Amendment (owner decision, 2026-11-02): for CRTRAITS loading only, the creature `dmg_max` floor is 0 (`content.py` passes `dmg_max_floor=0` to `datapack._check_creatures`; Kotlin `DefaultCreatureValidator`); `creatures.json` (`Datapack.CR_INTS`) keeps 1, and `dmg_min <= dmg_max` and the upper bound 10000 are unchanged.
 - A value outside the range fails the pack load on both sides. Nothing is clamped.
 - The change of `MAX_INT` from `1 << 31` to `(1 << 31) - 1` is a validation-bound change only. It moves no pinned hash, because no pinned pack holds the value 2**31.
 

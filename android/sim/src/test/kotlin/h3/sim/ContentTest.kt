@@ -68,6 +68,46 @@ class ContentTest {
         assertEquals(listOf("Blip", "Mump", "Zork"), r.creatures.map { it.name })
     }
 
+    /** Same synthetic fixture as test_content.py test_zero_damage_row_kept_index_counts_no_fixed_damage. */
+    @Test
+    fun zeroDamageRowKeptIndexCountsNoFixedDamage() {
+        fun row(name: String, lo: Int, hi: Int): List<String> =
+            listOf(name, "Xs") + List(6) { "0" } + listOf("100") +
+                listOf(50, 60, 7, 0, 10, 4, 5, 4, lo, hi, 0, 0, 1, 5).map { it.toString() } +
+                listOf("long text", "")
+        val head = listOf(listOf("Creature table"), listOf("Singular", "Plural", "Wood", "Mercury"))
+        val rows = listOf(row("Zork", 1, 3), listOf(""), row("Wisp", 0, 0), listOf("", "x"), row("Mump", 2, 4))
+        val text = (head + rows).joinToString("\r\n", postfix = "\r\n") { it.joinToString("\t") }
+        val r = Content.parseCreatures(text.toByteArray(Charsets.ISO_8859_1), mapping)
+        assertEquals(mapOf("Zork" to 0, "Wisp" to 1, "Mump" to 2), r.creatureRows)
+        assertEquals(setOf("Wisp"), r.noFixedDamage)
+        assertEquals(listOf("Mump", "Wisp", "Zork"), r.creatures.map { it.name })
+    }
+
+    @Test
+    fun dmgMaxFloorIsZeroOnlyForNoFixedDamage() {
+        // Owner decision 2026-11-02: CRTRAITS dmg_max floor is 0, only for dmg 0/0 (no fixed
+        // damage). dmg_min >= 1 with dmg_max 0 stays refused until the owner picks a form for it.
+        fun cr(lo: Long, hi: Long) = Creature("Zork", 10, 4, 5, 4, lo, hi, 0, emptySet())
+        DefaultCreatureValidator.validate(cr(0, 0))
+        for ((lo, hi) in listOf(-1L to 3L, 5L to 4L, 1L to 0L, 3L to 10001L, 10001L to 10001L)) {
+            assertFailsWith<IllegalArgumentException>("$lo..$hi") { DefaultCreatureValidator.validate(cr(lo, hi)) }
+        }
+    }
+
+    /** Twin of test_content.py test_no_fixed_damage_creature_refused_by_battle: battle rules unchanged. */
+    @Test
+    fun noFixedDamageCreatureRefusedByBattle() {
+        for ((lo, hi) in listOf(0 to 0, 1 to 0, 0 to 3)) {
+            val sc = """{"battle_id":"t","attackers":[{"creature":"w","count":5}],
+                "defenders":[{"creature":"z","count":5}],
+                "creatures":{"w":{"attack":1,"defense":1,"dmg_min":$lo,"dmg_max":$hi,"hp":5,"speed":3},
+                "z":{"attack":1,"defense":1,"dmg_min":1,"dmg_max":2,"hp":5,"speed":3}}}"""
+            val e = assertFailsWith<ScenarioError>("$lo..$hi") { Scenario.parse(sc, ReplayVectors.packs) }
+            assertEquals("scenario: invalid damage range", e.message)
+        }
+    }
+
     @Test
     fun mappingRejectsUnknownFlagAndVersion() {
         @Suppress("UNCHECKED_CAST")

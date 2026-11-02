@@ -68,6 +68,55 @@ class ContentTests(unittest.TestCase):
             with self.assertRaises(ContentError, msg=(lo, hi)):
                 parse_creatures(build([row("Zork", lo=lo, hi=hi)]))
 
+    def test_dmg_max_bounds(self):
+        # Owner decision 2026-11-02: CRTRAITS dmg_max floor is 0, only for dmg 0/0 (no fixed
+        # damage). dmg_min >= 1 with dmg_max 0 stays refused until the owner picks a form for it.
+        res = parse_creatures(build([row("Zork", lo=0, hi=0)]))
+        self.assertEqual((res.creatures[0]["dmg_min"], res.creatures[0]["dmg_max"]), (0, 0))
+        for lo, hi in ((-1, 3), (5, 4), (1, 0), (3, 10001), (10001, 10001)):
+            with self.assertRaises(ContentError, msg=(lo, hi)):
+                parse_creatures(build([row("Zork", lo=lo, hi=hi)]))
+
+    def test_pack_creatures_keep_dmg_max_floor_one(self):
+        # The creatures.json pack floor is unchanged; only the CRTRAITS loader passes 0.
+        c = {"name": "Zork", "attack": 1, "defense": 1, "dmg_min": 0, "dmg_max": 0, "hp": 5,
+             "speed": 3}
+        with self.assertRaises(datapack.DataPackError):
+            datapack._check_creatures({"schema_version": 1, "creatures": [c]})
+
+    def test_zero_damage_row_kept_index_counts_no_fixed_damage(self):
+        # Same fixture as ContentTest.zeroDamageRowKeptIndexCountsNoFixedDamage.
+        res = parse_creatures(build([
+            row("Zork", lo=1, hi=3), [""], row("Wisp", lo=0, hi=0), ["", "x"],
+            row("Mump", lo=2, hi=4)]))
+        self.assertEqual(res.creature_rows, {"Zork": 0, "Wisp": 1, "Mump": 2})
+        self.assertEqual(res.no_fixed_damage, frozenset({"Wisp"}))
+        self.assertEqual([c["name"] for c in res.creatures], ["Mump", "Wisp", "Zork"])
+
+    def test_no_fixed_damage_creature_refused_by_battle(self):
+        # Battle rules are unchanged: dmg_min 0 or dmg_max 0 never reaches a battle state.
+        from h3re import battle as B
+        from h3re.battle_cli import CliError, parse_scenario
+        # Case A (dmg_min 0, dmg_max > 0) loads but is refused here too (owner question).
+        res = parse_creatures(build([row("Wisp", lo=0, hi=0), row("Weak", lo=0, hi=2),
+                                     row("Zork")]))
+        by = {c["name"]: datapack._build(c) for c in res.creatures}
+        zork = by["Zork"]
+        pairs = [(x, zork) for x in (by["Wisp"], by["Weak"])]
+        for a, d in pairs + [(d, a) for a, d in pairs]:
+            with self.assertRaisesRegex(ValueError, "^invalid damage range$"):
+                B.create_battle("t", [B.StackSetup(a, 5)], [B.StackSetup(d, 5)])
+        for lo, hi in ((0, 0), (1, 0), (0, 3)):
+            sc = {"battle_id": "t", "attackers": [{"creature": "w", "count": 5}],
+                  "defenders": [{"creature": "z", "count": 5}],
+                  "creatures": {"w": {"attack": 1, "defense": 1, "dmg_min": lo, "dmg_max": hi,
+                                      "hp": 5, "speed": 3},
+                                "z": {"attack": 1, "defense": 1, "dmg_min": 1, "dmg_max": 2,
+                                      "hp": 5, "speed": 3}}}
+            with self.assertRaises(CliError) as cm:
+                parse_scenario(sc)
+            self.assertEqual(str(cm.exception), "scenario: invalid damage range")
+
     def test_blank_rows_skipped(self):
         res = parse_creatures(build([[""], row("Zork"), ["", "x"]]))
         self.assertEqual(len(res.creatures), 1)
@@ -151,6 +200,9 @@ class RealCrtraitsTest(unittest.TestCase):
         for c in res.creatures:
             self.assertGreaterEqual(c["hp"], 1)
             self.assertLessEqual(c["dmg_min"], c["dmg_max"])
+        self.assertEqual(sorted(res.creature_rows.values()), list(range(len(res.creatures))))
+        self.assertEqual(res.no_fixed_damage,
+                         frozenset(c["name"] for c in res.creatures if c["dmg_max"] == 0))
         # unknown abilities are reported, not fatal; assert only the count is a number
         self.assertGreaterEqual(len(res.unknown), 0)
 

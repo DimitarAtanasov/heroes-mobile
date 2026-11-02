@@ -60,7 +60,7 @@ object DefaultCreatureValidator : CreatureValidator {
         fun rng(k: String, v: Long, lo: Long, hi: Long) =
             require(v in lo..hi) { "creatures[0].$k: out of range $lo..$hi" }
         rng("attack", c.attack, 0, 255); rng("defense", c.defense, 0, 255)
-        rng("dmg_min", c.dmgMin, 0, 10000); rng("dmg_max", c.dmgMax, 1, 10000)
+        rng("dmg_min", c.dmgMin, 0, 10000); rng("dmg_max", c.dmgMax, 0, 10000)
         rng("hp", c.hp, 1, 100000); rng("speed", c.speed, 0, 100); rng("shots", c.shots, 0, 1000)
         require(c.dmgMin <= c.dmgMax) { "creatures[0]: dmg_min > dmg_max" }
     }
@@ -129,6 +129,11 @@ class ContentResult(
      * empty-name rows not counted), in file order. Side map for sprite lookup; not part of any hash.
      */
     val creatureRows: Map<String, Int> = emptyMap(),
+    /**
+     * Names of accepted creatures with dmg 0/0 (case C): no fixed damage (the attack comes from an
+     * ability). Side set, not part of any hash; battle creation still refuses them (dmg_min >= 1).
+     */
+    val noFixedDamage: Set<String> = emptySet(),
 )
 
 object Content {
@@ -219,6 +224,7 @@ object Content {
         val extras = LinkedHashMap<String, Map<String, Any>>()
         val rowNo = HashMap<String, Int>()
         val creatureRows = LinkedHashMap<String, Int>()
+        val noFixedDamage = LinkedHashSet<String>()
         val unknown = ArrayList<UnknownAbility>()
         for ((i, row) in t.rows.withIndex()) {
             val r = i + 1 + mapping.headerRows
@@ -279,9 +285,10 @@ object Content {
             extras[name] = ex
             rowNo[name] = r
             creatureRows[name] = records.size
+            if (rec.dmgMax == 0L) noFixedDamage.add(name)
             records.add(rec)
         }
         if (records.isEmpty()) throw ContentError(ContentErrorCategory.NO_ROWS, null, null, "table: no creature rows")
-        return ContentResult(records.sortedBy { it.name }, extras, unknown, creatureRows)
+        return ContentResult(records.sortedBy { it.name }, extras, unknown, creatureRows, noFixedDamage)
     }
 }
