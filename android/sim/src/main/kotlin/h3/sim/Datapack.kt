@@ -314,7 +314,7 @@ class Datapack(val rules: RulesDoc, val policy: PolicyDoc, val creatures: Creatu
 }
 
 /** Strict JSON reader for packs: integers as BigInteger, floats and duplicate keys rejected (Python `_loads`). */
-internal object PackJson {
+object PackJson {
     /** Unicode code point order (Python str ordering). */
     val codePointOrder = Comparator<String> { a, b ->
         var i = 0
