@@ -370,7 +370,15 @@ def _base_damage_vectors():
         if not script.finished():
             raise AssertionError("base_damage left scripted rolls unused")
         out.append({"count": count, "dmg_min": lo, "dmg_max": hi, "rolls": rolls, "out": val})
-    for count, lo, hi in ((5, 0, 3), (5, 4, 3), (1, -1, 1)):
+    # Weak unit (owner decision 2026-11-02): dmg_min 0 is a valid range, so this former error
+    # case is a real roll. The fixed script hits both ends of 0..3, including zero rolls.
+    rolls = [0, 3, 1, 0, 2]
+    script = _Scripted(rolls)
+    val = R.base_damage(5, 0, 3, script)
+    if not script.finished():
+        raise AssertionError("base_damage left scripted rolls unused")
+    out.append({"count": 5, "dmg_min": 0, "dmg_max": 3, "rolls": rolls, "out": val})
+    for count, lo, hi in ((5, 4, 3), (1, -1, 1)):
         if not _raises_value_error(lambda: R.base_damage(count, lo, hi, _Scripted([]))):
             raise AssertionError("expected ValueError for base_damage(%d, %d, %d)" % (count, lo, hi))
         out.append({"count": count, "dmg_min": lo, "dmg_max": hi, "rolls": [], "error": True})
@@ -446,9 +454,15 @@ def _resolve_vectors(contexts):
             r = R.resolve_damage(c, pol)
             out.append({"ctx": _ctx_json(c), "policy": pol.name, "damage": r.damage,
                         "lucky": r.lucky, "unlucky": r.unlucky})
+    # Weak unit (owner decision 2026-11-02): dmg_min 0 is valid, so this former error context
+    # now resolves; it keeps its place ahead of the error contexts.
+    weak = R.DamageCtx(count=3, dmg_min=0, dmg_max=2, attack=0, defense=0)
+    for pol in _DET_POLICIES:
+        r = R.resolve_damage(weak, pol)
+        out.append({"ctx": _ctx_json(weak), "policy": pol.name, "damage": r.damage,
+                    "lucky": r.lucky, "unlucky": r.unlucky})
     # Errors raised by the same checks on the deterministic policies.
     err_ctx = [
-        R.DamageCtx(count=3, dmg_min=0, dmg_max=2, attack=0, defense=0),
         R.DamageCtx(count=5, dmg_min=4, dmg_max=3, attack=0, defense=0),
         R.DamageCtx(count=2, dmg_min=1, dmg_max=2, attack=0, defense=0, offense=4),
         R.DamageCtx(count=2, dmg_min=1, dmg_max=2, attack=0, defense=0, ranged=True,
@@ -479,8 +493,16 @@ def _resolve_seeded_vectors(contexts):
         r = R.resolve_damage(c, R.RollPolicy.ACTUAL_SEED, g)
         out.append({"ctx": _ctx_json(c), "seed": seed, "seq": seq, "damage": r.damage,
                     "lucky": r.lucky, "unlucky": r.unlucky, "state_after": g.state})
-    # Seeded error: the stack has no damage range, so base_damage refuses after the luck draws.
-    bad = R.DamageCtx(count=3, dmg_min=0, dmg_max=2, attack=0, defense=0, luck=2)
+    # Weak unit (owner decision 2026-11-02): this former seeded error case (dmg_min 0) now
+    # resolves; seed 1, seq 0 drive the luck draw and the 0..2 base rolls.
+    weak = R.DamageCtx(count=3, dmg_min=0, dmg_max=2, attack=0, defense=0, luck=2)
+    g = Pcg32(1, 0)
+    r = R.resolve_damage(weak, R.RollPolicy.ACTUAL_SEED, g)
+    out.append({"ctx": _ctx_json(weak), "seed": 1, "seq": 0, "damage": r.damage,
+                "lucky": r.lucky, "unlucky": r.unlucky, "state_after": g.state})
+    # Seeded error, kept so a refused range stays pinned under ACTUAL_SEED: the range is
+    # inverted (dmg_min > dmg_max).
+    bad = R.DamageCtx(count=3, dmg_min=3, dmg_max=2, attack=0, defense=0, luck=2)
     if not _raises_value_error(lambda: R.resolve_damage(bad, R.RollPolicy.ACTUAL_SEED,
                                                        Pcg32(1, 0))):
         raise AssertionError("expected ValueError for seeded resolve")
