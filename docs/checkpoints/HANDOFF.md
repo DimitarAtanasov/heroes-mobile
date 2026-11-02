@@ -72,3 +72,9 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 ## Checkpoint 77
 - 76: encounter + adventure stage E (Attack via AdventureEncounterHooks). 77: town core. All sim modules (battle, adventure, encounter, town, hero, h3m) now have Kotlin ports with conformance vectors; goldens unchanged.
 - Remaining: dedupe create_battle (Scenario.kt private copy in Encounter.kt); real-data tests (H3_DATA_DIR); app UI beyond shell; owner decisions listed earlier.
+
+## Checkpoint 81 (2026-11-02)
+- PR #3 merged (checkpoints 65-80). PR #4 (`feature/app-screens`) open: Compose screens wired; android-app builds the APK; no device test yet.
+- In flight (agents, not committed): sprite loader (SpriteLoadPlan + SpriteLoader.kt; lead wires MainActivity sprites) and parity cleanup (bool policy fields, EndTurn max day, create_battle dedupe).
+- Next: verify both in clean copies, commit on separate branches or PR #4 as appropriate; device smoke test by the owner; creature-to-DEF mapping decision (G3); real game data (`H3_DATA_DIR`).
+- Owner decisions still open: bad-morale (24,24,24); ADR-0008/0012 acceptance and the new policy bounds; app-shell navigation defaults; broken-main-save overwrite rule; sdlc-sandbix license; nextwork.ai allow.

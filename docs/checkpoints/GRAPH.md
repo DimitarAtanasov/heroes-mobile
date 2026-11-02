@@ -97,3 +97,16 @@ flowchart LR
 | - | Android build: plugin versions declared once in settings | lead | pushed; verified by CI only |
 | - | Graphify code index (docs/codebase-index, tools/graphify/index.sh) | lead | done |
 | 65 | :presenter module: TapReducer + BattleSession (64 AI games equal a plain apply loop) | Sonnet | done (a lead mutation survived, stale-preview test added) |
+| 66 | Board geometry + animation timeline in :presenter | Sonnet | done |
+| 67 | Kotlin scenario + replay port (byte-identical replays) | Sonnet | done |
+| 68 | Presenter audit fixes (session AI pure function; ADR-0012 proposed) | Opus | done |
+| 69-70 | Sprite atlas; replay autosave and resume | Sonnet | done |
+| 71 | Kotlin H3M header reader | Sonnet | done (lead mutation caught) |
+| 72 | Kotlin adventure core | Sonnet | done (lead mutation caught) |
+| 73 | Kotlin hero core | Sonnet | done (verified in a clean copy; 3 mutations caught) |
+| 74 | H3M gzip cap parity (exact 64 MiB accepted) | Sonnet | done (equivalent mutant noted) |
+| 75 | Adventure parity: code-point guard order, bounded strict-int policy, pyRepr, Long path cost | Sonnet | done (golden unchanged; owner confirm bounds) |
+| 76 | Kotlin encounter + adventure stage E via hooks | Sonnet | done (goldens unchanged) |
+| 77 | Kotlin town core | Sonnet | done (golden unchanged) |
+| 78-80 | App-screens logic in :presenter: menus/setup, battle log/roster/board fit, result/saves (lead mutation exposed an unpinned cap) | Sonnet | done; merged in PR #3 |
+| 81 | Compose screens (loop app-screens) wired; android-app builds the APK | Sonnet + lead | PR #4 open; no device test |
