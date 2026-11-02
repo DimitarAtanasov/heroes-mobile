@@ -1,0 +1,140 @@
+# Battle roster from the player's CRTRAITS.TXT
+
+## 1. Status
+
+Proposal. Direction approved by the owner (two decisions, section 3). Implementation is pending
+spec review. This spec changes no code, no data and no golden hash.
+
+## 2. Current state
+
+- The roster source is `data/creatures.json`: four fixture creatures "Test Pikeman", "Test
+  Slinger", "Test Glider", "Test Brute". `MainActivity.kt:65` reads it from assets and passes it to
+  `AppEngine.fromTexts` (`Engine.kt:29`); `Engine.kt:26` exposes `packs.creatures.creatures` as
+  `roster`, used for the UI names (`MainActivity.kt:57`) and for preset scenarios (`:223`).
+- `BattleCreature` (`android/sim/src/main/kotlin/h3/sim/BattleState.kt:22`) has no row or index
+  field. The creature is identified by `name` everywhere in state and in `hates`.
+- `Content.parseCreatures` (`android/sim/src/main/kotlin/h3/sim/Content.kt:188`) parses a
+  CRTRAITS-style table with the mapping `data/txt_maps/crtraits.json` (spec `content.md`). The
+  1-based file row `r` (`:218`) is used only for error text (`ContentError`, `:228-:289`) and the
+  `rowNo` duplicate check (`:231`). The result is `records.sortedBy { it.name }` (`:323`), so the
+  file order is lost.
+- `tools/h3re/h3re/content.py` mirrors it: `parse_creatures` (`:79`), row `r` at `:97`, result
+  sorted by name via `datapack._check_creatures` (`:150`, docstring `:30`). `content.md:51` states
+  the by-name order.
+- Datapack: `DataPack` (`tools/h3re/h3re/datapack.py:232`) and the Kotlin `Datapack.kt:48` sort
+  creatures by name; `content_hash` is SHA-256 of the canonical JSON and is independent of
+  creature order (`datapack.md:58-60`). Only `rules.json` is covered by `BattleState.rules_hash`
+  (`battle.py:296`, `battle.md` section 10, `battle.py:965` PackMismatch).
+- Golden pins: adventure `179c5700` (`AdventureTest.kt:133`, `test_adventure.py`), encounter
+  `512b53ca` (`EncounterConformanceTest.kt:269`), battle `fbe9015b` (`BattleTest.kt:159`,
+  `ReplayTest.kt:67`), hero `f18f5ebb` (`HeroConformanceTest.kt:290`), town `0360ce88`
+  (`TownTest.kt:72`, `TownConformanceTest.kt:372`). Their Python twins are named in ADR-0005.
+  The battle golden builds its creatures inline (`test_battle.py:432` `golden_setup`: pikeman,
+  archer, wolf, gnoll); none of the five reads `data/creatures.json`.
+
+## 3. Proposed design
+
+Owner decisions (not re-opened): (1) the battle roster comes from the player's own CRTRAITS.TXT,
+replacing the four "Test ..." creatures as the battle roster source; (2) the sprite table key is
+the data-row index.
+
+**Data-row index.** Definition: the 0-based position of a creature among the creature records,
+counted in file order after the header rows; blank rows and rows with an empty first cell (skipped
+by the source, `Content.kt:219-220`) do not count. This differs from the file row `r`, which stays
+the error-message number. Both loaders add an `index` to each accepted record, identically:
+`Creature.index` in Kotlin, a key in the content record in Python. `index` is loader output, not a
+datapack field: it is not in `creatures.json`, not in `content_hash`, not in battle state, so the
+canonical state form and every state hash are untouched.
+
+**Order.** Rule: the roster is ordered by ascending data-row index (file order). It is a total
+order, free of locale and of name comparison, and equal to the sprite key. The by-name sort is kept
+only inside `DataPack`/`content_hash` canonicalization, where order must not matter. The loader
+returns records in file order and the datapack sorts its own copy; the roster builder takes the
+loader order. `ContentResult.creatures` order changes from by-name to file order in both languages
+(update `content.md:51`).
+
+**Roster build.** The app builds the roster from the loaded `ContentResult` of the user's file:
+`BattleCreature` from each record, in index order, with the index kept beside it (a roster entry
+type holding `(index, BattleCreature)`; `BattleCreature` itself is not widened, to keep
+`creatureToMap` and the canonical form unchanged). The battle identity stays the `singular`
+column; names are unique (the loader already refuses duplicates, `Content.kt:231`).
+
+**Test fixture.** `data/creatures.json` stays in the repo as a test fixture only (datapack
+conformance, preset tests). The app no longer reads it as the battle roster. Without a CRTRAITS
+imported there is no roster: the battle screen offers the import step, not the fixture (Q2).
+
+**Creature in a scenario or preset but not in the file.** A preset (`Presets.kt`) or saved
+scenario that names a creature absent from the roster is not started: the preset is hidden or
+disabled with a reason naming the creature, and nothing is substituted. Saved replays carry their
+own `battle_id` and creature stats, so replay verification is unaffected. No fallback to "Test ..."
+names.
+
+**Invalid row.** Pick: refuse the whole import. Reasons: (a) the data-row index is positional, so
+skipping a bad row would silently shift every later sprite key and the player would see wrong
+sprites with no error; (b) law 10: the loader spec already makes a row error fatal with row,
+column and category (`content.md`), and a partial roster would be a second, unspecified
+behaviour; (c) `hates` and presets name creatures, so a dropped row breaks references silently.
+The error shown is the existing `ContentError` text (row, column, category), never file contents.
+This is a judgement call; recorded as Q1 for the owner to confirm.
+
+## 4. Hash impact
+
+Goldens that change: none. Reason: the five pins (adventure `179c5700`, encounter `512b53ca`,
+battle `fbe9015b`, hero `f18f5ebb`, town `0360ce88`) are computed from state built inline in the
+tests (battle `golden_setup`, `test_battle.py:432`) or from their own fixtures, not from
+`data/creatures.json` or the content loader. `index` is not part of any canonical form, and
+`BattleState.rules_hash` covers `rules.json` only. Hence no pin moves and nothing is re-pinned.
+
+Hashes that do differ and are not goldens: the `content_hash` of a pack built from a player's file
+differs from the fixture pack's by design; it is per-install and unpinned.
+
+A golden re-pin is a reviewed change under law 6, recorded in the owning spec. This spec does not
+re-pin anything. If an implementation slice moves any of the five, that is a bug to find, not a pin
+to update (ADR-0001).
+
+## 5. Test plan
+
+- Parity vectors: extend `tools/h3re/h3re/vectors.py` with a content vector (input TXT bytes,
+  expected per-record `index`, name, order, and error category and row for bad inputs); generate
+  with `python3 -m h3re.vectors`, check with `--check`; the Kotlin conformance test consumes the
+  same files. Cases: blank rows, empty first cell, trailing blank row, duplicate name, non-integer
+  cell, header only.
+- Synthetic fixture: a small hand-written CRTRAITS-style TXT (about 6 invented creatures) built in
+  the test code or as a text file under the test resources. No real file; a real-file test is gated
+  on `H3_DATA_DIR` (law 1) and only checks "loads, indices are 0..n-1 with no gaps".
+- Roster tests: order equals file order, not name order (fixture rows deliberately out of
+  alphabetical order); index equals the sprite key; a bad row refuses the import and names the row.
+- Golden check: `python3 -m unittest discover -s tools/h3re/tests`, the Kotlin sim tests and
+  `python3 -m h3re.vectors --check`; the five pins unchanged. Lints:
+  `python3 tools/lint/banned_api_lint.py`, `python3 tools/lint/kotlin_banned_api_lint.py`.
+- Device step: install the debug build, import the player's own CRTRAITS.TXT from device storage,
+  start a battle, confirm the roster list is in file order and the sprites match; import a
+  deliberately broken copy and confirm the whole import is refused with the row number.
+
+## 6. Risks and open questions
+
+Risks: the column order in `content.md` is marked unverified, so a real file may be refused until
+the mapping is checked on the device. Sprite lookup by index assumes the sprite table and the
+player's CRTRAITS come from the same install; a different file gives wrong sprites silently.
+Mitigation: the sprite loader logs a mismatch between table rows and record count.
+
+Open questions for the owner:
+
+- Q1. Invalid row: confirm "refuse the whole import" (this spec's pick) over "skip the creature".
+- Q2. With no CRTRAITS imported, show only the import prompt (this spec's pick), or keep a
+  built-in fixture roster as a demo?
+- Q3. If two rows share a name in the real file: keep refusing (today's rule), or disambiguate by
+  index? Needs a look at the real file, which only the owner has.
+
+## 7. Slices
+
+1. Python `content.py`: file-order output plus `index`; update `content.md:51`; tests. Verify: Python
+   suite green, goldens unchanged.
+2. Kotlin `Content.kt` mirror; vectors generated and checked. Verify: `--check` clean, Kotlin
+   conformance green.
+3. Roster entry type and builder (pure), with synthetic-fixture tests for order and invalid-row
+   refusal. Verify: those tests green.
+4. App wiring: import step, roster from the loaded file, presets disabled when a creature is
+   missing; `creatures.json` no longer loaded as the roster. Verify: app unit tests, lints.
+5. Sprite table keyed by index (update `sprite-atlas.md`). Verify: atlas tests.
+6. Device run per section 5. Verify: owner confirms on the device.
