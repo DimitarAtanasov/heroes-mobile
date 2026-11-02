@@ -9,7 +9,7 @@ A knowledge graph of the project's code, built by [Graphify](https://github.com/
 | `graph.html` | Interactive graph; open it in a browser |
 | `graph.json` | The full graph for queries |
 
-Indexed at commit `d3719dd`: 298 files, 6,264 nodes, 16,246 edges, 354 communities (94% edges read directly
+Indexed at commit `754624f`: 305 files, 6,308 nodes, 16,341 edges, 350 communities (94% edges read directly
 from the source, 6% inferred). Generated conformance vectors are excluded because they are data.
 
 ## Query it
@@ -22,6 +22,7 @@ Names that exist in both engines (for example `apply`) are listed per file, so y
 
 ## Rebuild
 `tools/graphify/index.sh` rebuilds it from the committed code in a throw-away environment. The index goes stale
-with every commit; rebuild before relying on it. Known limits: tree-sitter reports a syntax-error region in
-`android/sim/src/main/kotlin/h3/sim/Datapack.kt` (the file compiles; 38 symbols were still extracted), and
+with every commit; rebuild before relying on it. Known limits: tree-sitter reports syntax-error regions in
+`android/sim/src/main/kotlin/h3/sim/Datapack.kt`, `android/presenter/src/main/kotlin/h3/presenter/SpriteAtlas.kt` and
+`android/presenter/src/test/kotlin/h3/presenter/BattleSessionTest.kt` (the files compile; their symbols were still extracted), and
 Markdown, JSON and Gradle files give no symbols unless the optional model pass is configured (not used here).
