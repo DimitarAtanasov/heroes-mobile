@@ -82,3 +82,12 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - In flight (agents, not committed): sprite loader (SpriteLoadPlan + SpriteLoader.kt; lead wires MainActivity sprites) and parity cleanup (bool policy fields, EndTurn max day, create_battle dedupe).
 - Next: verify both in clean copies, commit on separate branches or PR #4 as appropriate; device smoke test by the owner; creature-to-DEF mapping decision (G3); real game data (`H3_DATA_DIR`).
 - Owner decisions still open: bad-morale (24,24,24); ADR-0008/0012 acceptance and the new policy bounds; app-shell navigation defaults; broken-main-save overwrite rule; sdlc-sandbix license; nextwork.ai allow.
+
+## Wrap-up (2026-11-02, usage 91%)
+- On `main`: everything through PR #5 (screens, parity fixes, Kotlin ports). Open: PR #6 `feature/sprite-loader` (sprite loader; CI on the merged head not read yet).
+- Branch `feature/game-data-import` (from main): loop contract `docs/loops/game-data-import.md` (passes evaluator). Owner decision: game data by sideload only, no picker.
+- Owner order of work: (1) real game data, (2) import flow, (3) device test.
+- (1) Real data: tool `python3 -m h3re real-report <data_dir>` (sanitized report) + runbook `docs/runbooks/real-data-check.md` were being built by an agent in /tmp/w_real; if not on a branch, rebuild: it is NOT committed. The owner must run it on their machine and send back report.json.
+- (2) Import flow slices V (GameDataCheck), P (ImportPlan), U (GameDataStore + ImportScreen) were in flight in /tmp/w_sliceV, /tmp/w_sliceP (private copies, ephemeral). Anything not committed is lost: restart from the contract. Lead wiring still to do: Home Import button, drop `File(filesDir, "gamedata")` root in MainActivity.kt:54 (backup leak), cross-check test that SpriteLoader and ImportPlan name matching agree.
+- (3) Device test: run the CI debug APK `heroes-mobile-debug-apk`; no screen has run on a device. Checklist still to write.
+- Open owner decisions: bad-morale (24,24,24); ADR-0008/0012 acceptance incl. policy bounds and plain-bool flags; app-shell navigation defaults; broken-main-save overwrite rule; creature-to-DEF mapping (G3); sdlc-sandbix license; nextwork.ai allow; hd/edition support (G5).
