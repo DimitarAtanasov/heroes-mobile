@@ -16,3 +16,4 @@ named command or file before relying on it. See `.claude/skills/second-brain/SKI
 - [pin-literals-not-constants](pin-literals-not-constants.md) - tests must pin limits with literals, not the constant under test
 - [compile-app-pure-files-locally](compile-app-pure-files-locally.md) - compile Android-free app files inside :presenter in a scratch copy
 - [audit-after-port](audit-after-port.md) - run a determinism audit after each port; vectors only cover what they emit
+- [drift-tests-hide-when-skipped](drift-tests-hide-when-skipped.md) - source-reading tests skip in partial copies; run the full suite on the full tree
