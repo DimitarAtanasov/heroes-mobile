@@ -9,6 +9,7 @@ Usage (from the directory that contains the ``h3re`` package)::
     python3 -m h3re battle-sim SCENARIO.json --seed N [--chooser CHOOSER] [--pretty [--board-every N] [--color]]
     python3 -m h3re replay record SCENARIO.json --seed N [--chooser C] -o OUT.h3r
     python3 -m h3re replay <verify|info> FILE.h3r
+    python3 -m h3re real-report DATA_DIR [--out report.json] [--sample N]
 
 Exit status: 0 on success, 1 for malformed input or I/O errors, 2 for
 command-line usage errors. Errors are reported as one line on stderr.
@@ -23,7 +24,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import battle_cli, defimg, h3m, lod, replay
+from . import battle_cli, defimg, h3m, lod, real_report, replay
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -227,6 +228,13 @@ def build_parser() -> argparse.ArgumentParser:
     r = rsub.add_parser("info", help="print the header of a replay file")
     r.add_argument("file", help="path to a .h3r file")
     p.set_defaults(func=cmd_replay)
+
+    p = sub.add_parser("real-report", help="write a sanitized JSON report over your own game files")
+    p.add_argument("data_dir", help="directory holding your Data/ and Maps/ folders (read-only)")
+    p.add_argument("--out", help="write the report to this file (outside data_dir) instead of stdout")
+    p.add_argument("--sample", type=int, default=real_report.SAMPLE_PER_KIND,
+                   help="members decoded per kind per archive (default %(default)s)")
+    p.set_defaults(func=real_report.cmd)
 
     return parser
 

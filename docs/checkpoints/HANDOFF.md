@@ -91,3 +91,8 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - (2) Import flow slices V (GameDataCheck), P (ImportPlan), U (GameDataStore + ImportScreen) were in flight in /tmp/w_sliceV, /tmp/w_sliceP (private copies, ephemeral). Anything not committed is lost: restart from the contract. Lead wiring still to do: Home Import button, drop `File(filesDir, "gamedata")` root in MainActivity.kt:54 (backup leak), cross-check test that SpriteLoader and ImportPlan name matching agree.
 - (3) Device test: run the CI debug APK `heroes-mobile-debug-apk`; no screen has run on a device. Checklist still to write.
 - Open owner decisions: bad-morale (24,24,24); ADR-0008/0012 acceptance incl. policy bounds and plain-bool flags; app-shell navigation defaults; broken-main-save overwrite rule; creature-to-DEF mapping (G3); sdlc-sandbix license; nextwork.ai allow; hd/edition support (G5).
+
+## Checkpoint 83 (wrap-up, 91%+)
+- Landed and verified: `real-report` tool + runbook (docs/runbooks/real-data-check.md; full Python suite 870 OK; a reversed-member-order mutation survived - minor test gap), GameDataCheck (V) and ImportPlan (P) in :presenter ui (presenter suite green, lead mutations caught).
+- Not built yet: slice U (GameDataStore + ImportScreen), lead wiring (Home Import button, drop `File(filesDir, "gamedata")` in MainActivity.kt:54, cross-check SpriteLoader vs ImportPlan name matching), device-test checklist. ImportPlan mutants M22-M26 never ran.
+- Owner next: run `python3 -m h3re real-report <your Data dir> --out report.json` on your machine and send report.json (see the runbook).
