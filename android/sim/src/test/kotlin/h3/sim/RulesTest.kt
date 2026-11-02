@@ -247,7 +247,7 @@ class RulesTest {
             rules.damageFromBase(10, 0, 0, ranged = true, meleePenalty = true)
         }
         assertFailsWith<IllegalArgumentException> { rules.damageFromBase(10, 0, 0, rangePenalty = true) }
-        assertFailsWith<IllegalArgumentException> { rules.baseDamage(5, 0, 3, Scripted(emptyList())) }
+        assertFailsWith<IllegalArgumentException> { rules.baseDamage(5, -1, 3, Scripted(emptyList())) }
         assertFailsWith<IllegalArgumentException> { rules.baseDamage(5, 4, 3, Scripted(emptyList())) }
         assertFailsWith<IllegalArgumentException> {
             rules.resolveDamage(DamageCtx(1, 1, 1, 0, 0, archery = 4, ranged = true), RollPolicy.PESSIMAL)

@@ -204,7 +204,7 @@ def _check_creatures(d):
         if name in out:
             raise DataPackError("%s.name: duplicate %r" % (p, name))
         r = {"name": name}
-        for k, lo, hi in (("attack", 0, 255), ("defense", 0, 255), ("dmg_min", 1, 10000),
+        for k, lo, hi in (("attack", 0, 255), ("defense", 0, 255), ("dmg_min", 0, 10000),
                           ("dmg_max", 1, 10000), ("hp", 1, 100000), ("speed", 0, 100),
                           ("shots", 0, 1000)):
             if k in c or k in _CR_REQ:

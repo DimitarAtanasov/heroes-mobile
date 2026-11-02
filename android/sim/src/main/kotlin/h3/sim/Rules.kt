@@ -98,7 +98,7 @@ class Rules(val pack: RulesPack) {
      */
     fun baseDamage(count: Long, dmgMin: Long, dmgMax: Long, rng: DrawSource): Long {
         if (count <= 0L) return 0L
-        require(1L <= dmgMin && dmgMin <= dmgMax) { "need 1 <= dmg_min <= dmg_max" }
+        require(0L <= dmgMin && dmgMin <= dmgMax && dmgMax >= 1L) { "need 0 <= dmg_min <= dmg_max and dmg_max >= 1" }
         val rolls = minOf(count, 10L).toInt()
         var total = 0L
         repeat(rolls) { total = Math.addExact(total, rng.randint(dmgMin, dmgMax)) }
@@ -139,8 +139,8 @@ class Rules(val pack: RulesPack) {
     fun resolveDamage(ctx: DamageCtx, policy: RollPolicy, rng: DrawSource? = null): DamageResult {
         require(policy != RollPolicy.ACTUAL_SEED || rng != null) { "ACTUAL_SEED needs an rng" }
         checkFlags(ctx.ranged, ctx.meleePenalty, ctx.rangePenalty, ctx.wallPenalty)
-        require(ctx.count <= 0L || (1L <= ctx.dmgMin && ctx.dmgMin <= ctx.dmgMax)) {
-            "need 1 <= dmg_min <= dmg_max"
+        require(ctx.count <= 0L || (0L <= ctx.dmgMin && ctx.dmgMin <= ctx.dmgMax && ctx.dmgMax >= 1L)) {
+            "need 0 <= dmg_min <= dmg_max and dmg_max >= 1"
         }
 
         val good = if (ctx.luck > 0L) luckChance(ctx.luck) else Rational.ZERO

@@ -93,8 +93,8 @@ def base_damage(count, dmg_min, dmg_max, rng):
     """
     if count <= 0:
         return 0
-    if not 1 <= dmg_min <= dmg_max:
-        raise ValueError("need 1 <= dmg_min <= dmg_max")
+    if not 0 <= dmg_min <= dmg_max or dmg_max < 1:
+        raise ValueError("need 0 <= dmg_min <= dmg_max and dmg_max >= 1")
     rolls = min(count, 10)
     total = sum(rng.randint(dmg_min, dmg_max) for _ in range(rolls))
     if count <= 10:
@@ -224,8 +224,8 @@ def resolve_damage(ctx, policy, rng=None):
     if not isinstance(policy, RollPolicy):
         raise ValueError("unknown roll policy %r" % (policy,))
     _check_flags(ctx.ranged, ctx.melee_penalty, ctx.range_penalty, ctx.wall_penalty)
-    if ctx.count > 0 and not 1 <= ctx.dmg_min <= ctx.dmg_max:
-        raise ValueError("need 1 <= dmg_min <= dmg_max")
+    if ctx.count > 0 and (not 0 <= ctx.dmg_min <= ctx.dmg_max or ctx.dmg_max < 1):
+        raise ValueError("need 0 <= dmg_min <= dmg_max and dmg_max >= 1")
 
     good = luck_chance(ctx.luck) if ctx.luck > 0 else Fraction(0)
     bad = luck_chance(-ctx.luck) if ctx.luck < 0 and ctx.bad_luck else Fraction(0)

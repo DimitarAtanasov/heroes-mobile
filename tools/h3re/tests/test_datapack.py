@@ -173,6 +173,17 @@ class ValidationTest(unittest.TestCase):
         self.bad("expected object", cmut=lambda l, c: l.__setitem__(0, 5))
         self.bad("unsupported", cmut=lambda l, c: c.update(schema_version=0))
 
+    def test_weak_unit_dmg_min_zero(self):
+        # Owner decision 2026-11-02: dmg_min 0 is a valid weak unit; dmg_max stays >= 1.
+        r, c = raw()
+        c["creatures"][0].update(dmg_min=0, dmg_max=1)
+        cr = D.parse(r, c).creature(c["creatures"][0]["name"])
+        self.assertEqual((cr.dmg_min, cr.dmg_max), (0, 1))
+        self.bad(r"dmg_min: -1 out of range 0\.\.10000",
+                 cmut=lambda l, c: l[0].update(dmg_min=-1))
+        self.bad(r"dmg_max: 0 out of range 1\.\.10000",
+                 cmut=lambda l, c: l[0].update(dmg_min=0, dmg_max=0))
+
     def test_error_type(self):
         self.assertTrue(issubclass(D.DataPackError, ValueError))
 

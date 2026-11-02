@@ -294,7 +294,7 @@ def _special(kind, base):
             ("no creatures", _set(base, ["creatures"], [])),
             ("creatures as object", _set(base, ["creatures"], {})),
             ("dmg_min above dmg_max", c(0, dmg_min=5, dmg_max=4)),
-            ("dmg_min 0", c(0, dmg_min=0)),
+            ("dmg_min 0 dmg_max 0", c(0, dmg_min=0, dmg_max=0)),
             ("dmg_max 10001", c(0, dmg_max=10001)),
             ("hp 0", c(0, hp=0)),
             ("hp 100001", c(0, hp=100001)),
@@ -427,7 +427,7 @@ def _derived_valid(kind, base):
         out.append(("multiple hates reversed", dumps(m2), "hates"))
         m = copy.deepcopy(base)
         m["creatures"] = [
-            {"name": "\U0001F600 Test", "attack": 0, "defense": 0, "dmg_min": 1, "dmg_max": 1,
+            {"name": "\U0001F600 Test", "attack": 0, "defense": 0, "dmg_min": 0, "dmg_max": 1,
              "hp": 1, "speed": 0},
             {"name": "Ａ Test", "attack": 255, "defense": 255, "dmg_min": 10000, "dmg_max": 10000,
              "hp": 100000, "speed": 100, "shots": 1000, "flyer": True, "double_wide": True,

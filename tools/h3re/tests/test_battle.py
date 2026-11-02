@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from h3re import battle as B  # noqa: E402
 from h3re import datapack as D  # noqa: E402
 from h3re import rules  # noqa: E402
+from h3re.rng import Pcg32  # noqa: E402
 
 
 def cr(name="c", attack=5, defense=5, dmg=(2, 2), hp=10, speed=5, **kw):
@@ -470,6 +471,61 @@ def play(state, rng, chooser, limit=400):
         state, ev = B.apply(state, chooser(state), rng)
         trace.append(ev)
     return state, trace
+
+
+class WeakUnitDamageTest(unittest.TestCase):
+    """Owner decision 2026-11-02: dmg_min 0 with dmg_max >= 1 is a valid weak unit."""
+
+    SEED, SEQ = 0x5EED, 7
+
+    def test_base_roll_spans_zero_to_max(self):
+        g = Pcg32(self.SEED, self.SEQ)
+        rolls = [rules.base_damage(1, 0, 3, g) for _ in range(200)]
+        self.assertEqual(rolls[:12], [3, 1, 3, 2, 0, 2, 0, 3, 1, 1, 2, 2])
+        self.assertTrue(all(0 <= r <= 3 for r in rolls))
+        self.assertEqual(set(rolls), {0, 1, 2, 3})
+
+    def test_final_damage_keeps_the_minimum_of_one(self):
+        # A base roll of 0 still deals 1: the existing "minimum 1" rule is unchanged.
+        g = Pcg32(self.SEED, self.SEQ)
+        ctx = rules.DamageCtx(1, 0, 3, 0, 0)
+        out = [rules.resolve_damage(ctx, rules.RollPolicy.ACTUAL_SEED, g).damage for _ in range(200)]
+        self.assertEqual(out[:12], [3, 1, 3, 2, 1, 2, 1, 3, 1, 1, 2, 2])
+        self.assertTrue(all(1 <= d <= 3 for d in out))
+
+    def test_battle_with_a_weak_unit_resolves(self):
+        weak = cr("weak", dmg=(0, 3), hp=10)
+        st = B.create_battle("w", [ss(weak, count=1, pos=(7, 5))],
+                             [ss(cr("tough", dmg=(1, 1), hp=1000), count=5, pos=(8, 5))])
+        rng = Pcg32(self.SEED, self.SEQ)
+        st, _ = B.apply(st, B.Begin(), rng)
+        hits = []
+        for _ in range(20):
+            if st.winner is not None:
+                break
+            att = st.active
+            tgt = [s.id for s in st.stacks if s.side != st.stacks[att].side and s.count > 0][0]
+            st, ev = B.apply(st, B.Attack(att, tgt), rng)
+            hits += [e.damage for e in ev if isinstance(e, B.DamageDealt) and e.attacker == 0]
+        self.assertTrue(hits)
+        self.assertTrue(all(1 <= h <= 3 for h in hits))
+
+    def test_bad_ranges_still_refused(self):
+        for lo, hi in ((-1, 3), (4, 3), (0, 0), (0, -1)):
+            with self.assertRaises(ValueError, msg=(lo, hi)):
+                B.create_battle("w", [ss(cr(dmg=(lo, hi)))], [ss(cr())])
+            with self.assertRaises(ValueError, msg=(lo, hi)):
+                rules.base_damage(5, lo, hi, Pcg32(1, 0))
+            with self.assertRaises(ValueError, msg=(lo, hi)):
+                rules.resolve_damage(rules.DamageCtx(5, lo, hi, 0, 0),
+                                     rules.RollPolicy.PESSIMAL)
+        good = B.create_battle("w", [ss(cr(dmg=(0, 3)))], [ss(cr())])
+        for name, val in (("dmg_min", -1), ("dmg_min", 4)):
+            stacks = tuple(replace(s, creature=replace(s.creature, **{name: val}))
+                           if s.id == 0 else s for s in good.stacks)
+            with self.assertRaises(ValueError, msg=(name, val)):
+                B.check_state(replace(good, stacks=stacks))
+        B.check_state(good)
 
 
 class GoldenTest(unittest.TestCase):

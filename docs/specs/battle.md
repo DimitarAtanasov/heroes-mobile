@@ -403,7 +403,10 @@ the Python side (recorded here, per CLAUDE.md law 10). They only refuse input; `
   `slot` in 0..6; every footprint cell and obstacle on the grid; `round` >= 0; `active`, `done` and
   `waited` ids index a stack; `winner` and `last_side` are 0, 1 or None.
 - Stack values: `count` >= 0; `top_hp` is 0 for an empty stack and in 1..hp otherwise; `shots` and
-  `retaliations` >= 0; creature `hp` >= 1, `speed` >= 0, `shots` >= 0, 1 <= `dmg_min` <= `dmg_max`.
+  `retaliations` >= 0; creature `hp` >= 1, `speed` >= 0, `shots` >= 0, 0 <= `dmg_min` <= `dmg_max`, `dmg_max` >= 1.
+  Owner decision 2026-11-02: `dmg_min` 0 is a valid weak unit (base roll 0..`dmg_max`; the final damage keeps
+  its existing minimum of 1). The vectors that encoded the old `1 <= dmg_min` floor are re-pinned
+  in the change note "2026-11-02: weak-unit vectors re-pinned" below.
 - Every integer fits a 32-bit Int (ADR-0008).
 - Caps on the derived products (ADR-0008 amendment): `count x dmg_max` <= 2**31-1, `count x hp`
   <= 2**31-1, creature plus hero attack within Int, creature plus hero defense within Int with and
@@ -418,3 +421,25 @@ the Python side (recorded here, per CLAUDE.md law 10). They only refuse input; `
 No pinned hash moved: the golden hash is still `fbe9015b...`, and all 41 earlier vector cases and
 4007 earlier illegal cases are byte-identical after regeneration (`battle_states.json` gains the
 `cap` case and the reject lists).
+
+### 2026-11-02: weak-unit vectors re-pinned (owner review pending)
+
+Law 6 re-pin of conformance vectors; the golden hash did **not** move (`fbe9015b...` stays pinned,
+and no other golden pin in `tools/h3re/tests` moved).
+
+Reason: owner decision 2026-11-02. A creature with `dmg_min` 0 and `dmg_max` >= 1 is a valid weak
+unit. Its base roll is 0..`dmg_max`; the final damage of a hit keeps its minimum of 1, so the damage
+rule itself is unchanged. The vectors that pinned a refusal of `dmg_min` 0 now pin a real result:
+
+- `rules.json`: `base_damage` (count 5, 0..3) is a scripted roll `[0, 3, 1, 0, 2]` = 6; `resolve`
+  (count 3, 0..2) gives 1 / 3 / 6 under PESSIMAL / EXPECTED / OPTIMAL; `resolve_seeded` (count 3,
+  0..2, luck 2, seed 1, seq 0) gives 1. A seeded error case with an inverted range (3..2) is added
+  so a seeded refusal stays pinned.
+- `encounter.json`: in variant `creature-zero-damage`, the Attack on `wolves` now plays the battle
+  instead of failing with "invalid damage range". The variant's state hash is unchanged.
+
+Old and new values per case, and the file hashes, are in `docs/checkpoints/weak-unit-repin.md`. The
+owner reviews this diff before merge.
+
+Follow-up in the same branch: the data pack and the content loader accept `dmg_min` 0 too
+(`datapack.md`); their vectors (`datapack.json`, `content.json`) are listed in the same report.
