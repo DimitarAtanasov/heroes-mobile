@@ -11,9 +11,11 @@ import java.math.BigInteger
  * ships no entries. Bad input never throws: it comes back as [SpriteTableResult.Failed] with stable
  * [SpriteTableError.code]s. The result is all or nothing, so a half-valid table is never used.
  *
- * The output feeds `SpriteLoadPlan.load(table = ...)` unchanged: creature name (exact,
- * case-sensitive) to DEF member name, in file order. JSON is read with [PackJson], the strict reader
- * the data packs use (integers only, duplicate object keys rejected).
+ * The table is keyed by `row`: the zero-based position of the creature among the accepted creature
+ * records of `CRTRAITS.TXT` (header, blank rows and empty-first-cell rows not counted; ADR-0014), equal to
+ * the VCMI creature index. The output is row
+ * to DEF member name, in file order. JSON is read with [PackJson], the strict reader the data packs
+ * use (integers only, duplicate object keys rejected).
  */
 sealed class SpriteTableError {
     abstract val code: String
@@ -37,51 +39,51 @@ sealed class SpriteTableError {
         override fun describe() = "$code $path: $detail"
     }
 
-    /** The entry at [index] has an empty creature name. */
-    data class EmptyCreature(val index: Int) : SpriteTableError() {
-        override val code get() = "EMPTY_CREATURE"
-        override fun describe() = "$code entries[$index]"
+    /** `row` of the entry at [index] is not a non-negative integer that fits an Int. */
+    data class BadRow(val index: Int, val detail: String) : SpriteTableError() {
+        override val code get() = "BAD_ROW"
+        override fun describe() = "$code entries[$index]: $detail"
     }
 
     /** The entry has an empty or blank `source` (ADR-0003: every fact cites its source). */
-    data class MissingSource(val index: Int, val creature: String) : SpriteTableError() {
+    data class MissingSource(val index: Int, val row: Int) : SpriteTableError() {
         override val code get() = "MISSING_SOURCE"
-        override fun describe() = "$code entries[$index]: $creature"
+        override fun describe() = "$code entries[$index]: row $row"
     }
 
-    /** [creature] appears in more than one entry; [index] is the later one. */
-    data class DuplicateCreature(val index: Int, val creature: String) : SpriteTableError() {
-        override val code get() = "DUPLICATE_CREATURE"
-        override fun describe() = "$code entries[$index]: $creature"
+    /** [row] appears in more than one entry; [index] is the later one. */
+    data class DuplicateRow(val index: Int, val row: Int) : SpriteTableError() {
+        override val code get() = "DUPLICATE_ROW"
+        override fun describe() = "$code entries[$index]: row $row"
     }
 
     /** `def` does not end in `.DEF` (exact case) or has nothing before the extension. */
-    data class BadDefName(val index: Int, val creature: String, val def: String) : SpriteTableError() {
+    data class BadDefName(val index: Int, val row: Int, val def: String) : SpriteTableError() {
         override val code get() = "BAD_DEF_NAME"
-        override fun describe() = "$code entries[$index]: $creature: $def"
+        override fun describe() = "$code entries[$index]: row $row: $def"
     }
 
     /** `def` contains a path separator (`/` or `\`): it must be a bare archive member name. */
-    data class DefHasPath(val index: Int, val creature: String, val def: String) : SpriteTableError() {
+    data class DefHasPath(val index: Int, val row: Int, val def: String) : SpriteTableError() {
         override val code get() = "DEF_HAS_PATH"
-        override fun describe() = "$code entries[$index]: $creature: $def"
+        override fun describe() = "$code entries[$index]: row $row: $def"
     }
 }
 
 /** Outcome of [SpriteTable.parse]: the table, or every error found (never both). */
 sealed class SpriteTableResult {
-    /** [table] maps creature name to DEF member name, in file order; sources are validated, not kept. */
-    class Ok(val table: Map<String, String>) : SpriteTableResult()
+    /** [table] maps row to DEF member name, in file order; sources are validated, not kept. */
+    class Ok(val table: Map<Int, String>) : SpriteTableResult()
 
     class Failed(val errors: List<SpriteTableError>) : SpriteTableResult()
 }
 
 object SpriteTable {
     /** The only `schema_version` this build reads. */
-    const val SCHEMA_VERSION = 1L
+    const val SCHEMA_VERSION = 2L
 
     private val TOP_KEYS = listOf("schema_version", "entries")
-    private val ENTRY_KEYS = listOf("creature", "def", "source")
+    private val ENTRY_KEYS = listOf("row", "def", "source")
     private const val DEF_EXT = ".DEF"
 
     fun parse(text: String): SpriteTableResult {
@@ -106,7 +108,7 @@ object SpriteTable {
             ?: return fail(SpriteTableError.BadShape("entries", "expected array"))
 
         val errors = ArrayList<SpriteTableError>()
-        val table = LinkedHashMap<String, String>()
+        val table = LinkedHashMap<Int, String>()
         for ((i, raw) in entries.withIndex()) {
             val path = "entries[$i]"
             val e = raw as? Map<*, *>
@@ -119,44 +121,51 @@ object SpriteTable {
                 errors.addAll(keyErr)
                 continue
             }
-            val creature = e["creature"]
+            val rowRaw = e["row"]
             val def = e["def"]
             val source = e["source"]
             var typed = true
-            for ((k, v) in listOf("creature" to creature, "def" to def, "source" to source)) {
+            for ((k, v) in listOf("def" to def, "source" to source)) {
                 if (v !is String) {
                     errors.add(SpriteTableError.BadShape("$path.$k", "expected string"))
                     typed = false
                 }
             }
+            val row = rowOf(rowRaw)
+            if (row == null) {
+                errors.add(SpriteTableError.BadRow(i, "expected non-negative integer, got $rowRaw"))
+                typed = false
+            }
             if (!typed) continue
-            creature as String
+            row as Int
             def as String
             source as String
 
             var ok = true
-            if (creature.isEmpty()) {
-                errors.add(SpriteTableError.EmptyCreature(i))
-                ok = false
-            }
             if (source.isBlank()) {
-                errors.add(SpriteTableError.MissingSource(i, creature))
+                errors.add(SpriteTableError.MissingSource(i, row))
                 ok = false
             }
             if ('/' in def || '\\' in def) {
-                errors.add(SpriteTableError.DefHasPath(i, creature, def))
+                errors.add(SpriteTableError.DefHasPath(i, row, def))
                 ok = false
             } else if (!def.endsWith(DEF_EXT) || def.length == DEF_EXT.length) {
-                errors.add(SpriteTableError.BadDefName(i, creature, def))
+                errors.add(SpriteTableError.BadDefName(i, row, def))
                 ok = false
             }
-            if (ok && creature in table) {
-                errors.add(SpriteTableError.DuplicateCreature(i, creature))
+            if (ok && row in table) {
+                errors.add(SpriteTableError.DuplicateRow(i, row))
                 ok = false
             }
-            if (ok) table[creature] = def
+            if (ok) table[row] = def
         }
         return if (errors.isEmpty()) SpriteTableResult.Ok(table) else SpriteTableResult.Failed(errors)
+    }
+
+    /** [raw] as a row, or null unless it is an integer in 0..Int.MAX_VALUE. */
+    private fun rowOf(raw: Any?): Int? {
+        if (raw !is BigInteger || raw.signum() < 0 || raw > BigInteger.valueOf(Int.MAX_VALUE.toLong())) return null
+        return raw.toInt()
     }
 
     private fun fail(e: SpriteTableError) = SpriteTableResult.Failed(listOf(e))

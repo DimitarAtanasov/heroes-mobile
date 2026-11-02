@@ -60,24 +60,30 @@ applies and an over-budget atlas is reported as `OVER_BUDGET`, not partially loa
 ## Creature sprite table (0.2)
 
 The loader side of android-app.md section 14 Q2 option (a): a creature-to-DEF table the owner writes,
-each entry citing its source (ADR-0003). The repo ships no entries; `data/sprite_map.json` does not
-exist until the owner supplies it. Parser: `SpriteTable.parse(text)` in `:presenter`
-(`.../ui/SpriteTable.kt`); it is pure (the caller reads the file) and nothing in `:app` calls it yet.
+keyed by the creature's row in `CRTRAITS.TXT` (ADR-0014), each entry citing its source (ADR-0003). The
+repo ships no entries; `data/sprite_map.json` does not exist until the owner supplies it. Parser:
+`SpriteTable.parse(text)` in `:presenter` (`.../ui/SpriteTable.kt`); it is pure (the caller reads the
+file) and nothing in `:app` calls it yet.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "entries": [
-    { "creature": "<name as in creatures.json>", "def": "<MEMBER>.DEF", "source": "<citation>" }
+    { "row": 12, "def": "<MEMBER>.DEF", "source": "<citation>" }
   ]
 }
 ```
 
-- Keys are exactly `schema_version` and `entries` at the top, and `creature`, `def`, `source` per
-  entry; anything missing, unknown or of the wrong type is `BAD_SHAPE`.
-- `schema_version` is the integer 1; any other value is `BAD_SCHEMA_VERSION`.
-- `creature` is a non-empty name (`EMPTY_CREATURE`), matched exactly and case-sensitively, as
-  `SpriteLoadPlan.defFor` does. A second entry for the same name is `DUPLICATE_CREATURE`.
+- `row` is the ZERO-BASED position of the creature among the accepted creature records of
+  `CRTRAITS.TXT`: the header is excluded, and blank rows and rows with an empty first cell do not
+  count. The first creature record is row 0. This matches the VCMI creature index, so VCMI index
+  values are used directly, with no +1. It is not the id used in this repo's `creatures.json`.
+- Keys are exactly `schema_version` and `entries` at the top, and `row`, `def`, `source` per entry;
+  anything missing, unknown or of the wrong type (for `def`, `source`) is `BAD_SHAPE`.
+- `schema_version` is the integer 2; any other value, including 1, is `BAD_SCHEMA_VERSION`.
+- `row` must be a JSON integer, non-negative and at most `Int.MAX_VALUE`; a negative, out-of-range or
+  non-integer value (string, boolean, null, array, object) is `BAD_ROW`. A float is `INVALID_JSON`
+  (see below). A second entry for the same row is `DUPLICATE_ROW`.
 - `def` is a bare archive member name that ends in `.DEF` (exact case) with a stem. A `/` or `\` is
   `DEF_HAS_PATH`; anything else wrong is `BAD_DEF_NAME`. Whether the member exists is not checked
   here: `SpriteLoadPlan` reports `MISSING_DEF` at load time.
@@ -85,11 +91,13 @@ exist until the owner supplies it. Parser: `SpriteTable.parse(text)` in `:presen
   the owner learned the fact, in the owner's words (ADR-0003). It is validated, not kept in the table.
 - Text is read with the strict data-pack reader (`PackJson`, made public in `:sim` for this): integers
   only, duplicate object keys rejected. Invalid JSON, floats and duplicate keys are `INVALID_JSON`.
-- The result is all or nothing. `SpriteTableResult.Ok(table)` holds `Map<String, String>` in file
-  order, usable as `SpriteLoadPlan.load(table = ...)`. `Failed(errors)` lists every entry error in
-  file order; structural errors (JSON, top-level shape, version) stop before any entry is read. It never throws.
-- Open: the Q2 note keys the real mapping by `CRTRAITS.TXT` row, not by name. This format keys by name
-  (what `defFor` takes today); a row key would be a schema version 2.
+- The result is all or nothing. `SpriteTableResult.Ok(table)` holds `Map<Int, String>` (row to DEF
+  member name) in file order. `Failed(errors)` lists every entry error in file order; structural
+  errors (JSON, top-level shape, version) stop before any entry is read. It never throws.
+- Error codes: `INVALID_JSON`, `BAD_SCHEMA_VERSION`, `BAD_SHAPE`, `BAD_ROW`, `MISSING_SOURCE`,
+  `DUPLICATE_ROW`, `BAD_DEF_NAME`, `DEF_HAS_PATH`.
+- Consumer: `SpriteLoadPlan.load` and `defFor` still take a name-keyed table. Turning rows into
+  names (or re-keying the plan) is separate work, not done here.
 
 ## Memory (4.5)
 
