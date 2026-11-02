@@ -9,7 +9,8 @@ import kotlin.test.assertIs
 private fun entry(row: String, def: String, source: String) =
     """{"row": $row, "def": ${q(def)}, "source": ${q(source)}}"""
 
-private fun q(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+// Escapes tab too: strict JSON (PackJson) rejects a raw control character inside a string.
+private fun q(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\t", "\\t") + "\""
 
 private fun doc(vararg entries: String, version: String = "2") =
     """{"schema_version": $version, "entries": [${entries.joinToString(",")}]}"""
