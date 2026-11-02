@@ -65,7 +65,34 @@ class ContentTest {
         val text = (head + rows).joinToString("\r\n", postfix = "\r\n") { it.joinToString("\t") }
         val r = Content.parseCreatures(text.toByteArray(Charsets.ISO_8859_1), mapping)
         assertEquals(mapOf("Zork" to 0, "Blip" to 1, "Mump" to 2), r.creatureRows)
-        assertEquals(listOf("Blip", "Mump", "Zork"), r.creatures.map { it.name })
+        assertEquals(listOf("Zork", "Blip", "Mump"), r.creatures.map { it.name })
+    }
+
+    /** Roster slice 2: file order (not name order); creatureRows is 0,1,2; the datapack hash is order-free. */
+    @Test
+    fun creaturesInFileOrderHashUnchanged() {
+        fun row(name: String): List<String> =
+            listOf(name, "Xs") + List(6) { "0" } + listOf("100") +
+                listOf(50, 60, 7, 0, 10, 4, 5, 4, 1, 3, 0, 0, 1, 5).map { it.toString() } +
+                listOf("long text", "")
+        val head = listOf(listOf("Creature table"), listOf("Singular", "Plural", "Wood", "Mercury"))
+        val text = (head + listOf(row("Zork"), row("Blip"), row("Mump")))
+            .joinToString("
+", postfix = "
+") { it.joinToString("	") }
+        val r = Content.parseCreatures(text.toByteArray(Charsets.ISO_8859_1), mapping)
+        assertEquals(listOf("Zork", "Blip", "Mump"), r.creatures.map { it.name })
+        assertEquals(listOf(0, 1, 2), r.creatures.map { r.creatureRows.getValue(it.name) })
+
+        fun packJson(cs: List<Creature>): String = cs.joinToString(",", """{"schema_version":1,"creatures":[""", "]}") { c ->
+            c.toMap().entries.joinToString(",", "{", "}") { (k, v) ->
+                "\"$k\":" + if (v is String) "\"$v\"" else v.toString()
+            }
+        }
+        fun hash(cs: List<Creature>): String =
+            Canonical.hash(mapOf("creatures" to Datapack.parseCreatures(packJson(cs)).canonical))
+        // Old behaviour was by-name order; the datapack canonicalizes by name itself, so the hash is identical.
+        assertEquals(hash(r.creatures.sortedBy { it.name }), hash(r.creatures))
     }
 
     /** Same synthetic fixture as test_content.py test_zero_damage_row_kept_index_counts_no_fixed_damage. */
@@ -81,7 +108,7 @@ class ContentTest {
         val r = Content.parseCreatures(text.toByteArray(Charsets.ISO_8859_1), mapping)
         assertEquals(mapOf("Zork" to 0, "Wisp" to 1, "Mump" to 2), r.creatureRows)
         assertEquals(setOf("Wisp"), r.noFixedDamage)
-        assertEquals(listOf("Mump", "Wisp", "Zork"), r.creatures.map { it.name })
+        assertEquals(listOf("Zork", "Wisp", "Mump"), r.creatures.map { it.name })
     }
 
     @Test
@@ -143,7 +170,7 @@ class ContentTest {
 
     @Test
     fun injectedValidatorIsUsed() {
-        val c = CONTENT_DOC["cases"].list().map { it.obj() }.first { it["name"] == "two_creatures_sorted" }
+        val c = CONTENT_DOC["cases"].list().map { it.obj() }.first { it["name"] == "two_creatures_file_order" }
         val e = assertFailsWith<ContentError> {
             Content.parseCreatures(hexBytes(c["data_hex"] as String), mapping,
                 validator = CreatureValidator { throw IllegalArgumentException("nope") })
