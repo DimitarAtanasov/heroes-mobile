@@ -279,7 +279,7 @@ class EncounterConformanceTest {
             s = r.state
         }
         assertEquals(pin, codec.stateHash(s))
-        assertEquals(3, s.day, "day")
+        assertEquals(3L, s.day, "day")
         assertEquals(4, s.battles, "battles")
         assertEquals<List<Any?>>(listOf(0, 1, 1, 1), winners)
         assertEquals<List<Any?>>(g["winners"].list().map { it.big().toInt() }, winners)

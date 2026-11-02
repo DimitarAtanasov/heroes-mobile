@@ -49,8 +49,7 @@ Python imports `encounter` lazily from `adventure` and `adventure` types from `e
   `BattleFought`, `ArmyChanged`, `HeroDefeated`, `GuardDefeated` (each has `toMap()`, the Python event as
   `{"type": ClassName, <fields>}`; `BattleFought.log` and `battle_events` are the battle commands and events in
   `BattleCodec.commandToMap` / `eventToMap` form).
-- `create_battle` is private in `Scenario.kt`; `Encounter.kt` carries a copy (no obstacles, morale and luck 0). A dedupe
-  (make `Scenario.createBattle` internal and share it) is open for the owner of `Scenario.kt`.
+- `Encounter.kt` shares `Scenario.createBattle` (internal); the earlier private copy was removed (no behaviour change, the encounter vectors are byte-identical).
 
 ## Vector file `encounter.json`
 
