@@ -82,7 +82,7 @@ jobs:
 
       - name: Kotlin sim tests
         working-directory: android
-        run: ./gradlew --no-daemon :sim:test
+        run: ./gradlew --no-daemon :sim:test :presenter:test
 
       - name: Conformance vectors are up to date
         # Fails if a Python change moved the vectors without regenerating them.

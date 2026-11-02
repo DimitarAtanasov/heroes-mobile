@@ -1,7 +1,8 @@
 # Handoff (resume here)
 
-Branch `ccr-c70423ba-3alf1w`. PR #1 was merged into `main` at checkpoint 52 (merge commit b081922); everything
-since (checkpoints 53-64, skills, memory, loop tooling, APK CI) is in a second PR. Do not merge without the owner. License GPL-2.0-or-later (ADR-0010). Python is the oracle; Kotlin must
+Branch `ccr-c70423ba-3alf1w`. PR #1 (merge b081922) and PR #2 (merge fa70b8a, checkpoints 53-64, skills, memory, loop tooling, APK CI)
+are merged into `main`. Work since (Graphify index and later) continues on this branch, based on `main`. Open a
+new PR for it; do not merge without the owner. License GPL-2.0-or-later (ADR-0010). Python is the oracle; Kotlin must
 reproduce its hashes (ADR-0004, ADR-0007). Read `docs/memory/MEMORY.md` first, then this file.
 
 Verify the state:
@@ -33,6 +34,11 @@ Verify the state:
 `loop-producer` (opus), `loop-runner` (haiku) in `.claude/agents/`. The three agents have NOT yet been run on a
 live task; only the evaluator is tested (41 tests, rule mutations killed). Try them on the next real round.
 
+## In flight when this was saved (results are NOT in the repo until verified and committed)
+Python suite speed-up, Kotlin scenario + replay port, board geometry + animation timeline (in :presenter), a read-only
+audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `sdlc-sandbix` repo (private copy in
+/tmp/w_sdlc; nothing pushed there). Re-run `ListAgents`; if they are gone, redo the tasks from this list.
+
 ## Next, in order
 1. (done) `:app:assembleDebug` is green in CI and the APK is uploaded. Next is real app code (see 3).
 2. Cut the Python suite time: NOT started in the repo (the agent was stopped at the usage line and had produced no changes). The suite takes about 30 minutes on a runner because several tests regenerate the vector sets (present vectors alone ~130 s, plus `vectors --check`). Memoise generation per process and keep every check; the CI `kotlin-sim` job already runs `vectors --check`. Target under about 8 minutes.
@@ -50,3 +56,19 @@ live task; only the evaluator is tested (41 tests, rule mutations killed). Try t
 - The three questions in `docs/specs/android-app.md` section 14 (channel, sprite mapping source, editions).
 - Allow `nextwork.ai` in the session network settings if its project should inform the plan.
 - Real game data (`H3_DATA_DIR`), real maps, and the rules.md section 9 experiments; nothing has run on real files.
+
+## Wrap-up (checkpoint 72, usage 100%)
+- Committed + pushed: 71 (Kotlin H3M reader), 72 (Kotlin adventure core). Python 742 tests OK; Kotlin sim 140 / presenter 76 OK.
+- Branch `app-shell-ci` holds the uncompiled Compose app shell; CI run 86 pending. Read its log, fix errors, then merge into the working branch.
+- Hero Kotlin port: producer agent a61be954a4a70e04c may still be running; verify in a clean copy (verify_clean, mutations M1-M5/V1, audit), wire `vectors_hero`, commit.
+- Next: determinism audit of Adventure.kt/H3m.kt; adventure stage E (encounter/Attack); port encounter and town.
+- Owner decisions open: bad-morale (24,24,24) rule, ADR-0008 amendment, ADR-0012 acceptance, sdlc-sandbix license, nextwork.ai network allow.
+
+## Checkpoint 75 notes
+- Adventure parity fixes (audit): policy ints bounded to 10000 and strict-int in Python (refuses more input than before: OWNER must confirm, ADR-0008 amendment in docs/specs/adventure.md s6); guard sort by code point; pyRepr ported. Adventure golden 179c5700 unchanged.
+- Open parity gaps: Python accepts non-bool values in boolean policy fields (Kotlin refuses); EndTurn at Int.MAX day throws in Kotlin; float repr not ported; h3m error text compared by class only.
+- Verified chain so far: 71 H3M, 72 adventure, 73 hero, 74 gzip cap, 75 adventure parity. App shell merged (CI green, APK built).
+
+## Checkpoint 77
+- 76: encounter + adventure stage E (Attack via AdventureEncounterHooks). 77: town core. All sim modules (battle, adventure, encounter, town, hero, h3m) now have Kotlin ports with conformance vectors; goldens unchanged.
+- Remaining: dedupe create_battle (Scenario.kt private copy in Encounter.kt); real-data tests (H3_DATA_DIR); app UI beyond shell; owner decisions listed earlier.

@@ -4,14 +4,16 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from h3re import battle as B  # noqa: E402
 from h3re import vectors as V  # noqa: E402
+import vector_cache  # noqa: E402
 
 
 class TestVectors(unittest.TestCase):
     def test_generation_is_deterministic(self):
-        self.assertEqual(V.generate(), V.generate())
+        self.assertEqual(V.generate(), vector_cache.fresh_all())
 
     def test_committed_files_match_fresh_generation(self):
         # Failure means Python changed (or vectors were not regenerated):

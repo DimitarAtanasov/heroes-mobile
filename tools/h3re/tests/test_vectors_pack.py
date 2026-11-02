@@ -4,6 +4,8 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+import vector_cache  # noqa: E402
 from h3re import battle as B  # noqa: E402
 from h3re import datapack as D  # noqa: E402
 from h3re import rules as R  # noqa: E402
@@ -14,10 +16,10 @@ from h3re import vectors_pack as VP  # noqa: E402
 class PackVectorsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.doc = VP.generate()[VP.FILE]
+        cls.doc = vector_cache.module_doc(VP)[VP.FILE]
 
     def test_deterministic(self):
-        self.assertEqual(V._dump(self.doc), V._dump(VP.generate()[VP.FILE]))
+        vector_cache.assert_module_deterministic(self, VP)
 
     def test_shipped_hashes_match_loaded_packs(self):
         s = self.doc["shipped"]

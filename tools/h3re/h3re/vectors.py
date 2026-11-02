@@ -685,23 +685,54 @@ def _hex_vectors():
 
 
 # Vector modules that expose generate() -> {file name: JSON-serialisable content}.
-EXTRA_VECTOR_MODULES = ("vectors_battle", "vectors_def", "vectors_lodpcx", "vectors_pack", "vectors_txt", "vectors_ai", "vectors_present")
+EXTRA_VECTOR_MODULES = ("vectors_battle", "vectors_def", "vectors_lodpcx", "vectors_pack", "vectors_txt", "vectors_ai", "vectors_present", "vectors_replay", "vectors_h3m", "vectors_adventure", "vectors_hero", "vectors_encounter", "vectors_town")
 
 
-def generate():
-    """Return {filename: bytes}. Pure function of the Python implementation."""
+def module_outputs(mod):
+    """Memoised generate() of one extra vector module (pure function of the code; per process)."""
+    if mod not in _MODULE_CACHE:
+        import importlib
+        _MODULE_CACHE[mod] = importlib.import_module("." + mod, __package__).generate()
+    return _MODULE_CACHE[mod]
+
+
+def generate_fresh():
+    """Return {filename: bytes}, recomputed from scratch (no cache; for determinism tests)."""
     import importlib  # lazy: the vector modules import this module for _dump
-    out = {
+    out = _core_outputs()
+    for mod in EXTRA_VECTOR_MODULES:
+        for name, obj in importlib.import_module("." + mod, __package__).generate().items():
+            out[name] = _dump(obj)
+    return out
+
+
+def _core_outputs():
+    return {
         "rng.json": _dump(_rng_vectors()),
         "canonical_json.json": _dump(_canon_vectors()),
         "state_hash.json": _dump(_state_vectors()),
         "rules.json": _dump(_rules_vectors()),
         "hex.json": _dump(_hex_vectors()),
     }
-    for mod in EXTRA_VECTOR_MODULES:
-        for name, obj in importlib.import_module("." + mod, __package__).generate().items():
-            out[name] = _dump(obj)
-    return out
+
+
+_MODULE_CACHE = {}
+_GENERATED = []
+
+
+def generate():
+    """Return {filename: bytes}. Pure function of the Python implementation.
+
+    Memoised per process (callers get a fresh dict; the bytes values are immutable).
+    Use generate_fresh() to force a recomputation.
+    """
+    if not _GENERATED:
+        out = _core_outputs()
+        for mod in EXTRA_VECTOR_MODULES:
+            for name, obj in module_outputs(mod).items():
+                out[name] = _dump(obj)
+        _GENERATED.append(out)
+    return dict(_GENERATED[0])
 
 
 def write(out_dir):
@@ -716,8 +747,12 @@ def check(out_dir):
     bad = []
     for name, data in generate().items():
         p = os.path.join(out_dir, name)
-        if not os.path.exists(p) or open(p, "rb").read() != data:
+        if not os.path.exists(p):
             bad.append(name)
+            continue
+        with open(p, "rb") as f:
+            if f.read() != data:
+                bad.append(name)
     return bad
 
 

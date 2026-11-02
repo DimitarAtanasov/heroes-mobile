@@ -95,4 +95,5 @@ flowchart LR
 | 63 | Presenter view v2 + Kotlin port (1,356 states, 22k taps) | Sonnet | done |
 | 64 | Audit fixes: integer caps, Long damage, policy and state validation in both engines | Opus | done (golden unchanged) |
 | - | Android build: plugin versions declared once in settings | lead | pushed; verified by CI only |
-
+| - | Graphify code index (docs/codebase-index, tools/graphify/index.sh) | lead | done |
+| 65 | :presenter module: TapReducer + BattleSession (64 AI games equal a plain apply loop) | Sonnet | done (a lead mutation survived, stale-preview test added) |

@@ -5,6 +5,8 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+import vector_cache  # noqa: E402
 from h3re import defimg as D  # noqa: E402
 from h3re import vectors as V  # noqa: E402
 from h3re import vectors_def as VD  # noqa: E402
@@ -16,20 +18,19 @@ _OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..",
 class DefVectorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.doc = VD.generate()[VD.FILE]
+        cls.doc = vector_cache.module_doc(VD)[VD.FILE]
         cls.cases = {c["name"]: c for c in cls.doc["cases"]}
 
     def test_deterministic_and_small(self):
-        again = VD.generate()
-        self.assertEqual(V._dump(again), V._dump(VD.generate()))
-        self.assertLess(len(V._dump(again)), 4 * 1024 * 1024)
+        vector_cache.assert_module_deterministic(self, VD)
+        self.assertLess(len(V._dump(vector_cache.module_doc(VD))), 4 * 1024 * 1024)
 
     def test_committed_file_matches(self):
         p = os.path.join(_OUT, VD.FILE)
         if not os.path.exists(p):
             self.skipTest("vector file not generated")
         with open(p, "rb") as fh:
-            self.assertEqual(fh.read(), V._dump(VD.generate()[VD.FILE]))
+            self.assertEqual(fh.read(), V._dump(vector_cache.module_doc(VD)[VD.FILE]))
 
     def test_coverage(self):
         c = self.cases

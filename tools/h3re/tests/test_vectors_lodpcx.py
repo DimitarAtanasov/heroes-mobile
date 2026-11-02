@@ -9,6 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+import vector_cache  # noqa: E402
 from h3re import vectors as V  # noqa: E402
 from h3re import vectors_lodpcx as L  # noqa: E402
 from h3re.lod import LodArchive, LodFormatError  # noqa: E402
@@ -20,7 +22,7 @@ MAX_VECTOR_BYTES = 3 * 1024 * 1024
 class LodPcxVectorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.generated = L.generate()
+        cls.generated = vector_cache.module_doc(L)
 
     def lod_cases(self):
         return self.generated[L.LOD_FILE]["cases"]
@@ -29,7 +31,7 @@ class LodPcxVectorTests(unittest.TestCase):
         return self.generated[L.PCX_FILE]["cases"]
 
     def test_generation_is_deterministic(self):
-        self.assertEqual(L.generate(), L.generate())
+        vector_cache.assert_module_deterministic(self, L)
 
     def test_committed_files_match_fresh_generation(self):
         # Failure means the generator changed without the vector files being rewritten.

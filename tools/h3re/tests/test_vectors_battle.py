@@ -7,6 +7,8 @@ import unittest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+import vector_cache  # noqa: E402
+
 from h3re import battle as B  # noqa: E402
 from h3re import soak  # noqa: E402
 from h3re import vectors_battle as VB  # noqa: E402
@@ -41,12 +43,12 @@ def stream_at(case, skip):
 class TestBattleVectors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = VB.generate()
+        cls.out = vector_cache.module_doc(VB)
         cls.doc = cls.out[VB.FILE]
         cls.cases = {c["name"]: c for c in cls.doc["cases"]}
 
     def test_generation_is_deterministic(self):
-        self.assertEqual(self.out, VB.generate())
+        vector_cache.assert_module_deterministic(self, VB)
 
     def test_is_json_serialisable_and_non_trivial(self):
         doc = self.doc
@@ -237,7 +239,7 @@ class TestContractEdgeVectors(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.doc = VB.generate()[VB.FILE]
+        cls.doc = vector_cache.module_doc(VB)[VB.FILE]
 
     def test_policy_rejects_cover_every_audited_field(self):
         cases = self.doc["policy_reject_cases"]
