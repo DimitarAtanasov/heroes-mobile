@@ -238,7 +238,7 @@ def _content_cases(mapping):
               abilities="Double Wide, no enemy retaliation , Strikes Twice")
     c = _base("Quillfox", shots=12, abilities="Shooter, Shoots Twice, no melee penalty")
     d = _base("Mossback", abilities="Spits Acid, flying, Teleports", hp=60)
-    add("two_creatures_sorted", _table([b, a]))
+    add("two_creatures_file_order", _table([b, a]))
     add("all_flags", _table([_base("Omniform", abilities="flyer, double wide, no retaliation, "
         "unlimited retaliation, no melee penalty, no range penalty, double attack, "
         "shoots twice, no morale")]))

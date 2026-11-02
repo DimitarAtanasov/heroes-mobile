@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -31,10 +32,10 @@ class ContentTests(unittest.TestCase):
         res = parse_creatures(build([
             row("Zork", hp=20, shots=8, abil="Flying, Double Attack"),
             row("Blip", abil="")]))
-        self.assertEqual([c["name"] for c in res.creatures], ["Blip", "Zork"])
-        z = res.creatures[1]
+        self.assertEqual([c["name"] for c in res.creatures], ["Zork", "Blip"])
+        z = res.creatures[0]
         self.assertEqual((z["hp"], z["shots"], z["flyer"], z["strikes_twice"]), (20, 8, True, True))
-        self.assertNotIn("shots", res.creatures[0])
+        self.assertNotIn("shots", res.creatures[1])
         self.assertEqual(res.extras["Zork"]["cost_gold"], 100)
         self.assertEqual(res.extras["Zork"]["growth"], 7)
         self.assertEqual(res.unknown, ())
@@ -91,7 +92,7 @@ class ContentTests(unittest.TestCase):
             row("Mump", lo=2, hi=4)]))
         self.assertEqual(res.creature_rows, {"Zork": 0, "Wisp": 1, "Mump": 2})
         self.assertEqual(res.no_fixed_damage, frozenset({"Wisp"}))
-        self.assertEqual([c["name"] for c in res.creatures], ["Mump", "Wisp", "Zork"])
+        self.assertEqual([c["name"] for c in res.creatures], ["Zork", "Wisp", "Mump"])
 
     def test_no_fixed_damage_creature_refused_by_battle(self):
         # Battle rules are unchanged: dmg_min 0 or dmg_max 0 never reaches a battle state.
@@ -127,7 +128,24 @@ class ContentTests(unittest.TestCase):
         res = parse_creatures(build([
             row("Zork"), [""], row("Blip"), ["", "x"], row("Mump")]))
         self.assertEqual(res.creature_rows, {"Zork": 0, "Blip": 1, "Mump": 2})
-        self.assertEqual([c["name"] for c in res.creatures], ["Blip", "Mump", "Zork"])
+        self.assertEqual([c["name"] for c in res.creatures], ["Zork", "Blip", "Mump"])
+
+    def test_creatures_in_file_order_hash_unchanged(self):
+        # Roster slice 1: ContentResult.creatures is in file order (not by name); the name sort
+        # lives only inside datapack canonicalization, so the content hash must not move.
+        res = parse_creatures(build([
+            row("Zork", hp=20, abil="Flying"), row("Blip"), row("Mump", hp=7)]))
+        self.assertEqual([c["name"] for c in res.creatures], ["Zork", "Blip", "Mump"])
+        self.assertEqual([res.creature_rows[c["name"]] for c in res.creatures], [0, 1, 2])
+        with open(os.path.join(datapack.DEFAULT_DIR, "rules.json")) as f:
+            rules = json.load(f)
+        file_order = {"schema_version": 1, "creatures": list(res.creatures)}
+        by_name = {"schema_version": 1,
+                   "creatures": sorted(res.creatures, key=lambda c: c["name"])}
+        h = datapack.parse(rules, file_order).content_hash
+        self.assertEqual(h, datapack.parse(rules, by_name).content_hash)
+        # Pinned from the pre-change (name-sorted) loader on this fixture.
+        self.assertEqual(h, "729ca241bd95e5c4661dd2eafdd8c032d1ef315fc30234196142767f7f35a82a")
 
     def test_hp_zero_accepted_hp_negative_rejected(self):
         # Owner decision 2026-11-02: CRTRAITS hp floor 0 (same cases as ContentTest).
