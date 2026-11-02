@@ -102,6 +102,38 @@ class TestAdventureVectors(unittest.TestCase):
                 got = str(e)
             self.assertEqual(got, c["error"], c["name"])
 
+    def test_policy_cases_cover_flags(self):
+        pc = {c["name"]: c for c in self.doc["policy_cases"]}
+        for f in VA.A._POLICY_FLAGS:
+            for kind in ("int1", "int0", "null", "str"):
+                self.assertEqual(pc["%s-%s" % (f, kind)]["error"], "%s must be a bool" % f)
+        # Order: flags first, in field order, before the other checks.
+        self.assertEqual(pc["order-flag-before-cost_from"]["error"],
+                         "road_needs_both must be a bool")
+        self.assertEqual(pc["order-flags-in-field-order"]["error"],
+                         "diagonal_moves must be a bool")
+        self.assertEqual(pc["order-flag-before-int"]["error"],
+                         "income_on_first_day must be a bool")
+
+    def test_edge_day_cases_pass_int_and_reach_long_max(self):
+        edge = {n: c for n, c in self.cases.items() if c["kind"] == "edge"}
+        self.assertEqual(set(edge), {"edge-day-int-max", "edge-day-int-max-week",
+                                     "edge-day-2pow62-week", "edge-day-long-max"})
+        days = lambda c: [json.loads(st["canonical"])["day"] for st in c["steps"]]  # noqa: E731
+        self.assertEqual(json.loads(edge["edge-day-int-max"]["initial"]["canonical"])["day"],
+                         2 ** 31 - 1)
+        self.assertIn(2 ** 31, days(edge["edge-day-int-max"]))
+        self.assertEqual(days(edge["edge-day-long-max"])[-1], 2 ** 63 - 1)
+        for c in edge.values():
+            kinds = {e["type"] for st in c["steps"] for e in st["events"]}
+            self.assertLessEqual({"DayStarted", "TurnStarted"}, kinds, c["name"])
+        for n in ("edge-day-int-max-week", "edge-day-2pow62-week"):
+            kinds = {e["type"] for st in edge[n]["steps"] for e in st["events"]}
+            self.assertIn("WeekStarted", kinds, n)
+        big = [e for st in edge["edge-day-2pow62-week"]["steps"] for e in st["events"]
+               if e["type"] == "WeekStarted"]
+        self.assertGreater(big[0]["week"], 2 ** 31 - 1)
+
     def test_constants_mirror_the_module(self):
         k = self.doc["constants"]
         self.assertEqual(k["terrain_cost"], A.TERRAIN_COST)

@@ -128,7 +128,7 @@ class AdventureTest {
     fun goldenFourteenDayHashIsThePythonPin() {
         val golden = cases.first { it["name"] == "golden" }
         val s = parse(steps(golden).last()["canonical"] as String)
-        assertEquals(15, s.day)
+        assertEquals(15L, s.day)
         // tests/test_adventure.py GoldenTest.PINNED
         assertEquals("179c570020d05be9a53c265a76517a4bb9f398c92f37d19485d30f804f703420", codec.stateHash(s))
     }
@@ -161,7 +161,7 @@ class AdventureTest {
     @Test
     fun commandFieldsAreStrictIntegers() {
         val s = parse(steps(cases.first())[0]["canonical"] as String)
-        val begun = s.day == 1
+        val begun = s.day == 1L
         assertTrue(begun)
         fun msg(cmd: Map<String, Any?>) = assertFailsWith<IllegalCommand> { adv.apply(s, AdventureCodec.parseCommand(cmd)) }.message
         // A non-integer number (a JSON reader that yields doubles) is never an integer field.
@@ -192,9 +192,10 @@ class AdventureTest {
         assertEquals("road_cost has a duplicate road type", mutated {
             pol(it)["road_cost"] = listOf(listOf("dirt", BigInteger.ONE), listOf("dirt", BigInteger.TWO), listOf("gravel", BigInteger.ONE))
         })
-        assertEquals("diagonal_moves: expected boolean", mutated { pol(it)["diagonal_moves"] = BigInteger.ONE })
+        assertEquals("diagonal_moves must be a bool", mutated { pol(it)["diagonal_moves"] = BigInteger.ONE })
         assertEquals("day: expected integer", mutated { it["day"] = true })
-        assertEquals("day out of range", mutated { it["day"] = BigInteger.TWO.pow(31) })
+        assertEquals("day out of range", mutated { it["day"] = BigInteger.TWO.pow(63) })
+        assertEquals(null, mutated { it["day"] = BigInteger.TWO.pow(63).subtract(BigInteger.ONE) })   // the day is a Long
         assertEquals("state: encounters are not ported (encounter.md)", mutated { it["encounter"] = null })
     }
 
@@ -231,6 +232,48 @@ class AdventureTest {
         assertEquals("pathfinding_flat needs 4 ints in 0..10000", msg("pathfinding_flat", listOf(BigInteger.ZERO, java.lang.Double.valueOf("1"), BigInteger.TWO, BigInteger.TEN)))
         assertEquals("pathfinding_pct needs 4 values in 0..100", msg("pathfinding_pct", listOf(BigInteger.ZERO, false, BigInteger.TWO, BigInteger.TEN)))
         assertEquals("road_cost needs a cost in 1..10000 for each road type", msg("road_cost", listOf(listOf("cobblestone", true), listOf("dirt", BigInteger.TEN), listOf("gravel", BigInteger.TEN))))
+    }
+
+    @Test
+    fun policyFlagsThatAreNotBoolsAreRefusedInPythonsOrder() {
+        val base = doc["policies"].obj().getValue("default").obj()
+        fun msg(vararg kv: Pair<String, Any?>) = assertFailsWith<IllegalArgumentException> { codec.policyFrom(base + kv) }.message
+        for (f in AdventurePolicy.FLAGS) {
+            // 1 and 0 (a JSON reader's integers), a Double, null, a string, a list: never a flag.
+            for (v in listOf(BigInteger.ONE, BigInteger.ZERO, java.lang.Double.valueOf("1"), null, "true", listOf(true))) {
+                assertEquals("$f must be a bool", msg(f to v), "$f $v")
+            }
+            assertEquals(null, runCatching { codec.policyFrom(base + (f to true)) }.exceptionOrNull()?.message)
+        }
+        // Flags are checked first, in field order, before every other check.
+        for ((i, a) in AdventurePolicy.FLAGS.withIndex()) {
+            for (b in AdventurePolicy.FLAGS.drop(i + 1)) assertEquals("$a must be a bool", msg(b to BigInteger.ONE, a to BigInteger.ONE), "$a before $b")
+        }
+        assertEquals("road_needs_both must be a bool", msg("zero_remainder" to BigInteger.ONE, "road_needs_both" to BigInteger.ONE))
+        assertEquals("diagonal_moves must be a bool", msg("zero_remainder" to BigInteger.ONE, "diagonal_moves" to null, "income_on_first_day" to "x"))
+        assertEquals("income_on_first_day must be a bool", msg("income_on_first_day" to BigInteger.ONE, "diagonal_num" to true, "move_cost_floor" to BigInteger.ZERO))
+        assertEquals("bad cost_from", msg("cost_from" to "both", "diagonal_num" to true))
+    }
+
+    @Test
+    fun theDayIsALongAndPassesTheIntEdge() {
+        val start = parse(steps(cases.first())[0]["canonical"] as String)
+        fun endDay(s: AdventureState): AdventureState {
+            var t = s
+            repeat(t.players.size) { t = adv.apply(t, AdventureCommand.EndTurn(t.current)).state }
+            return t
+        }
+        for (day in listOf(Int.MAX_VALUE.toLong(), 1L shl 62, Long.MAX_VALUE - 1)) {
+            val s = start.copy(day = day)
+            val t = endDay(s)
+            assertEquals(day + 1, t.day)
+            val round = parse(codec.canonicalText(t))
+            assertEquals(codec.stateHash(t), codec.stateHash(round))
+        }
+        // Python's day has no bound; at Long.MAX_VALUE the Kotlin day cannot go on (documented difference).
+        val top = start.copy(day = Long.MAX_VALUE)
+        assertFailsWith<ArithmeticException> { endDay(top) }
+        assertEquals(Long.MAX_VALUE, top.day)
     }
 
     @Test

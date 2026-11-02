@@ -72,3 +72,7 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 ## Checkpoint 77
 - 76: encounter + adventure stage E (Attack via AdventureEncounterHooks). 77: town core. All sim modules (battle, adventure, encounter, town, hero, h3m) now have Kotlin ports with conformance vectors; goldens unchanged.
 - Remaining: dedupe create_battle (Scenario.kt private copy in Encounter.kt); real-data tests (H3_DATA_DIR); app UI beyond shell; owner decisions listed earlier.
+
+## Checkpoint 82 (parity gaps closed)
+- Python AdventurePolicy flags must be plain bools (refuses more input; owner to confirm with the ADR-0008 amendment); Kotlin adventure day is a Long (EndTurn at Int.MAX no longer throws; at 2^63-1 Kotlin throws where Python continues, documented); create_battle dedupe done. Goldens unchanged.
+- Still open: Kotlin policyFrom gives "cost_from: expected string" for a non-string cost_from where Python says "bad cost_from" (not in policy_cases).

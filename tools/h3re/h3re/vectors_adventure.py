@@ -359,6 +359,20 @@ POLICY_CASES = (
     ("order-diagonal-before-pct", _policy_json(diagonal_num=0, pathfinding_pct=[0, 101, 0, 0])),
     ("order-pct-before-road", _policy_json(pathfinding_pct=[0, 101, 0, 0],
                                            road_cost=_ROADS(0, 75, 65))),
+    # Flags must be plain bools (1/0 are ints, null and strings are neither) and are checked
+    # first, in field order. Floats are left to the Kotlin unit test (the JSON reader refuses them).
+    ("flags-all-flipped-ok", _policy_json(**{f: not getattr(A.DEFAULT_POLICY, f)
+                                             for f in A._POLICY_FLAGS})),
+    *[("%s-%s" % (f, kind), _policy_json(**{f: v}))
+      for f in A._POLICY_FLAGS
+      for kind, v in (("int1", 1), ("int0", 0), ("null", None), ("str", "true"))],
+    *[("order-flag-%s-before-%s" % (a, b), _policy_json(**{a: 1, b: 1}))
+      for a, b in zip(A._POLICY_FLAGS, A._POLICY_FLAGS[1:])],
+    ("order-flag-before-cost_from", _policy_json(road_needs_both=1, cost_from="both")),
+    ("order-flags-in-field-order", _policy_json(zero_remainder=1, diagonal_moves=None,
+                                                income_on_first_day="x")),
+    ("order-flag-before-int", _policy_json(income_on_first_day=1, diagonal_num=True,
+                                           move_cost_floor=0)),
 )
 
 
@@ -376,6 +390,39 @@ def policy_cases():
 
 
 _INITIAL = {}
+
+# The day has no bound in Python; the Kotlin port keeps it in a Long (a 32-bit Int threw at
+# 2**31-1). Cases start from the golden game after Begin with the day replaced and play EndTurns
+# across the Int edge, across a week start with a week number beyond Int, and up to 2**63-1
+# (docs/specs/conformance-adventure.md "The day is a Long").
+def _week_start_before(day):
+    """The day before the first week start (day % 7 == 1) at or after ``day``."""
+    d = day
+    while (d - 1) % 7:
+        d += 1
+    return d - 1
+
+
+EDGE_DAY_CASES = (
+    ("edge-day-int-max", 2 ** 31 - 1, 4),
+    ("edge-day-int-max-week", _week_start_before(2 ** 31), 4),
+    ("edge-day-2pow62-week", _week_start_before(2 ** 62), 4),
+    ("edge-day-long-max", 2 ** 63 - 3, 4),
+)
+
+
+def edge_day_cases():
+    out = []
+    for name, day, n in EDGE_DAY_CASES:
+        start, _ = A.apply(golden_setup(), A.Begin())
+        start = dataclasses.replace(start, day=day)
+        cmds, state = [], start
+        for _ in range(n):
+            cmds.append(A.EndTurn(state.current))
+            state, _ = A.apply(state, cmds[-1])
+        _INITIAL[name] = start
+        out.append(_play(name, "default", start, A.adventure_rng(0, start.game_id), cmds, 0, "edge"))
+    return out
 
 
 def _initial_state(case):
@@ -407,6 +454,7 @@ def generate():
             name = "soak-%s-%d" % (pname, seed)
             _INITIAL[name] = state
             cases.append(_play(name, pname, state, rng, cmds, seed, "soak"))
+    cases.extend(edge_day_cases())
     constants = {
         "terrain_cost": dict(sorted(A.TERRAIN_COST.items())),
         "impassable": list(A.IMPASSABLE),

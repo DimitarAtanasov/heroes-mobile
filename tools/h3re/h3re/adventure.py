@@ -101,6 +101,10 @@ def _int_in(x, lo, hi):
     return type(x) is int and lo <= x <= hi
 
 
+_POLICY_FLAGS = ("road_needs_both", "diagonal_moves", "diagonal_corner_cut",
+                 "diagonal_exception", "zero_remainder", "income_on_first_day")
+
+
 @dataclass(frozen=True)
 class AdventurePolicy:
     """Switchable rules. Every field is [uncertain] in rules.md (or [engine]);
@@ -144,6 +148,11 @@ class AdventurePolicy:
     income_on_first_day: bool = False
 
     def __post_init__(self):
+        # Flags are plain bools (1, 1.0, None, "x" are not): they reach the canonical form and
+        # the hash as written. Checked first, in field order (docs/specs/adventure.md section 6).
+        for name in _POLICY_FLAGS:
+            if type(getattr(self, name)) is not bool:
+                raise ValueError("%s must be a bool" % name)
         if self.cost_from not in ("dest", "source"):
             raise ValueError("bad cost_from")
         if self.road_rate_from not in ("source", "dest", "max"):

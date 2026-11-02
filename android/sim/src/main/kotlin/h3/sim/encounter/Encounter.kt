@@ -20,7 +20,6 @@ import h3.sim.BattleEvent
 import h3.sim.BattleHero
 import h3.sim.BattleJson
 import h3.sim.BattlePolicy
-import h3.sim.BattleStack
 import h3.sim.BattleState
 import h3.sim.Canonical
 import h3.sim.Datapack
@@ -30,6 +29,7 @@ import h3.sim.HexCell
 import h3.sim.IllegalCommand
 import h3.sim.Pcg32
 import h3.sim.RngStreams
+import h3.sim.Scenario
 import h3.sim.asDrawSource
 import h3.sim.legalCommands
 import java.math.BigInteger
@@ -237,9 +237,7 @@ class EncounterEngine(rules: AdventureRules, val battle: Battle, val battleCodec
 
     private fun guardIndex(state: AdventureState, id: String): Int = state.guards.indexOfFirst { it.id == id }
 
-    private class Setup(val creature: BattleCreature, val count: Int, val pos: Pair<Int, Int>?)
-
-    private fun stackSetups(setup: EncounterSetup, army: List<AdvArmySlot>, side: Int): List<Setup> =
+    private fun stackSetups(setup: EncounterSetup, army: List<AdvArmySlot>, side: Int): List<Scenario.Setup> =
         army.mapIndexed { i, slot ->
             val cr = creature(setup, slot) ?: throw IllegalCommand("no content for creature ${AdventureCodec.pyRepr(slot.creature)}")
             var pos: Pair<Int, Int>? = null
@@ -248,7 +246,7 @@ class EncounterEngine(rules: AdventureRules, val battle: Battle, val battleCodec
                 val col = if (side == Hex.ATTACKER) 1 + wide else Hex.WIDTH - 2 - wide
                 pos = Pair(col, setup.battlePolicy.placementRows[6][i])
             }
-            Setup(cr, slot.count, pos)
+            Scenario.Setup(cr, slot.count, 0, 0, pos)   // morale 0, luck 0
         }
 
     /**
@@ -292,7 +290,7 @@ class EncounterEngine(rules: AdventureRules, val battle: Battle, val battleCodec
         val attackers = stackSetups(setup, hero.army, Hex.ATTACKER)
         val defenders = stackSetups(setup, army, Hex.DEFENDER)
         try {
-            return createBattle(battleId(state), attackers, defenders, listOf(BattleHero(), foeHero), setup.battlePolicy)
+            return Scenario.createBattle(battleId(state), attackers, defenders, emptyList(), listOf(BattleHero(), foeHero), setup.battlePolicy, rulesHash)
         } catch (e: IllegalCommand) {
             throw e
         } catch (e: IllegalArgumentException) {
@@ -301,45 +299,6 @@ class EncounterEngine(rules: AdventureRules, val battle: Battle, val battleCodec
     }
 
     override fun validate(state: AdventureState, cmd: AdventureCommand.Attack): Any = buildBattle(state, cmd)
-
-    private fun tupleRepr(p: Pair<Int, Int>) = "(${p.first}, ${p.second})"
-
-    /** Python `battle.create_battle` (no obstacles; every stack at morale 0 and luck 0). `Scenario.createBattle` is private. */
-    private fun createBattle(
-        battleId: String, attackers: List<Setup>, defenders: List<Setup>, heroes: List<BattleHero?>, policy: BattlePolicy,
-    ): BattleState {
-        require(attackers.size in 1..7 && defenders.size in 1..7) { "each side needs 1..7 stacks" }
-        require(heroes.size == 2) { "heroes must be a pair" }
-        val stacks = ArrayList<BattleStack>()
-        val occupied = LinkedHashSet<HexCell>()
-        for ((sd, army) in listOf(Hex.ATTACKER to attackers, Hex.DEFENDER to defenders)) {
-            val rows = policy.placementRows[army.size - 1]
-            for ((slot, s) in army.withIndex()) {
-                val cr = s.creature
-                require(s.count > 0 && cr.hp > 0 && cr.speed >= 0) { "invalid stack setup" }
-                require(cr.dmgMin >= 1 && cr.dmgMin <= cr.dmgMax) { "invalid damage range" }
-                val wide = if (cr.doubleWide) 1 else 0
-                val head = s.pos ?: if (sd == Hex.ATTACKER) Pair(1 + wide, rows[slot]) else Pair(Hex.WIDTH - 2 - wide, rows[slot])
-                val cells = Hex.cellsAt(HexCell(head.first, head.second), sd, cr.doubleWide)
-                for (c in cells) {
-                    require(Hex.playable(c, policy.edgeColumnsWalkable) && c !in occupied) {
-                        "stack ${stacks.size} cannot be placed at ${tupleRepr(head)}"
-                    }
-                }
-                occupied.addAll(cells)
-                stacks.add(BattleStack(
-                    id = stacks.size, side = sd, slot = slot, creature = cr, count = s.count, topHp = cr.hp,
-                    pos = head, shots = cr.shots, retaliations = 1, defending = false, morale = 0, luck = 0,
-                ))
-            }
-        }
-        val state = BattleState(
-            battleId = battleId, policy = policy, heroes = heroes, obstacles = emptyList(), stacks = stacks,
-            rulesHash = rulesHash,
-        )
-        BattleCodec.checkState(state)
-        return state
-    }
 
     // The fight -----------------------------------------------------------------------------------------------------
 

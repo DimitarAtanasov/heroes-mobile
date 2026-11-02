@@ -111,10 +111,12 @@ data class AdventurePolicy(
 ) {
     /**
      * Python `__post_init__`, same order and messages. [roads] is the rules' road list. [illTyped]
-     * names the integer fields that were a bool, a float or not a number in the source JSON
-     * (Python requires `type(x) is int`); the value kept for them is not looked at.
+     * names the fields that had the wrong type in the source JSON: an integer field that was a bool,
+     * a float or not a number (Python requires `type(x) is int`), a flag that was not a bool
+     * (`type(x) is bool`); the value kept for them is not looked at.
      */
     fun validate(roads: List<String>, illTyped: Set<String> = emptySet()) {
+        for (name in FLAGS) require(name !in illTyped) { "$name must be a bool" }
         require(costFrom in setOf("dest", "source")) { "bad cost_from" }
         require(roadRateFrom in setOf("source", "dest", "max")) { "bad road_rate_from" }
         require(diagonalMode in setOf("sqrt2", "ratio")) { "bad diagonal_mode" }
@@ -138,6 +140,12 @@ data class AdventurePolicy(
 
     companion object {
         val ROUNDING = listOf("floor", "ceil", "nearest")
+
+        /** Python `_POLICY_FLAGS`, in field order: checked first by [validate]. */
+        val FLAGS = listOf(
+            "road_needs_both", "diagonal_moves", "diagonal_corner_cut",
+            "diagonal_exception", "zero_remainder", "income_on_first_day",
+        )
 
         /** Python `POLICY_INT_MAX`: keeps every step cost and budgeted sum inside Int (ADR-0008, adventure.md 6). */
         const val POLICY_INT_MAX = 10_000
@@ -212,7 +220,7 @@ data class AdventureState(
     val players: List<AdvPlayer>,
     val heroes: List<AdvHero>,
     val pools: List<AdvGrowthPool>,
-    val day: Int = 0,
+    val day: Long = 0,
     val current: Int = 0,
     val guards: List<AdvGuard> = emptyList(),
     val battles: Int = 0,
@@ -245,16 +253,16 @@ sealed interface AdventureCommand {
 interface AdventureEvent {
     fun toMap(): Map<String, Any?>
 
-    data class DayStarted(val day: Int, val week: Int, val dayOfWeek: Int, val month: Int) : AdventureEvent {
+    data class DayStarted(val day: Long, val week: Long, val dayOfWeek: Int, val month: Long) : AdventureEvent {
         override fun toMap() = linkedMapOf<String, Any?>("type" to "DayStarted", "day" to day, "week" to week, "day_of_week" to dayOfWeek, "month" to month)
     }
-    data class WeekStarted(val week: Int, val month: Int, val newMonth: Boolean) : AdventureEvent {
+    data class WeekStarted(val week: Long, val month: Long, val newMonth: Boolean) : AdventureEvent {
         override fun toMap() = linkedMapOf<String, Any?>("type" to "WeekStarted", "week" to week, "month" to month, "new_month" to newMonth)
     }
     data class PoolGrew(val pool: String, val added: Long, val available: Long) : AdventureEvent {
         override fun toMap() = linkedMapOf<String, Any?>("type" to "PoolGrew", "pool" to pool, "added" to added, "available" to available)
     }
-    data class TurnStarted(val player: Int, val day: Int) : AdventureEvent {
+    data class TurnStarted(val player: Int, val day: Long) : AdventureEvent {
         override fun toMap() = linkedMapOf<String, Any?>("type" to "TurnStarted", "player" to player, "day" to day)
     }
     data class IncomeReceived(val player: Int, val income: AdvResources) : AdventureEvent {
@@ -381,7 +389,7 @@ class AdventureCodec(private val rules: AdventureRules, private val encounters: 
         // Python sorts ids by code point; String.sorted() is UTF-16 code-unit order (differs for astral ids).
         val guardIds = guards.map { it.id }
         require(guardIds == guardIds.sortedWith(Canonical.codePointOrder) && guardIds.toSet().size == guards.size) { "guards must be sorted by unique id" }
-        val day = BattleJson.int(m["day"], "day")
+        val day = BattleJson.long(m["day"], "day")
         val current = BattleJson.int(m["current"], "current")
         require(day >= 0 && current in players.indices) { "bad day or current player" }
         val battles = if ("battles" in m) BattleJson.int(m["battles"], "battles") else 0
@@ -409,6 +417,7 @@ class AdventureCodec(private val rules: AdventureRules, private val encounters: 
         // Python ints are unbounded and a policy integer must be a plain int: a bool, a float or
         // any other value is recorded in [illTyped], an integer beyond Int is clamped to the Int
         // range (every bound is far inside it, so the verdict and the message are Python's).
+        // A flag must be a plain bool: anything else (0, 1, null, a string, a float) is recorded too.
         val illTyped = LinkedHashSet<String>()
         fun lenient(v: Any?, field: String): Int {
             val big = when (v) {
@@ -425,7 +434,12 @@ class AdventureCodec(private val rules: AdventureRules, private val encounters: 
             require(e.size == 2) { "road_cost entries must be (road, cost) pairs" }
             Pair(BattleJson.str(e[0], "road_cost"), lenient(e[1], "road_cost"))
         }.sortedWith { a, b -> Canonical.codePointOrder.compare(a.first, b.first) }
-        fun b(k: String) = BattleJson.bool(m[k], k)
+        fun b(k: String): Boolean {
+            val v = m[k]
+            if (v is Boolean) return v
+            illTyped.add(k)
+            return false
+        }
         fun s(k: String) = BattleJson.str(m[k], k)
         fun i(k: String) = lenient(m[k], k)
         val p = AdventurePolicy(
@@ -592,8 +606,8 @@ class Adventure(private val rules: AdventureRules, private val encounters: Adven
         }
     }
 
-    /** Python `calendar`: (week, day_of_week, month) for day >= 1. */
-    fun calendar(day: Int): Triple<Int, Int, Int> = Triple((day - 1) / 7 + 1, (day - 1) % 7 + 1, (day - 1) / 28 + 1)
+    /** Python `calendar`: (week, day_of_week, month) for day >= 1. The day is a Long (Python's is unbounded), so week and month are too. */
+    fun calendar(day: Long): Triple<Long, Int, Long> = Triple((day - 1) / 7 + 1, ((day - 1) % 7).toInt() + 1, (day - 1) / 28 + 1)
 
     fun baseMovement(army: List<AdvArmySlot>): Int {
         require(army.isNotEmpty()) { "hero needs an army" }
@@ -741,7 +755,7 @@ class Adventure(private val rules: AdventureRules, private val encounters: Adven
         val (week, dow, month) = calendar(s0.day)
         events.add(AdventureEvent.DayStarted(s0.day, week, dow, month))
         if (dow == 1 && week > 1) {     // rules.md 1: not on the very first week
-            events.add(AdventureEvent.WeekStarted(week, month, (week - 1) % 4 == 0))
+            events.add(AdventureEvent.WeekStarted(week, month, (week - 1) % 4 == 0L))
             val pools = s0.pools.map {
                 val p = it.copy(available = Math.addExact(it.available, it.growth))
                 events.add(AdventureEvent.PoolGrew(p.id, p.growth, p.available))
@@ -774,10 +788,10 @@ class Adventure(private val rules: AdventureRules, private val encounters: Adven
 
     private fun validate(s: AdventureState, cmd: AdventureCommand): Any? {
         if (cmd is AdventureCommand.Begin) {
-            if (s.day != 0) throw IllegalCommand("game already started")
+            if (s.day != 0L) throw IllegalCommand("game already started")
             return null
         }
-        if (s.day == 0) throw IllegalCommand("game not started")
+        if (s.day == 0L) throw IllegalCommand("game not started")
         when (cmd) {
             is AdventureCommand.EndTurn -> {
                 if (cmd.player == null || cmd.player != s.current) throw IllegalCommand("not player ${cmd.playerRepr}'s turn")
@@ -809,7 +823,7 @@ class Adventure(private val rules: AdventureRules, private val encounters: Adven
         val data = validate(state, cmd)
         val events = ArrayList<AdventureEvent>()
         val s = when (cmd) {
-            AdventureCommand.Begin -> startTurn(startDay(state.copy(day = 1, current = 0), events), events)
+            AdventureCommand.Begin -> startTurn(startDay(state.copy(day = 1L, current = 0), events), events)
             is AdventureCommand.Move -> {
                 @Suppress("UNCHECKED_CAST")
                 val move = data as Pair<Int, List<Pair<Int, Int>>>
@@ -824,7 +838,7 @@ class Adventure(private val rules: AdventureRules, private val encounters: Adven
                 events.add(AdventureEvent.TurnEnded(state.current))
                 val nxt = state.current + 1
                 val s1 = if (nxt == state.players.size) {
-                    startDay(state.copy(day = Math.addExact(state.day, 1), current = 0), events)
+                    startDay(state.copy(day = Math.addExact(state.day, 1L), current = 0), events)
                 } else state.copy(current = nxt)
                 startTurn(s1, events)
             }

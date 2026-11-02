@@ -51,10 +51,34 @@ An unknown command type or a missing field is an `IllegalArgumentException` (Pyt
   Three cases (`golden`, `golden-strict`, `soak-default-0`) also carry repr probes: an `EndTurn`
   with a wrong `player` and a `Move` with a malformed `dest` for each value of
   `vectors_adventure.REPR_PROBES`, so the message embeds Python's `repr` (see below).
-- `policy_cases`: 35 policies (JSON) with the `ValueError` message Python raises or `null` when it
+- `policy_cases`: 68 policies (JSON) with the `ValueError` message Python raises or `null` when it
   is accepted: values at the 10^4 bound, over it, huge (10^8, 2^31, 2^70), bool, null and string
-  fields, and pairs of faults that pin the check order.
+  fields, and pairs of faults that pin the check order; each of the six flags as `1`, `0`, `null`
+  and a string (refused: "<field> must be a bool"), all six flipped (accepted), and order
+  cases (each adjacent pair of flags, flag before `cost_from`, flags in field order, flag before
+  the integer checks).
+- `edge-day-*` cases (kind `edge`, 4 steps each, default policy, appended after the soak cases):
+  the golden game after `Begin` with the day replaced, then `EndTurn` x 4 (two days): from day
+  2^31-1 across the Int edge; from the day before a week start just above 2^31; the same at
+  2^62 (week and month numbers beyond Int in `DayStarted`/`WeekStarted`); and from 2^63-3 up to
+  2^63-1 (the largest Kotlin day). Their `illegal_cases` probe the same states.
 - The `adventure:<game_id>` stream is never drawn from; its final state is recorded per case.
+
+## The day is a Long
+
+Python's day is unbounded (adventure.md section 6, "The day counter"). `AdventureState.day`,
+`DayStarted.day/week/month`, `WeekStarted.week/month` and `TurnStarted.day` are `Long` in Kotlin,
+and `AdventureCodec.parseState` reads `day` as a Long (0..2^63-1, else "day out of range"). Known
+difference: `EndTurn` at day 2^63-1 (after the last player) throws `ArithmeticException`, Python
+continues; no vector covers it (the Kotlin test `theDayIsALongAndPassesTheIntEdge` pins the throw
+and the untouched state).
+
+## Policy flags
+
+The six boolean policy fields must be real JSON booleans: `1`, `0`, `null`, a string or a float
+is `"<field> must be a bool"`, checked before every other policy check, in field order
+(`AdventurePolicy.FLAGS` = Python `_POLICY_FLAGS`). The vector JSON reader refuses floats, so the
+float case is a Kotlin unit test next to the `Double` integer fields.
 
 ## Python `repr` in messages
 
@@ -83,5 +107,6 @@ Stage A codec round trip and hash of every recorded state; B and C replay each s
 previous recorded state and compare canonical text, hash, events, reachable-map digest and the
 stream; D checks message, untouched state and untouched stream; plus a whole-case replay from the
 initial state, the golden pin, strict-integer commands, policy/state refusals, guards, every
-`policy_cases` entry, non-integer policy fields (`Double`, `Boolean`), the 24-step 2.4 x 10^9
+`policy_cases` entry, non-integer policy fields (`Double`, `Boolean`), non-bool policy flags and their order, the
+day as a Long (Int edge, 2^62, 2^63-1 and the `ArithmeticException` beyond), the 24-step 2.4 x 10^9
 `findPath` cost, and `pyRepr` unit cases.
