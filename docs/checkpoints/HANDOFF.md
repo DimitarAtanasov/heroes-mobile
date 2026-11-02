@@ -101,3 +101,15 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - Slice U (GameDataStore, ImportScreen, ImportText) landed and wired: Home Game data button, Screen.Import, SpriteLoader root only noBackupFilesDir/gamedata. Device runbook: docs/runbooks/device-test.md. Branch `feature/game-data-wiring`; :app verified by CI only.
 - Law 10 mismatch for the owner: android-app.md says allowBackup="false" but the manifest has no such attribute, so files/saves (filesDir) can go to cloud backup. Decide: change the manifest or the spec.
 - Still open: cross-check test that SpriteLoader and ImportPlan agree on name matching; sprites need an app restart after a new import; 3 surviving mutants in GameDataStore (non-atomic manifest write, no fsync, ignored recover failure: need a real crash to test); no Cancel in the import.
+
+## Checkpoint 0.2 status (2026-11-02)
+- Main: PR #12 merged (sprite upscale 2x: SpriteScale, SpriteLoadPlan scale param, spec "Upscaling (0.2)"). Main HEAD seen: d3719dd.
+- Pushed, no PR yet (owner decision):
+  - `docs/codebase-index-refresh` (e5ba30b): Graphify index refreshed at d3719dd (298 files, 6264 nodes, 16246 edges, 354 communities); `tools/graphify/index.sh` works on Windows (venv bin/ or Scripts/). The community label naming game archive files is kept by owner decision.
+  - `test/import-sprite-name-crosscheck` (efd2b75): test that ImportPlan and the sprite path agree on archive names. Not compiled.
+  - `feature/sprite-reload-after-import` (b8b6303, fef4be8): sprites reload after a valid game-data check, no restart; app-shell.md corrected in fef4be8. Not compiled.
+- Held, not pushed: `feature/sprite-map-table` (8e8d21a) in worktree C:\shemhahealth\wt-spritemap. Parser for the owner's creature table (data/sprite_map.json), keyed by name. Pending owner: name vs CRTRAITS row key (Q2), and whether to land an unwired parser.
+- Not compiled anywhere: all Kotlin changes since PR #12 (no JVM on the dev machine). CI is the first check.
+- Device test: not done. Runbook docs/runbooks/device-test.md; the owner runs the CI APK `heroes-mobile-debug-apk`.
+- Owner decisions still open: creature-to-DEF mapping (Q2; a = owner writes the table, b = VCMI port with ADR amendment); bad-morale (24,24,24) rule; ADR-0008/0012 acceptance; allowBackup mismatch (ADR-0013); app name and package id; editions (Q3); sdlc-sandbix license. Game-data picker stays off (sideload only).
+- Tooling: Graphify is installed locally as graphifyy 0.9.100 in C:\Users\mitet\tools\graphify-venv (not in the repo).
