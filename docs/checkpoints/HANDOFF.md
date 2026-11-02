@@ -1,5 +1,8 @@
 # Handoff (resume here)
 
+> **Latest state is in the section "Current state (2026-11-02, latest)" at the end of this file. The older
+> sections below it are history; where they disagree with it, the last section wins.**
+
 Branch `ccr-c70423ba-3alf1w`. PR #1 (merge b081922) and PR #2 (merge fa70b8a, checkpoints 53-64, skills, memory, loop tooling, APK CI)
 are merged into `main`. Work since (Graphify index and later) continues on this branch, based on `main`. Open a
 new PR for it; do not merge without the owner. License GPL-2.0-or-later (ADR-0010). Python is the oracle; Kotlin must
@@ -101,3 +104,13 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - Slice U (GameDataStore, ImportScreen, ImportText) landed and wired: Home Game data button, Screen.Import, SpriteLoader root only noBackupFilesDir/gamedata. Device runbook: docs/runbooks/device-test.md. Branch `feature/game-data-wiring`; :app verified by CI only.
 - Law 10 mismatch for the owner: android-app.md says allowBackup="false" but the manifest has no such attribute, so files/saves (filesDir) can go to cloud backup. Decide: change the manifest or the spec.
 - Still open: cross-check test that SpriteLoader and ImportPlan agree on name matching; sprites need an app restart after a new import; 3 surviving mutants in GameDataStore (non-atomic manifest write, no fsync, ignored recover failure: need a real crash to test); no Cancel in the import.
+
+## Current state (2026-11-02, latest)
+- **On `main`** (through PR #8, merge d9484fc): the Python oracle; Kotlin ports of every sim module (battle, adventure, encounter, town, hero) and the H3M reader, all with conformance vectors and unchanged goldens; the Compose app (menus, battle screen, result, saves, Game data screen); sprite loader (placeholder creature-to-DEF table); GameDataCheck, ImportPlan, GameDataStore; `real-report` tool; runbooks `docs/runbooks/real-data-check.md` and `device-test.md`. CI green, including the debug APK (`heroes-mobile-debug-apk`).
+- **Open PRs (not merged):** #9 `fix/policy-enum-parity` (Kotlin policy enum messages and order match Python; full Python suite 873 OK), #10 `feature/layout-crosscheck` (sprite loader and import share one file-name rule; SpriteLoader.kt compiles only in CI).
+- **Proposed, no PR:** `docs/adr-0013` (ADR-0013: five spec/code drifts for the owner).
+- **0.1 status:** code-complete and compiled; NOT run on a device. The success test in docs/specs/mvp-0.1.md item 3 needs the owner's device run (docs/runbooks/device-test.md).
+- **Owner next:** (1) run the device test; (2) run `python3 -m h3re real-report <Data dir> --out report.json` and send report.json; (3) decide the items in ADR-0013 and the PR bodies.
+- **Owner decisions still open:** bad-morale table (24,24,24) freezes every stack in both engines; ADR-0008 amendments (policy bounds <= 10000, plain-bool flags, check_state refusals, placement_rows bound) and ADR-0012 acceptance; allowBackup (saves in filesDir can go to cloud backup); menu rules; creature-to-DEF mapping (G3); editions (G5); tighten GameDataCheck to ImportPlan.select; Python container-field TypeError gap; sdlc-sandbix license; allow nextwork.ai. Picker for game data: not allowed until a new yes (sideload only).
+- **Known gaps:** 3 surviving GameDataStore mutants need a real crash to test; directory entries are not fsynced; a newly validated data set is used after an app restart; no Cancel in the import; the details line is not selectable; archives are read whole into memory (512 MiB cap is a choice).
+- **Process notes:** verify in clean copies (`git archive`) and mutate once yourself; full Python suite takes about 10 minutes (use a 15-minute limit); only the lead commits; agents work in private copies.
