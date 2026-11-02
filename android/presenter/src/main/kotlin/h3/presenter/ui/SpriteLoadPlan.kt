@@ -6,6 +6,7 @@ import h3.presenter.AtlasFrame
 import h3.presenter.BuildResult
 import h3.presenter.DefFrames
 import h3.presenter.Reason
+import h3.presenter.SpriteScale
 import h3.sim.Def
 import h3.sim.DefFile
 import h3.sim.LodArchive
@@ -129,7 +130,9 @@ object SpriteLoadPlan {
      * atlas. [lods] are searched in the given order and the first archive holding a member wins
      * (member names compare case-insensitively, as in `lod.md`). With [idleGroupOnly] (the default)
      * only the frames of the idle group are kept, which is all the board draws and keeps the
-     * decoded size small; pass false to keep every frame. Never throws for bad archive or DEF bytes.
+     * decoded size small; pass false to keep every frame. [scale] upscales every frame by an integer
+     * factor (see [SpriteScale]); it multiplies the atlas size, so the budget check still applies.
+     * Never throws for bad archive or DEF bytes.
      */
     fun load(
         creatureNames: List<String>,
@@ -138,7 +141,9 @@ object SpriteLoadPlan {
         idleGroupOnly: Boolean = true,
         maxPage: Int = AtlasBuilder.DEFAULT_MAX_PAGE,
         budgetBytes: Long = AtlasBuilder.DEFAULT_BUDGET_BYTES,
+        scale: Int = 1,
     ): SpriteLoadResult {
+        require(scale in 1..SpriteScale.MAX_SCALE) { "scale $scale outside 1..${SpriteScale.MAX_SCALE}" }
         val res = resolve(creatureNames, table)
         val errors = ArrayList<SpriteLoadError>()
         for (n in res.unmapped) errors.add(SpriteLoadError.NoMapping(n))
@@ -164,7 +169,7 @@ object SpriteLoadPlan {
                 is Decoded.Bad -> { errors.add(SpriteLoadError.BadDef(entry.creature, entry.def, def.detail)); continue }
                 is Decoded.Ok -> {
                     val mine = try {
-                        creatureFrames(entry.creature, def.file, idleGroupOnly)
+                        creatureFrames(entry.creature, def.file, idleGroupOnly, scale)
                     } catch (e: Exception) {
                         errors.add(SpriteLoadError.BadDef(entry.creature, entry.def, e.message ?: e.javaClass.simpleName))
                         continue
@@ -205,12 +210,14 @@ object SpriteLoadPlan {
         }
     }
 
-    private fun creatureFrames(creature: String, file: DefFile, idleGroupOnly: Boolean): List<AtlasFrame> {
+    private fun creatureFrames(creature: String, file: DefFile, idleGroupOnly: Boolean, scale: Int): List<AtlasFrame> {
         val all = DefFrames.from(UiSpriteKey.prefix(creature), file)
-        if (!idleGroupOnly) return all
-        // Keys are `<prefix>/<group:3>/<index:4>`; the idle group is the block at position IDLE_GROUP.
-        val groupPrefix = UiSpriteKey.idleKey(creature).substringBeforeLast('/') + "/"
-        return all.filter { it.key.startsWith(groupPrefix) }
+        val kept = if (!idleGroupOnly) all else {
+            // Keys are `<prefix>/<group:3>/<index:4>`; the idle group is the block at position IDLE_GROUP.
+            val groupPrefix = UiSpriteKey.idleKey(creature).substringBeforeLast('/') + "/"
+            all.filter { it.key.startsWith(groupPrefix) }
+        }
+        return kept.map { SpriteScale.scale(it, scale) }
     }
 }
 
