@@ -19,6 +19,7 @@ import h3.presenter.ui.MenuModel
 import h3.presenter.ui.ResultSummary
 import h3.presenter.ui.SaveSlots
 import h3.presenter.ui.SetupForm
+import h3.presenter.ui.SpriteReload
 import h3.presenter.ui.StackRoster
 import h3.presenter.ui.StartRequest
 import h3.sim.Scenario
@@ -46,6 +47,17 @@ class MainActivity : ComponentActivity() {
 
     private fun readAsset(name: String): String = assets.open(name).bufferedReader(Charsets.UTF_8).use { it.readText() }
 
+    // Starts the sprite worker on the current gamedata; sets [sprites] on the main thread when it finishes.
+    // Called at launch and again after a check or import left valid data in place. The caller must not be
+    // the main thread (the file listing in SpriteLoader.start is I/O); onCreate is the one exception, as before.
+    private fun loadSprites() {
+        val eng = engine ?: return
+        SpriteLoader.start(
+            roots = listOf(File(noBackupFilesDir, "gamedata")), // not filesDir: that can go to cloud backup
+            creatureNames = eng.roster.map { c -> c.name },
+        ) { sp, _ -> main.post { sprites = sp } }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         dataStore = GameDataStore(noBackupFilesDir)
@@ -54,10 +66,7 @@ class MainActivity : ComponentActivity() {
             engine = eng
             saver = SaveFolderWriter(File(filesDir, "saves"), eng.packs)
             // Looks for the player's own game files under gamedata; quietly does nothing when absent.
-            SpriteLoader.start(
-                roots = listOf(File(noBackupFilesDir, "gamedata")), // not filesDir: that can go to cloud backup
-                creatureNames = eng.roster.map { c -> c.name },
-            ) { sp, _ -> main.post { sprites = sp } }
+            loadSprites()
         } catch (e: Exception) {
             engineError = e.toString()
         }
@@ -194,6 +203,7 @@ class MainActivity : ComponentActivity() {
                 onCheckAgain = {
                     dataStore?.checkInPlace { r ->
                         main.post { importResult = r }
+                        if (SpriteReload.needed(r)) loadSprites() // on the data-store thread, not main
                         refreshImportStatus()
                     }
                 },
