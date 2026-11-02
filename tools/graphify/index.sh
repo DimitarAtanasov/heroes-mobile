@@ -8,13 +8,15 @@ GRAPHIFY_VERSION="0.9.100"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+# POSIX venvs keep executables in bin/, Windows (Git Bash) venvs in Scripts/
+venv_bin() { if [ -d "$work/venv/bin" ]; then echo "$work/venv/bin"; else echo "$work/venv/Scripts"; fi; }
 python3 -m venv "$work/venv"
-"$work/venv/bin/python" -m pip install -q --disable-pip-version-check "graphifyy==${GRAPHIFY_VERSION}"
+"$(venv_bin)/python" -m pip install -q --disable-pip-version-check "graphifyy==${GRAPHIFY_VERSION}"
 mkdir "$work/proj"
 git -C "$repo" archive HEAD | tar -x -C "$work/proj"
 rm -rf "$work/proj/android/sim/src/test/resources/vectors" "$work/proj/docs/codebase-index"
 export GRAPHIFY_BACKEND=none GRAPHIFY_QUERY_LOG_DISABLE=1
-(cd "$work/proj" && "$work/venv/bin/graphify" update .)
+(cd "$work/proj" && "$(venv_bin)/graphify" update .)
 out="$repo/docs/codebase-index"
 mkdir -p "$out"
 cp "$work/proj/graphify-out/graph.json" "$work/proj/graphify-out/graph.html" "$work/proj/graphify-out/GRAPH_REPORT.md" "$out/"
