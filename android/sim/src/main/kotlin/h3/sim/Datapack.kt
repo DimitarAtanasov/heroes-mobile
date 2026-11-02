@@ -90,7 +90,7 @@ class Datapack(val rules: RulesDoc, val policy: PolicyDoc, val creatures: Creatu
         )
         private val CR_OPT = CR_FLAGS + listOf("shots", "hates")
         private val CR_INTS = listOf(
-            Triple("attack", 0L, 255L), Triple("defense", 0L, 255L), Triple("dmg_min", 1L, 10000L),
+            Triple("attack", 0L, 255L), Triple("defense", 0L, 255L), Triple("dmg_min", 0L, 10000L),
             Triple("dmg_max", 1L, 10000L), Triple("hp", 1L, 100000L), Triple("speed", 0L, 100L),
             Triple("shots", 0L, 1000L),
         )

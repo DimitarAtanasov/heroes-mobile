@@ -59,6 +59,15 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(res.creatures[0]["name"], "Zork")
         self.assertEqual(res.extras["Zork"]["plural"], "Xs")
 
+    def test_dmg_min_bounds(self):
+        # Owner decision 2026-11-02: dmg_min floor is 0 (real CRTRAITS rows have 0).
+        for lo, hi in ((0, 3), (0, 1), (3, 3), (10000, 10000)):
+            res = parse_creatures(build([row("Zork", lo=lo, hi=hi)]))
+            self.assertEqual((res.creatures[0]["dmg_min"], res.creatures[0]["dmg_max"]), (lo, hi))
+        for lo, hi in ((-1, 3), (5, 4), (10001, 10001)):
+            with self.assertRaises(ContentError, msg=(lo, hi)):
+                parse_creatures(build([row("Zork", lo=lo, hi=hi)]))
+
     def test_blank_rows_skipped(self):
         res = parse_creatures(build([[""], row("Zork"), ["", "x"]]))
         self.assertEqual(len(res.creatures), 1)

@@ -17,7 +17,7 @@ Reference implementation: `tools/h3re/h3re/datapack.py` (stdlib only).
   data. Required per creature: `name`, `attack`, `defense`, `dmg_min`,
   `dmg_max`, `hp`, `speed`. Optional: `shots`, boolean flags matching
   `battle.Creature` (`flyer`, `double_wide`, ...), `hates` (list of roster
-  names).
+  names). Creature `dmg_min` is 0..10000 and `dmg_max` 1..10000 (see ADR-0008).
 
 - `data/battle_policy.json`: the `BattlePolicy` defaults (rule choices).
   Keys: `schema_version`, `row_offset`, `edge_columns_walkable`,

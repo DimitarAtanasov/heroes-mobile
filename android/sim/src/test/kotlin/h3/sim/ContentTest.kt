@@ -66,6 +66,18 @@ class ContentTest {
     }
 
     @Test
+    fun dmgMinFloorIsZero() {
+        // Owner decision 2026-11-02: dmg_min floor is 0 (real CRTRAITS rows have 0).
+        fun cr(lo: Long, hi: Long) = Creature("Zork", 10, 4, 5, 4, lo, hi, 0, emptySet())
+        for ((lo, hi) in listOf(0L to 3L, 0L to 1L, 3L to 3L, 10000L to 10000L)) {
+            DefaultCreatureValidator.validate(cr(lo, hi))
+        }
+        for ((lo, hi) in listOf(-1L to 3L, 5L to 4L, 10001L to 10001L)) {
+            assertFailsWith<IllegalArgumentException>("$lo..$hi") { DefaultCreatureValidator.validate(cr(lo, hi)) }
+        }
+    }
+
+    @Test
     fun injectedValidatorIsUsed() {
         val c = CONTENT_DOC["cases"].list().map { it.obj() }.first { it["name"] == "two_creatures_sorted" }
         val e = assertFailsWith<ContentError> {

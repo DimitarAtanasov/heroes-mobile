@@ -24,7 +24,10 @@ growth, hit points, speed, attack, defense, damage min, damage max, shots,
 [spell points, absent for RoE data: `roe=True`], adventure-map amount min,
 max, ability text (long description), abilities (short list).
 Datapack fields filled: name (singular), hp, speed, attack, defense, dmg_min,
-dmg_max, shots (omitted when 0) and the boolean flags. Everything else
+dmg_max, shots (omitted when 0) and the boolean flags.
+Creature field ranges (the datapack bounds): `dmg_min` 0..10000 (floor 0: real
+CRTRAITS rows have minimum damage 0; owner decision, 2026-11-02), `dmg_max`
+1..10000, `dmg_max >= dmg_min`. Everything else
 (plural, costs, values, growth, spell points, map amounts) lands in
 `result.extras[name]`; the schema has no slot for it yet.
 
