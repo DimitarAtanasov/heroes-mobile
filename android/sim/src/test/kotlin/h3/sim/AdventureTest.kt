@@ -169,7 +169,7 @@ class AdventureTest {
         assertEquals("not a tile: (1, 1.5)", msg(mapOf("type" to "Move", "hero" to BigInteger.ZERO, "dest" to listOf(BigInteger.ONE, java.lang.Double.valueOf("1.5")))))
         assertEquals("not player False's turn", msg(mapOf("type" to "EndTurn", "player" to false)))
         assertEquals("not player None's turn", msg(mapOf("type" to "EndTurn", "player" to null)))
-        assertFailsWith<IllegalArgumentException> { AdventureCodec.parseCommand(mapOf("type" to "Attack", "hero" to BigInteger.ZERO, "target" to "g")) }
+        assertFailsWith<IllegalArgumentException> { AdventureCodec.parseCommand(mapOf("type" to "Teleport", "hero" to BigInteger.ZERO, "target" to "g")) }
         assertFailsWith<IllegalArgumentException> { AdventureCodec.parseCommand(mapOf("type" to "Move", "hero" to BigInteger.ZERO)) }
     }
 

@@ -17,8 +17,11 @@ import java.util.PriorityQueue
  * are not in this file: they are handed in as [AdventureRules], read from the same values the
  * Python module holds (the vector file's `constants` block).
  *
- * Not ported: `Attack` and encounters (encounter.md). A state with a non-default `encounter`
- * is refused by [AdventureCodec.parseState]; guards are kept (they block tiles).
+ * Encounters (encounter.md, stage E): `Attack` and the state's `encounter` setup are handled through
+ * [AdventureEncounterHooks], an interface this file defines and `h3.sim.encounter.EncounterEngine`
+ * implements, so the dependency runs one way only (encounter -> adventure; Python imports lazily the other
+ * way). Without hooks a state carrying `encounter` is refused by [AdventureCodec.parseState] and an `Attack`
+ * on a state without an encounter setup is "battles are not enabled in this game". Guards block tiles.
  */
 
 data class AdvResources(
@@ -179,6 +182,29 @@ data class AdvGrowthPool(val id: String, val available: Long, val growth: Long)
 
 data class AdvGuard(val id: String, val pos: Pair<Int, Int>, val army: List<AdvArmySlot>)
 
+/** The state's `encounter` field (Python `encounter.EncounterSetup`), opaque to this file: only its canonical map is needed. */
+interface AdvEncounter {
+    fun toMap(): Map<String, Any?>
+}
+
+/**
+ * What the adventure core needs from the encounter module (Python's lazy `encounter.validate`,
+ * `encounter.resolve`, `encounter.check_game`). Implemented in `h3.sim.encounter`.
+ */
+interface AdventureEncounterHooks {
+    /** The `encounter` entry of a canonical state; [IllegalArgumentException] (Python `ValueError`) when malformed. */
+    fun parseSetup(v: Any?): AdvEncounter
+
+    /** Python `check_game`: [IllegalArgumentException] unless every army on the map has content in the setup. */
+    fun checkGame(state: AdventureState)
+
+    /** Python `encounter.validate`: every check of an Attack, no draw. Returns what [resolve] needs (the initial battle). */
+    fun validate(state: AdventureState, cmd: AdventureCommand.Attack): Any
+
+    /** Python `encounter.resolve`: fight on [rng] (the `battle:<battle_id>` stream) and apply the outcome. */
+    fun resolve(state: AdventureState, cmd: AdventureCommand.Attack, rng: Pcg32?, prepared: Any): AdventureStep
+}
+
 data class AdventureState(
     val gameId: String,
     val policy: AdventurePolicy,
@@ -190,6 +216,7 @@ data class AdventureState(
     val current: Int = 0,
     val guards: List<AdvGuard> = emptyList(),
     val battles: Int = 0,
+    val encounter: AdvEncounter? = null,
 )
 
 /**
@@ -205,9 +232,17 @@ sealed interface AdventureCommand {
     data class EndTurn(val player: Int?, val playerRepr: String) : AdventureCommand {
         constructor(player: Int) : this(player, player.toString())
     }
+
+    /**
+     * Python `Attack(hero, target)`. [target] is a hero id ([Int]), a guard id ([String]) or `null` for anything
+     * else (bool, float, list, ...), which Python refuses as "target must be a hero id or a guard id"; an integer
+     * beyond the Int range is carried as -1 (no such target hero, as in Python). [hero] null is "no such hero".
+     */
+    data class Attack(val hero: Int?, val target: Any?) : AdventureCommand
 }
 
-sealed interface AdventureEvent {
+/** Not sealed: `h3.sim.encounter` adds `BattleFought`, `ArmyChanged`, `HeroDefeated` and `GuardDefeated`. */
+interface AdventureEvent {
     fun toMap(): Map<String, Any?>
 
     data class DayStarted(val day: Int, val week: Int, val dayOfWeek: Int, val month: Int) : AdventureEvent {
@@ -239,7 +274,7 @@ sealed interface AdventureEvent {
 }
 
 /** Canonical form of [AdventureState]: byte-identical to Python `adventure.canonical` (ADR-0001, ADR-0005). */
-class AdventureCodec(private val rules: AdventureRules) {
+class AdventureCodec(private val rules: AdventureRules, private val encounters: AdventureEncounterHooks? = null) {
     fun toMap(s: AdventureState): Map<String, Any?> {
         val m = linkedMapOf<String, Any?>(
             "game_id" to s.gameId,
@@ -269,6 +304,7 @@ class AdventureCodec(private val rules: AdventureRules) {
             }
         }
         if (s.battles != 0) m["battles"] = s.battles
+        if (s.encounter != null) m["encounter"] = s.encounter.toMap()
         return m
     }
 
@@ -276,13 +312,15 @@ class AdventureCodec(private val rules: AdventureRules) {
 
     fun stateHash(s: AdventureState): String = Canonical.hash(toMap(s))
 
-    fun parseState(v: Any?): AdventureState {
+    /** [checkEncounter] false skips Python `check_game` (hand-built states whose armies lack content). */
+    fun parseState(v: Any?, checkEncounter: Boolean = true): AdventureState {
         val m = BattleJson.obj(v, "state")
         val optional = setOf("guards", "encounter", "battles")
         require(m.keys.containsAll(STATE_KEYS) && (m.keys - STATE_KEYS).all { it in optional }) {
             "state: keys differ; missing ${STATE_KEYS - m.keys}, unexpected ${m.keys - STATE_KEYS - optional}"
         }
-        require("encounter" !in m) { "state: encounters are not ported (encounter.md)" }
+        require("encounter" !in m || encounters != null) { "state: encounters are not ported (encounter.md)" }
+        val encounter = if ("encounter" in m) encounters!!.parseSetup(m["encounter"]) else null
         val policy = policyFrom(BattleJson.obj(m["policy"], "policy"))
         val gm = BattleJson.obj(m["grid"], "grid")
         BattleJson.exactKeys(gm, setOf("width", "height", "tiles"), "grid")
@@ -349,7 +387,9 @@ class AdventureCodec(private val rules: AdventureRules) {
         val battles = if ("battles" in m) BattleJson.int(m["battles"], "battles") else 0
         val occupied = (heroes.mapNotNull { it.pos } + guards.map { it.pos })
         require(occupied.toSet().size == occupied.size) { "two pieces on one tile" }
-        return AdventureState(BattleJson.str(m["game_id"], "game_id"), policy, grid, players, heroes, pools, day, current, guards, battles)
+        val state = AdventureState(BattleJson.str(m["game_id"], "game_id"), policy, grid, players, heroes, pools, day, current, guards, battles, encounter)
+        if (encounter != null && checkEncounter) encounters!!.checkGame(state)
+        return state
     }
 
     fun policyToMap(p: AdventurePolicy): Map<String, Any?> = linkedMapOf(
@@ -431,6 +471,7 @@ class AdventureCodec(private val rules: AdventureRules) {
             AdventureCommand.Begin -> linkedMapOf("type" to "Begin")
             is AdventureCommand.Move -> linkedMapOf("type" to "Move", "hero" to c.hero, "dest" to c.dest?.let { listOf(it.first, it.second) })
             is AdventureCommand.EndTurn -> linkedMapOf("type" to "EndTurn", "player" to c.player)
+            is AdventureCommand.Attack -> linkedMapOf("type" to "Attack", "hero" to c.hero, "target" to c.target)
         }
 
         /**
@@ -452,6 +493,12 @@ class AdventureCodec(private val rules: AdventureRules) {
                 "EndTurn" -> {
                     BattleJson.exactKeys(m, setOf("type", "player"), "EndTurn")
                     AdventureCommand.EndTurn(intOr(m["player"], null), pyRepr(m["player"], true))
+                }
+                "Attack" -> {
+                    BattleJson.exactKeys(m, setOf("type", "hero", "target"), "Attack")
+                    val t = m["target"]
+                    val target: Any? = if (t is String) t else if (isInteger(t)) intOr(t, -1) else null
+                    AdventureCommand.Attack(intOr(m["hero"], null), target)
                 }
                 else -> throw IllegalArgumentException("unknown command type: $t")
             }
@@ -527,7 +574,7 @@ class AdventureCodec(private val rules: AdventureRules) {
 /** One step's result. */
 data class AdventureStep(val state: AdventureState, val events: List<AdventureEvent>)
 
-class Adventure(private val rules: AdventureRules) {
+class Adventure(private val rules: AdventureRules, private val encounters: AdventureEncounterHooks? = null) {
     private data class Parts(val cost: Int, val orth: Int, val diagonal: Boolean)
 
     private class Label(val spent: Long, val steps: Int, val path: List<Pair<Int, Int>>) : Comparable<Label> {
@@ -725,7 +772,7 @@ class Adventure(private val rules: AdventureRules) {
         return s.copy(heroes = heroes)
     }
 
-    private fun validate(s: AdventureState, cmd: AdventureCommand): Pair<Int, List<Pair<Int, Int>>>? {
+    private fun validate(s: AdventureState, cmd: AdventureCommand): Any? {
         if (cmd is AdventureCommand.Begin) {
             if (s.day != 0) throw IllegalCommand("game already started")
             return null
@@ -744,27 +791,35 @@ class Adventure(private val rules: AdventureRules) {
                 val dest = cmd.dest ?: throw IllegalCommand("not a tile: ${cmd.destRepr}")
                 return reachable(s, id)[dest] ?: throw IllegalCommand("destination not reachable today")
             }
+            is AdventureCommand.Attack -> {
+                // Python's first check of encounter.validate; here because the hooks are optional.
+                if (s.encounter == null) throw IllegalCommand("battles are not enabled in this game")
+                return (encounters ?: throw IllegalStateException("Attack on a game with an encounter setup needs the encounter hooks")).validate(s, cmd)
+            }
             else -> throw IllegalCommand("unknown command $cmd")
         }
     }
 
     /**
-     * Python `apply`. [rng] is the `adventure:<game_id>` stream; it is reserved and never drawn
-     * from. Throws [IllegalCommand] with the state untouched.
+     * Python `apply`. [rng] is the `adventure:<game_id>` stream, reserved and never drawn from, except for an
+     * `Attack`: there it is the battle stream `battle:<battle_id>` (`EncounterEngine.streamFor`), which the battle
+     * draws from. Throws [IllegalCommand] with the state untouched.
      */
-    @Suppress("UNUSED_PARAMETER")
     fun apply(state: AdventureState, cmd: AdventureCommand, rng: Pcg32? = null): AdventureStep {
         val data = validate(state, cmd)
         val events = ArrayList<AdventureEvent>()
         val s = when (cmd) {
             AdventureCommand.Begin -> startTurn(startDay(state.copy(day = 1, current = 0), events), events)
             is AdventureCommand.Move -> {
-                val (cost, path) = data!!
+                @Suppress("UNCHECKED_CAST")
+                val move = data as Pair<Int, List<Pair<Int, Int>>>
+                val (cost, path) = move
                 val h0 = state.heroes[cmd.hero!!]
                 val h = h0.copy(pos = path.last(), mp = Math.subtractExact(h0.mp, cost), movedToday = true)
                 events.add(AdventureEvent.HeroMoved(h.id, path, cost, h.mp))
                 state.copy(heroes = state.heroes.map { if (it.id == h.id) h else it })
             }
+            is AdventureCommand.Attack -> return encounters!!.resolve(state, cmd, rng, data!!)
             is AdventureCommand.EndTurn -> {
                 events.add(AdventureEvent.TurnEnded(state.current))
                 val nxt = state.current + 1

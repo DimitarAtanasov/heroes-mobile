@@ -10,8 +10,8 @@ Scope: `android/sim/src/main/kotlin/h3/sim/Adventure.kt` versus `tools/h3re/h3re
 - Typed immutable state (`AdventureState`, `AdventurePolicy`, grid, players, heroes, pools,
   guards) and its canonical form, byte-identical to `adventure.canonical`: `guards` and `battles`
   are left out at their defaults (ADR-0005), so the pinned 14-day golden hash holds.
-  A state carrying `encounter` is refused: encounters and `Attack` are not ported yet.
-- Commands `Begin`, `Move`, `EndTurn`; events `DayStarted`, `WeekStarted`, `PoolGrew`,
+  A state carrying `encounter`, and the `Attack` command, are handled through `AdventureEncounterHooks` (see `conformance-encounter.md`); without hooks, a state with `encounter` is refused.
+- Commands `Begin`, `Move`, `EndTurn`, `Attack` (needs hooks); events `DayStarted`, `WeekStarted`, `PoolGrew`,
   `TurnStarted`, `IncomeReceived`, `MovementReset`, `HeroMoved`, `TurnEnded`.
 - `apply(state, cmd, rng)`: validation in Python's order with Python's messages; Dijkstra with the
   `(spent, steps, path)` label tie-break; last-step, diagonal-exception and zero-remainder rules;
