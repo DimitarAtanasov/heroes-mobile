@@ -63,3 +63,8 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
 - Hero Kotlin port: producer agent a61be954a4a70e04c may still be running; verify in a clean copy (verify_clean, mutations M1-M5/V1, audit), wire `vectors_hero`, commit.
 - Next: determinism audit of Adventure.kt/H3m.kt; adventure stage E (encounter/Attack); port encounter and town.
 - Owner decisions open: bad-morale (24,24,24) rule, ADR-0008 amendment, ADR-0012 acceptance, sdlc-sandbix license, nextwork.ai network allow.
+
+## Checkpoint 75 notes
+- Adventure parity fixes (audit): policy ints bounded to 10000 and strict-int in Python (refuses more input than before: OWNER must confirm, ADR-0008 amendment in docs/specs/adventure.md s6); guard sort by code point; pyRepr ported. Adventure golden 179c5700 unchanged.
+- Open parity gaps: Python accepts non-bool values in boolean policy fields (Kotlin refuses); EndTurn at Int.MAX day throws in Kotlin; float repr not ported; h3m error text compared by class only.
+- Verified chain so far: 71 H3M, 72 adventure, 73 hero, 74 gzip cap, 75 adventure parity. App shell merged (CI green, APK built).

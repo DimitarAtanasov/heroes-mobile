@@ -295,6 +295,51 @@ class PolicyTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 A.AdventurePolicy(**kw)
 
+    def test_policy_ints_must_be_plain_ints(self):
+        # A bool is an int subclass: diagonal_num=True hashed as `true` and priced as 1.
+        # A float reaches the integer-only sim. Both are refused, field by field.
+        for field in ("diagonal_num", "diagonal_den", "move_cost_floor"):
+            for v in (1.5, True, False, "7", None):
+                with self.assertRaises(ValueError, msg=(field, v)):
+                    A.AdventurePolicy(**{field: v})
+        for field in ("pathfinding_flat", "pathfinding_pct"):
+            for v in (1.5, True, "7", None):
+                with self.assertRaises(ValueError, msg=(field, v)):
+                    A.AdventurePolicy(**{field: (0, v, 50, 75)})
+        with self.assertRaises(ValueError):
+            A.AdventurePolicy(road_cost=(("cobblestone", True), ("dirt", 75), ("gravel", 65)))
+
+    def test_policy_ints_are_bounded(self):
+        # Extreme legal policies overflowed the 32-bit Kotlin port (ADR-0008 style bound).
+        m = A.POLICY_INT_MAX
+        self.assertEqual(m, 10_000)
+        ok = A.AdventurePolicy(diagonal_num=m, diagonal_den=m, move_cost_floor=m,
+                               pathfinding_flat=(0, m, m, m),
+                               road_cost=(("cobblestone", m), ("dirt", m), ("gravel", m)))
+        self.assertEqual(ok.diagonal_num, m)
+        for kw in ({"diagonal_num": m + 1}, {"diagonal_den": m + 1},
+                   {"diagonal_num": 10 ** 8}, {"move_cost_floor": m + 1},
+                   {"move_cost_floor": 2_000_000_000}, {"pathfinding_flat": (0, 1, 2, m + 1)},
+                   {"road_cost": (("cobblestone", m + 1), ("dirt", 75), ("gravel", 65))}):
+            with self.assertRaises(ValueError, msg=kw):
+                A.AdventurePolicy(**kw)
+
+    def test_dearest_legal_diagonal_path_is_exact(self):
+        # The most expensive legal step: orth 10**4 (floor), diagonal x 10**4 = 10**8, so a
+        # 24-step unbudgeted path (2.4 * 10**9) is beyond a 32-bit sum. Kotlin must agree.
+        m = A.POLICY_INT_MAX
+        pol = A.AdventurePolicy(diagonal_mode="ratio", diagonal_num=m, diagonal_den=1,
+                                move_cost_floor=m)
+        # Checkerboard of blocked tiles: only diagonal steps connect the free ones.
+        tiles = tuple(A.Tile("swamp", blocked=(x + y) % 2 == 1)
+                      for y in range(25) for x in range(25))
+        state = A.create_game("big", A.Grid(25, 25, tiles),
+                              (A.Player(A.Resources()),),
+                              (A.HeroSetup(0, (0, 0), (A.ArmySlot("c", 5, 1),), pathfinding=1),),
+                              (), pol)
+        cost, path = A.find_path(state, 0, (24, 24))
+        self.assertEqual((cost, len(path)), (24 * m * m, 25))
+
 
 class RoadCostCanonicalTest(unittest.TestCase):
     def test_order_is_normalised_so_hash_is_stable(self):

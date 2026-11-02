@@ -186,9 +186,9 @@ class AdventureTest {
         fun pol(m: MutableMap<String, Any?>) = m["policy"] as MutableMap<String, Any?>
         assertEquals("bad cost_from", mutated { pol(it)["cost_from"] = "both" })
         assertEquals("bad last_step", mutated { pol(it)["last_step"] = "never" })
-        assertEquals("bad diagonal fraction", mutated { pol(it)["diagonal_den"] = BigInteger.ZERO })
+        assertEquals("diagonal_num and diagonal_den need ints in 1..10000", mutated { pol(it)["diagonal_den"] = BigInteger.ZERO })
         assertEquals("pathfinding_pct needs 4 values in 0..100", mutated { pol(it)["pathfinding_pct"] = listOf(BigInteger.ZERO, BigInteger.valueOf(101), BigInteger.ZERO, BigInteger.ZERO) })
-        assertEquals("road_cost needs a positive cost for each road type", mutated { pol(it)["road_cost"] = listOf(listOf("dirt", BigInteger.ONE)) })
+        assertEquals("road_cost needs a cost in 1..10000 for each road type", mutated { pol(it)["road_cost"] = listOf(listOf("dirt", BigInteger.ONE)) })
         assertEquals("road_cost has a duplicate road type", mutated {
             pol(it)["road_cost"] = listOf(listOf("dirt", BigInteger.ONE), listOf("dirt", BigInteger.TWO), listOf("gravel", BigInteger.ONE))
         })
@@ -196,6 +196,73 @@ class AdventureTest {
         assertEquals("day: expected integer", mutated { it["day"] = true })
         assertEquals("day out of range", mutated { it["day"] = BigInteger.TWO.pow(31) })
         assertEquals("state: encounters are not ported (encounter.md)", mutated { it["encounter"] = null })
+    }
+
+    @Test
+    fun policyCasesMatchPythonVerdictAndMessage() {
+        val pcs = doc["policy_cases"].list().map { it.obj() }
+        assertTrue(pcs.size >= 30)
+        assertTrue(pcs.any { it["error"] == null } && pcs.any { it["error"] != null })
+        val failures = ArrayList<String>()
+        for (pc in pcs) {
+            val pol = pc["policy"].obj()
+            try {
+                val p = codec.policyFrom(pol)
+                when {
+                    pc["error"] != null -> failures.add("${pc["name"]}: accepted, want '${pc["error"]}'")
+                    enc(codec.policyToMap(p)) != enc(pol) -> failures.add("${pc["name"]}: round trip differs")
+                }
+            } catch (e: IllegalArgumentException) {
+                if (e.message != pc["error"]) failures.add("${pc["name"]}: '${e.message}' != '${pc["error"]}'")
+            }
+        }
+        if (failures.isNotEmpty()) fail("policy cases: ${failures.size}/${pcs.size} fail; first: ${failures.take(5)}")
+    }
+
+    @Test
+    fun policyFieldsThatAreNotIntegersAreRefusedLikeBools() {
+        val base = doc["policies"].obj().getValue("default").obj()
+        fun msg(k: String, v: Any?) = assertFailsWith<IllegalArgumentException> { codec.policyFrom(base + (k to v)) }.message
+        val diag = "diagonal_num and diagonal_den need ints in 1..10000"
+        // A JSON reader that yields doubles, or a Boolean: never an integer policy field.
+        assertEquals(diag, msg("diagonal_num", java.lang.Double.valueOf("141")))
+        assertEquals(diag, msg("diagonal_den", true))
+        assertEquals("move_cost_floor needs an int in 1..10000", msg("move_cost_floor", java.lang.Double.valueOf("100")))
+        assertEquals("pathfinding_flat needs 4 ints in 0..10000", msg("pathfinding_flat", listOf(BigInteger.ZERO, java.lang.Double.valueOf("1"), BigInteger.TWO, BigInteger.TEN)))
+        assertEquals("pathfinding_pct needs 4 values in 0..100", msg("pathfinding_pct", listOf(BigInteger.ZERO, false, BigInteger.TWO, BigInteger.TEN)))
+        assertEquals("road_cost needs a cost in 1..10000 for each road type", msg("road_cost", listOf(listOf("cobblestone", true), listOf("dirt", BigInteger.TEN), listOf("gravel", BigInteger.TEN))))
+    }
+
+    @Test
+    fun dearestLegalUnbudgetedPathDoesNotOverflowInt() {
+        // Orthogonal 10^4 (floor) x diagonal ratio 10^4 = 10^8 per step; 24 diagonal steps = 2.4e9 > Int.
+        val m = BigInteger.valueOf(10_000)
+        val base = doc["policies"].obj().getValue("default").obj()
+        val pol = codec.policyFrom(base + mapOf("diagonal_mode" to "ratio", "diagonal_num" to m, "diagonal_den" to BigInteger.ONE, "move_cost_floor" to m))
+        val n = 25
+        val tiles = (0 until n * n).map { AdvTile("swamp", "none", ((it % n) + (it / n)) % 2 == 1) }
+        val hero = AdvHero(0, 0, Pair(0, 0), listOf(AdvArmySlot("c", 5, 1)), 0, 1, 0, 0, false)
+        val s = AdventureState("big", pol, AdvGrid(n, n, tiles), listOf(AdvPlayer()), listOf(hero), emptyList())
+        val (cost, path) = adv.findPath(s, 0, Pair(n - 1, n - 1))!!
+        assertEquals(24L * 10_000 * 10_000, cost.toLong())
+        assertEquals(25, path.size)
+    }
+
+    @Test
+    fun pyReprMatchesPythonForStringsAndDicts() {
+        fun r(v: Any?) = AdventureCodec.pyRepr(v)
+        assertEquals("\"it's\"", r("it's"))
+        assertEquals("'say \"hi\"'", r("say \"hi\""))
+        assertEquals("'both \\' and \"'", r("both ' and \""))
+        assertEquals("'a\\tb\\nc\\rd\\\\'", r("a\tb\nc\rd\\"))
+        assertEquals("'\\x00\\x1f\\x7f\\x80\\x9f\\xa0\\xad'", r("\u0000\u001f\u007f\u0080\u009f\u00a0\u00ad"))
+        assertEquals("'caf\u00e9\\u2028\\u3000\\ue000\\ud800'", r("caf\u00e9\u2028\u3000\ue000\ud800"))
+        assertEquals("'\ufb01\uD83D\uDE00\\U0010ffff\\U000e0001'", r("\ufb01\uD83D\uDE00\uDBFF\uDFFF\uDB40\uDC01"))
+        assertEquals("'\u2ffc\u31ef${String(Character.toChars(0x2ebf0))}'", r("\u2ffc\u31ef${String(Character.toChars(0x2ebf0))}"))   // Unicode 15.1 additions are printable
+        assertEquals("{}", r(emptyMap<String, Any?>()))
+        assertEquals("{'a': 1, \"c'd\": [None, True, {'x': []}]}", r(linkedMapOf("a" to BigInteger.ONE, "c'd" to listOf(null, true, linkedMapOf("x" to emptyList<Any?>())))))
+        assertEquals("({'a': 1}, 2)", AdventureCodec.pyRepr(listOf(linkedMapOf("a" to BigInteger.ONE), BigInteger.TWO), true))
+        assertEquals("(1,)", AdventureCodec.pyRepr(listOf(BigInteger.ONE), true))
     }
 
     @Test

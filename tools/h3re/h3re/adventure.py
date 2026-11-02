@@ -89,6 +89,17 @@ MINE_OUTPUT = {           # rules.md 3, per day
 
 _ROUNDING = ("floor", "ceil", "nearest")
 
+# Largest value of a policy integer (road costs, diagonal ratio, Pathfinding flat points,
+# move-cost floor). A safety bound, not a tuning value: it keeps every step cost, and the
+# movement points a budgeted search spends, inside the 32-bit Int of the Kotlin port
+# (ADR-0008, docs/specs/adventure.md section 6). Every shipped policy is far below it.
+POLICY_INT_MAX = 10_000
+
+
+def _int_in(x, lo, hi):
+    """True for a plain int (not a bool, not a float) with lo <= x <= hi."""
+    return type(x) is int and lo <= x <= hi
+
 
 @dataclass(frozen=True)
 class AdventurePolicy:
@@ -142,19 +153,20 @@ class AdventurePolicy:
         if self.pathfinding_mode not in ("flat", "percent"):
             raise ValueError("bad pathfinding_mode")
         if len(self.pathfinding_flat) != 4 or not all(
-                p >= 0 for p in self.pathfinding_flat):
-            raise ValueError("pathfinding_flat needs 4 values >= 0")
-        if self.move_cost_floor <= 0:
-            raise ValueError("bad move_cost_floor")
+                _int_in(p, 0, POLICY_INT_MAX) for p in self.pathfinding_flat):
+            raise ValueError("pathfinding_flat needs 4 ints in 0..%d" % POLICY_INT_MAX)
+        if not _int_in(self.move_cost_floor, 1, POLICY_INT_MAX):
+            raise ValueError("move_cost_floor needs an int in 1..%d" % POLICY_INT_MAX)
         if self.last_step not in ("forbid", "allow_if_any", "allow_if_fresh"):
             raise ValueError("bad last_step")
         for r in (self.diagonal_rounding, self.pathfinding_rounding):
             if r not in _ROUNDING:
                 raise ValueError("bad rounding mode %r" % (r,))
-        if self.diagonal_den <= 0 or self.diagonal_num <= 0:
-            raise ValueError("bad diagonal fraction")
+        if not (_int_in(self.diagonal_den, 1, POLICY_INT_MAX)
+                and _int_in(self.diagonal_num, 1, POLICY_INT_MAX)):
+            raise ValueError("diagonal_num and diagonal_den need ints in 1..%d" % POLICY_INT_MAX)
         if len(self.pathfinding_pct) != 4 or not all(
-                0 <= p <= 100 for p in self.pathfinding_pct):
+                _int_in(p, 0, 100) for p in self.pathfinding_pct):
             raise ValueError("pathfinding_pct needs 4 values in 0..100")
         # Canonical form: a tuple of (road, cost) pairs sorted by road name, so
         # equal policies hash equal whatever order the caller gave. A duplicate
@@ -165,9 +177,10 @@ class AdventurePolicy:
         names = [e[0] for e in pairs]
         if len(set(names)) != len(names):
             raise ValueError("road_cost has a duplicate road type")
-        if names != sorted(ROADS[1:]) or any(
-                type(c) is not int or c <= 0 for _, c in pairs):
-            raise ValueError("road_cost needs a positive cost for each road type")
+        if names != sorted(ROADS[1:]) or not all(
+                _int_in(c, 1, POLICY_INT_MAX) for _, c in pairs):
+            raise ValueError("road_cost needs a cost in 1..%d for each road type"
+                             % POLICY_INT_MAX)
         object.__setattr__(self, "road_cost", pairs)
 
 

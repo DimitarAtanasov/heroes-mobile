@@ -13,7 +13,12 @@ Contents:
                  has the command, the canonical state text and SHA-256 after it, the events,
                  the stage letter and, before a Move, a digest of the moving hero's reachable map
   illegal_cases  rejected commands: the state (case, step), the command, the exception class
-                 and message; state and RNG must stay untouched
+                 and message; state and RNG must stay untouched. A few cases also carry
+                 repr probes (strings with quotes, escapes and non-printable or astral
+                 characters, lists, dicts), whose messages embed Python's ``repr``
+  policy_cases   AdventurePolicy field sets (the policy as JSON) with the ``ValueError``
+                 message Python raises, or null when it is accepted: bool/float/huge integer
+                 fields, the 10**4 bound (adventure.POLICY_INT_MAX), validation order
 
 The adventure core draws nothing from its stream; every step also records that the
 ``adventure:<game_id>`` stream is still at its derived state.
@@ -96,8 +101,13 @@ WAYPOINTS = {0: ((15, 7), (2, 3), (14, 1), (0, 0)),
              2: ((0, 4), (11, 0), (6, 7), (15, 5))}
 GOLDEN_DAYS = 14
 
+# Guards for the "golden-guards-nonbmp" case. Python sorts ids by code point; UTF-16 code-unit
+# order differs for the astral ones (U+10000 is D800 DC00, below U+E9..U+FFFF).
+NONBMP_GUARD_IDS = ("Z", "\u00e9", "\ufb01", "\uffff", "\U00010000", "\U0001f600")
+NONBMP_GUARD_TILES = ((4, 5), (6, 5), (8, 5), (10, 5), (5, 7), (7, 7))
 
-def golden_setup(policy=A.DEFAULT_POLICY):
+
+def golden_setup(policy=A.DEFAULT_POLICY, guards=()):
     tiles = []
     for y, row in enumerate(GOLDEN_TERRAIN):
         for x, code in enumerate(row):
@@ -117,7 +127,7 @@ def golden_setup(policy=A.DEFAULT_POLICY):
         A.HeroSetup(1, (15, 5), army(5, 11), logistics=3, pathfinding=1),
     )
     pools = (A.GrowthPool("a", 10, 10), A.GrowthPool("b", 0, 2))
-    return A.create_game("golden", g, players, heroes, pools, policy)
+    return A.create_game("golden", g, players, heroes, pools, policy, guards=guards)
 
 
 def golden_commands(state):
@@ -245,6 +255,28 @@ def _illegal_commands(state):
     return out
 
 
+# Values whose Python ``repr`` reaches an error message ("not player %r's turn", "not a tile: %r").
+# Dict keys are inserted in sorted order: the vector file stores objects sorted by key and the
+# Kotlin reader prints them in file order. A top-level list becomes a tuple (soak.decode_command).
+REPR_PROBES = (
+    "it's", 'say "hi"', "both ' and \"", "tab\there", "line\nbreak", "cr\rhere", "back\\slash",
+    "\x00\x1f\x7f", "\x80\x9f\xa0\xad", "caf\u00e9", "\u2028\u2029", "\u3000", "\ufb01",
+    "\U0001f600", "\ue000", "\u0378", "\U0010ffff", "\U000e0001", "\ud800", "", " ",
+    [], [1], [[1, 2], "a"], [None, True, False], [{"a": 1}, 2], [2 ** 70, -5],
+    {}, {"a": 1, "b": [1, {"c": None}], "c'd": True}, {"k\n": "v'\"", "z": [[], {}]},
+)
+REPR_PROBE_CASES = ("golden", "golden-strict", "soak-default-0")
+
+
+def _repr_commands(state):
+    """Probe commands: wrong-player EndTurn and malformed Move.dest carrying each probe value."""
+    mine = [h for h in state.heroes if h.owner == state.current]
+    out = [{"type": "EndTurn", "player": v} for v in REPR_PROBES]
+    if mine:
+        out += [{"type": "Move", "hero": mine[0].id, "dest": v} for v in REPR_PROBES]
+    return out
+
+
 def _decode(d):
     kw = {k: (tuple(v) if isinstance(v, list) else v) for k, v in d.items() if k != "type"}
     return getattr(A, d["type"])(**kw)
@@ -261,7 +293,10 @@ def illegal_cases(cases):
             for s in case["steps"][:k]:
                 state, _ = A.apply(state, _decode(s["command"]))
             assert _text(state) == texts[k]
-            for cmd in _illegal_commands(state):
+            cmds = _illegal_commands(state)
+            if case["name"] in REPR_PROBE_CASES and k == picks[1] and state.day:
+                cmds += _repr_commands(state)
+            for cmd in cmds:
                 try:
                     A.apply(state, _decode(cmd))
                 except A.IllegalCommand as e:
@@ -269,6 +304,74 @@ def illegal_cases(cases):
                                 "error": "IllegalCommand", "message": str(e)})
                     continue
                 # A command that turned out legal is not an illegal case; leave it out.
+    return out
+
+
+def _policy_json(**over):
+    """The default policy as JSON, with the given fields replaced (not validated)."""
+    d = _jsonable(A.DEFAULT_POLICY)
+    d.update(over)
+    return d
+
+
+_M = A.POLICY_INT_MAX
+_ROADS = lambda c, d, g: [["cobblestone", c], ["dirt", d], ["gravel", g]]  # noqa: E731
+POLICY_CASES = (
+    ("bound-ok", _policy_json(diagonal_mode="ratio", diagonal_num=_M, diagonal_den=_M,
+                              move_cost_floor=_M, pathfinding_flat=[0, _M, _M, _M],
+                              road_cost=_ROADS(_M, _M, _M))),
+    ("bound-low-ok", _policy_json(diagonal_num=1, diagonal_den=1, move_cost_floor=1,
+                                  pathfinding_flat=[0, 0, 0, 0], pathfinding_pct=[0, 0, 0, 0],
+                                  road_cost=_ROADS(1, 1, 1))),
+    ("cost_from-bad", _policy_json(cost_from="both")),
+    ("last_step-bad", _policy_json(last_step="never")),
+    ("diagonal_den-0", _policy_json(diagonal_den=0)),
+    ("diagonal_num-bool", _policy_json(diagonal_num=True)),
+    ("diagonal_den-bool", _policy_json(diagonal_den=True)),
+    ("diagonal_num-null", _policy_json(diagonal_num=None)),
+    ("diagonal_num-str", _policy_json(diagonal_num="141")),
+    ("diagonal_num-bound+1", _policy_json(diagonal_num=_M + 1)),
+    ("diagonal_den-bound+1", _policy_json(diagonal_den=_M + 1)),
+    ("diagonal_num-1e8", _policy_json(diagonal_num=10 ** 8)),
+    ("diagonal_num-2pow31", _policy_json(diagonal_num=2 ** 31)),
+    ("diagonal_num-2pow70", _policy_json(diagonal_num=2 ** 70)),
+    ("diagonal_num-neg-2pow70", _policy_json(diagonal_num=-2 ** 70)),
+    ("move_cost_floor-0", _policy_json(move_cost_floor=0)),
+    ("move_cost_floor-bool", _policy_json(move_cost_floor=True)),
+    ("move_cost_floor-2e9", _policy_json(move_cost_floor=2_000_000_000)),
+    ("move_cost_floor-bound+1", _policy_json(move_cost_floor=_M + 1)),
+    ("pathfinding_flat-bool", _policy_json(pathfinding_flat=[0, True, 50, 75])),
+    ("pathfinding_flat-neg", _policy_json(pathfinding_flat=[0, -1, 50, 75])),
+    ("pathfinding_flat-huge", _policy_json(pathfinding_flat=[0, 25, 50, 10 ** 9])),
+    ("pathfinding_flat-short", _policy_json(pathfinding_flat=[0, 25, 50])),
+    ("pathfinding_pct-bool", _policy_json(pathfinding_pct=[0, True, 50, 75])),
+    ("pathfinding_pct-101", _policy_json(pathfinding_pct=[0, 101, 50, 75])),
+    ("road_cost-bool", _policy_json(road_cost=_ROADS(True, 75, 65))),
+    ("road_cost-0", _policy_json(road_cost=_ROADS(0, 75, 65))),
+    ("road_cost-huge", _policy_json(road_cost=_ROADS(50, 75, 10 ** 9))),
+    ("road_cost-bound+1", _policy_json(road_cost=_ROADS(50, _M + 1, 65))),
+    ("road_cost-duplicate", _policy_json(road_cost=[["dirt", 1], ["dirt", 2], ["gravel", 1]])),
+    # Order: an earlier check wins over a later one.
+    ("order-cost_from-before-diagonal", _policy_json(cost_from="both", diagonal_num=True)),
+    ("order-floor-before-diagonal", _policy_json(move_cost_floor=0, diagonal_num=True)),
+    ("order-flat-before-floor", _policy_json(pathfinding_flat=[0, True, 50, 75],
+                                             move_cost_floor=0)),
+    ("order-diagonal-before-pct", _policy_json(diagonal_num=0, pathfinding_pct=[0, 101, 0, 0])),
+    ("order-pct-before-road", _policy_json(pathfinding_pct=[0, 101, 0, 0],
+                                           road_cost=_ROADS(0, 75, 65))),
+)
+
+
+def policy_cases():
+    out = []
+    for name, pol in POLICY_CASES:
+        kw = {k: (tuple(v) if isinstance(v, list) else v) for k, v in pol.items()}
+        try:
+            A.AdventurePolicy(**kw)
+            err = None
+        except ValueError as e:
+            err = str(e)
+        out.append({"name": name, "policy": pol, "error": err})
     return out
 
 
@@ -289,6 +392,13 @@ def generate():
         name = "golden" if pname == "default" else "golden-" + pname
         _INITIAL[name] = state
         cases.append(_play(name, pname, state, rng, cmds, 0, "golden"))
+    guarded = golden_setup(guards=tuple(
+        A.Guard(gid, pos, (A.ArmySlot("g", 3, 5),))
+        for gid, pos in zip(NONBMP_GUARD_IDS, NONBMP_GUARD_TILES)))
+    cmds, _ = golden_commands(guarded)
+    _INITIAL["golden-guards-nonbmp"] = guarded
+    cases.append(_play("golden-guards-nonbmp", "default", guarded,
+                       A.adventure_rng(0, guarded.game_id), cmds, 0, "golden"))
     for pname, seeds in SOAK_GAMES:
         policy = A.AdventurePolicy(**pols[pname])
         for seed in seeds:
@@ -314,6 +424,7 @@ def generate():
         "policies": {n: _jsonable(A.AdventurePolicy(**kw)) for n, kw in _policies()},
         "cases": cases,
         "illegal_cases": illegal_cases(cases),
+        "policy_cases": policy_cases(),
     }
     return {FILE: doc}
 

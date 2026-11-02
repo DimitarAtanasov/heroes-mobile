@@ -106,27 +106,38 @@ data class AdventurePolicy(
     val pathfindingRounding: String,
     val incomeOnFirstDay: Boolean,
 ) {
-    /** Python `__post_init__`, same order and messages. [roads] is the rules' road list. */
-    fun validate(roads: List<String>) {
+    /**
+     * Python `__post_init__`, same order and messages. [roads] is the rules' road list. [illTyped]
+     * names the integer fields that were a bool, a float or not a number in the source JSON
+     * (Python requires `type(x) is int`); the value kept for them is not looked at.
+     */
+    fun validate(roads: List<String>, illTyped: Set<String> = emptySet()) {
         require(costFrom in setOf("dest", "source")) { "bad cost_from" }
         require(roadRateFrom in setOf("source", "dest", "max")) { "bad road_rate_from" }
         require(diagonalMode in setOf("sqrt2", "ratio")) { "bad diagonal_mode" }
         require(pathfindingMode in setOf("flat", "percent")) { "bad pathfinding_mode" }
-        require(pathfindingFlat.size == 4 && pathfindingFlat.all { it >= 0 }) { "pathfinding_flat needs 4 values >= 0" }
-        require(moveCostFloor > 0) { "bad move_cost_floor" }
+        require(pathfindingFlat.size == 4 && "pathfinding_flat" !in illTyped && pathfindingFlat.all { it in 0..POLICY_INT_MAX }) {
+            "pathfinding_flat needs 4 ints in 0..$POLICY_INT_MAX"
+        }
+        require("move_cost_floor" !in illTyped && moveCostFloor in 1..POLICY_INT_MAX) { "move_cost_floor needs an int in 1..$POLICY_INT_MAX" }
         require(lastStep in setOf("forbid", "allow_if_any", "allow_if_fresh")) { "bad last_step" }
         for (r in listOf(diagonalRounding, pathfindingRounding)) require(r in ROUNDING) { "bad rounding mode '$r'" }
-        require(diagonalDen > 0 && diagonalNum > 0) { "bad diagonal fraction" }
-        require(pathfindingPct.size == 4 && pathfindingPct.all { it in 0..100 }) { "pathfinding_pct needs 4 values in 0..100" }
+        require("diagonal_den" !in illTyped && "diagonal_num" !in illTyped && diagonalDen in 1..POLICY_INT_MAX && diagonalNum in 1..POLICY_INT_MAX) {
+            "diagonal_num and diagonal_den need ints in 1..$POLICY_INT_MAX"
+        }
+        require(pathfindingPct.size == 4 && "pathfinding_pct" !in illTyped && pathfindingPct.all { it in 0..100 }) { "pathfinding_pct needs 4 values in 0..100" }
         val names = roadCost.map { it.first }
         require(names.toSet().size == names.size) { "road_cost has a duplicate road type" }
-        require(names == roads.drop(1).sorted() && roadCost.all { it.second > 0 }) {
-            "road_cost needs a positive cost for each road type"
+        require(names == roads.drop(1).sortedWith(Canonical.codePointOrder) && "road_cost" !in illTyped && roadCost.all { it.second in 1..POLICY_INT_MAX }) {
+            "road_cost needs a cost in 1..$POLICY_INT_MAX for each road type"
         }
     }
 
     companion object {
         val ROUNDING = listOf("floor", "ceil", "nearest")
+
+        /** Python `POLICY_INT_MAX`: keeps every step cost and budgeted sum inside Int (ADR-0008, adventure.md 6). */
+        const val POLICY_INT_MAX = 10_000
 
         /** Python `_div`. */
         fun div(n: Long, d: Long, mode: String): Long = when (mode) {
@@ -329,7 +340,9 @@ class AdventureCodec(private val rules: AdventureRules) {
             require(passable(grid, guard.pos)) { "guard '${guard.id}' cannot stand at ${guard.pos}" }
             guard
         } else emptyList()
-        require(guards.map { it.id } == guards.map { it.id }.sorted() && guards.map { it.id }.toSet().size == guards.size) { "guards must be sorted by unique id" }
+        // Python sorts ids by code point; String.sorted() is UTF-16 code-unit order (differs for astral ids).
+        val guardIds = guards.map { it.id }
+        require(guardIds == guardIds.sortedWith(Canonical.codePointOrder) && guardIds.toSet().size == guards.size) { "guards must be sorted by unique id" }
         val day = BattleJson.int(m["day"], "day")
         val current = BattleJson.int(m["current"], "current")
         require(day >= 0 && current in players.indices) { "bad day or current player" }
@@ -353,25 +366,39 @@ class AdventureCodec(private val rules: AdventureRules) {
 
     fun policyFrom(m: Map<String, Any?>): AdventurePolicy {
         BattleJson.exactKeys(m, POLICY_KEYS, "policy")
+        // Python ints are unbounded and a policy integer must be a plain int: a bool, a float or
+        // any other value is recorded in [illTyped], an integer beyond Int is clamped to the Int
+        // range (every bound is far inside it, so the verdict and the message are Python's).
+        val illTyped = LinkedHashSet<String>()
+        fun lenient(v: Any?, field: String): Int {
+            val big = when (v) {
+                is BigInteger -> v
+                is Int -> BigInteger.valueOf(v.toLong())
+                is Long -> BigInteger.valueOf(v)
+                else -> { illTyped.add(field); return 0 }
+            }
+            return big.max(BigInteger.valueOf(Int.MIN_VALUE.toLong())).min(BigInteger.valueOf(Int.MAX_VALUE.toLong())).toInt()
+        }
+        fun lenientList(v: Any?, field: String): List<Int> = BattleJson.list(v, field).map { lenient(it, field) }
         val roads = BattleJson.list(m["road_cost"], "road_cost").map {
             val e = BattleJson.list(it, "road_cost")
             require(e.size == 2) { "road_cost entries must be (road, cost) pairs" }
-            Pair(BattleJson.str(e[0], "road_cost"), BattleJson.int(e[1], "road_cost"))
-        }.sortedBy { it.first }
+            Pair(BattleJson.str(e[0], "road_cost"), lenient(e[1], "road_cost"))
+        }.sortedWith { a, b -> Canonical.codePointOrder.compare(a.first, b.first) }
         fun b(k: String) = BattleJson.bool(m[k], k)
         fun s(k: String) = BattleJson.str(m[k], k)
-        fun i(k: String) = BattleJson.int(m[k], k)
+        fun i(k: String) = lenient(m[k], k)
         val p = AdventurePolicy(
             roadCost = roads, roadNeedsBoth = b("road_needs_both"), roadRateFrom = s("road_rate_from"),
             costFrom = s("cost_from"), diagonalMoves = b("diagonal_moves"), diagonalMode = s("diagonal_mode"),
             diagonalNum = i("diagonal_num"), diagonalDen = i("diagonal_den"), diagonalRounding = s("diagonal_rounding"),
             diagonalCornerCut = b("diagonal_corner_cut"), lastStep = s("last_step"),
             diagonalException = b("diagonal_exception"), zeroRemainder = b("zero_remainder"),
-            pathfindingMode = s("pathfinding_mode"), pathfindingFlat = BattleJson.ints(m["pathfinding_flat"], "pathfinding_flat"),
-            moveCostFloor = i("move_cost_floor"), pathfindingPct = BattleJson.ints(m["pathfinding_pct"], "pathfinding_pct"),
+            pathfindingMode = s("pathfinding_mode"), pathfindingFlat = lenientList(m["pathfinding_flat"], "pathfinding_flat"),
+            moveCostFloor = i("move_cost_floor"), pathfindingPct = lenientList(m["pathfinding_pct"], "pathfinding_pct"),
             pathfindingRounding = s("pathfinding_rounding"), incomeOnFirstDay = b("income_on_first_day"),
         )
-        p.validate(rules.roads)
+        p.validate(rules.roads, illTyped)
         return p
     }
 
@@ -439,13 +466,55 @@ class AdventureCodec(private val rules: AdventureRules) {
             return if (b.bitLength() < 32) b.toInt() else outOfRange
         }
 
+        /**
+         * Python `repr` of a str: single quotes unless the text has a `'` and no `"`; `\\`, the quote,
+         * `\t \n \r` escaped; other C0 controls, DEL and every non-printable code point as `\xNN`,
+         * `\uNNNN` or `\UNNNNNNNN`. Printable means Python's `str.isprintable`: not Unicode category
+         * Cc, Cf, Cs, Co, Cn, Zl, Zp or Zs (except the ASCII space). Cn depends on the Unicode version:
+         * checked equal to Python 3.13 (Unicode 15.1) for every code point on JDK 21 (15.0) with the patch below;
+         * a Python on a newer Unicode (3.14: 16.0) can differ for the newest assignments.
+         */
+        private fun strRepr(v: String): String {
+            val quote = if ('\'' in v && '"' !in v) '"' else '\''
+            val sb = StringBuilder().append(quote)
+            var i = 0
+            while (i < v.length) {
+                val cp = v.codePointAt(i)
+                i += Character.charCount(cp)
+                when {
+                    cp == quote.code || cp == '\\'.code -> sb.append('\\').appendCodePoint(cp)
+                    cp == '\t'.code -> sb.append("\\t")
+                    cp == '\n'.code -> sb.append("\\n")
+                    cp == '\r'.code -> sb.append("\\r")
+                    cp < 0x20 || cp == 0x7f -> sb.append("\\x").append(hex(cp, 2))
+                    cp < 0x7f -> sb.appendCodePoint(cp)
+                    isPrintable(cp) -> sb.appendCodePoint(cp)
+                    cp <= 0xff -> sb.append("\\x").append(hex(cp, 2))
+                    cp <= 0xffff -> sb.append("\\u").append(hex(cp, 4))
+                    else -> sb.append("\\U").append(hex(cp, 8))
+                }
+            }
+            return sb.append(quote).toString()
+        }
+
+        private fun hex(cp: Int, width: Int): String = Integer.toHexString(cp).padStart(width, '0')
+
+        /** Assigned in Unicode 15.1 (Python 3.13); a JDK on Unicode 15.0 (JDK 21) still calls them unassigned. */
+        private fun isUnicode151Addition(cp: Int) = cp in 0x2ffc..0x2fff || cp == 0x31ef || cp in 0x2ebf0..0x2ee5d
+
+        private fun isPrintable(cp: Int): Boolean = if (isUnicode151Addition(cp)) true else when (Character.getType(cp).toByte()) {
+            Character.CONTROL, Character.FORMAT, Character.SURROGATE, Character.PRIVATE_USE, Character.UNASSIGNED,
+            Character.LINE_SEPARATOR, Character.PARAGRAPH_SEPARATOR, Character.SPACE_SEPARATOR -> false
+            else -> true
+        }
+
         /** Python `repr` of a decoded command value (`soak.decode_command` turns a top-level list into a tuple). */
         fun pyRepr(v: Any?, top: Boolean = false): String = when (v) {
             null -> "None"
             is Boolean -> if (v) "True" else "False"
             is BigInteger, is Int, is Long -> v.toString()
-            is String -> if ('\'' in v && '"' !in v) "\"" + v.replace("\\", "\\\\") + "\""
-                else "'" + v.replace("\\", "\\\\").replace("'", "\\'") + "'"
+            is String -> strRepr(v)
+            is Map<*, *> -> v.entries.joinToString(", ", "{", "}") { (k, x) -> pyRepr(k) + ": " + pyRepr(x) }
             is List<*> -> {
                 val inner = v.joinToString(", ") { pyRepr(it) }
                 if (top) (if (v.size == 1) "($inner,)" else "($inner)") else "[$inner]"
@@ -461,7 +530,7 @@ data class AdventureStep(val state: AdventureState, val events: List<AdventureEv
 class Adventure(private val rules: AdventureRules) {
     private data class Parts(val cost: Int, val orth: Int, val diagonal: Boolean)
 
-    private class Label(val spent: Int, val steps: Int, val path: List<Pair<Int, Int>>) : Comparable<Label> {
+    private class Label(val spent: Long, val steps: Int, val path: List<Pair<Int, Int>>) : Comparable<Label> {
         override fun compareTo(other: Label): Int {
             if (spent != other.spent) return spent.compareTo(other.spent)
             if (steps != other.steps) return steps.compareTo(other.steps)
@@ -558,7 +627,7 @@ class Adventure(private val rules: AdventureRules) {
     }
 
     /** Python `_search`: Dijkstra, smallest (spent, steps, path) label wins. */
-    private fun search(s: AdventureState, hero: AdvHero, budget: Int?): Map<Pair<Int, Int>, Pair<Int, List<Pair<Int, Int>>>> {
+    private fun search(s: AdventureState, hero: AdvHero, budget: Int?): Map<Pair<Int, Int>, Pair<Long, List<Pair<Int, Int>>>> {
         val grid = s.grid
         val pol = s.policy
         val occupied = LinkedHashSet<Pair<Int, Int>>()
@@ -566,7 +635,7 @@ class Adventure(private val rules: AdventureRules) {
         for (g in s.guards) occupied.add(g.pos)
         val start = hero.pos!!
         val best = LinkedHashMap<Pair<Int, Int>, Label>()
-        best[start] = Label(0, 0, listOf(start))
+        best[start] = Label(0L, 0, listOf(start))
         val heap = PriorityQueue<Label>()
         heap.add(best.getValue(start))
         val done = LinkedHashSet<Pair<Int, Int>>()
@@ -575,17 +644,17 @@ class Adventure(private val rules: AdventureRules) {
             val cur = lab.path.last()
             if (cur in done) continue
             done.add(cur)
-            if (budget != null && lab.spent >= budget) continue
+            if (budget != null && lab.spent >= budget.toLong()) continue
             for ((dx, dy) in DIRS) {
                 val nxt = Pair(cur.first + dx, cur.second + dy)
                 if (nxt in occupied || nxt in done) continue
                 val parts = stepParts(grid, cur, nxt, hero.pathfinding, pol) ?: continue
                 var c = parts.cost
                 if (budget != null) {
-                    val fresh = lab.spent == 0 && !hero.movedToday
-                    c = paid(parts, budget - lab.spent, fresh, pol) ?: continue
+                    val fresh = lab.spent == 0L && !hero.movedToday
+                    c = paid(parts, budget - lab.spent.toInt(), fresh, pol) ?: continue
                 }
-                val label = Label(Math.addExact(lab.spent, c), lab.steps + 1, lab.path + nxt)
+                val label = Label(Math.addExact(lab.spent, c.toLong()), lab.steps + 1, lab.path + nxt)
                 val old = best[nxt]
                 if (old == null || label < old) {
                     best[nxt] = label
@@ -593,15 +662,15 @@ class Adventure(private val rules: AdventureRules) {
                 }
             }
         }
-        val out = LinkedHashMap<Pair<Int, Int>, Pair<Int, List<Pair<Int, Int>>>>()
+        val out = LinkedHashMap<Pair<Int, Int>, Pair<Long, List<Pair<Int, Int>>>>()
         for (t in best.keys.sortedWith(compareBy({ it.first }, { it.second }))) {
             if (t != start) out[t] = Pair(best.getValue(t).spent, best.getValue(t).path)
         }
         return out
     }
 
-    /** Python `find_path`: cheapest path ignoring today's points, or null. */
-    fun findPath(s: AdventureState, heroId: Int, dest: Pair<Int, Int>): Pair<Int, List<Pair<Int, Int>>>? {
+    /** Python `find_path`: cheapest path ignoring today's points, or null. The cost is a Long: unbudgeted sums can pass Int. */
+    fun findPath(s: AdventureState, heroId: Int, dest: Pair<Int, Int>): Pair<Long, List<Pair<Int, Int>>>? {
         val h = s.heroes[heroId]
         if (h.pos == null) return null
         return search(s, h, null)[dest]
@@ -611,7 +680,8 @@ class Adventure(private val rules: AdventureRules) {
     fun reachable(s: AdventureState, heroId: Int): Map<Pair<Int, Int>, Pair<Int, List<Pair<Int, Int>>>> {
         val h = s.heroes[heroId]
         if (h.pos == null) return emptyMap()
-        return search(s, h, h.mp)
+        // Every spent value is within the budget (Int), so the narrowing is exact.
+        return search(s, h, h.mp).mapValues { (_, v) -> Pair(Math.toIntExact(v.first), v.second) }
     }
 
     fun dailyIncome(p: AdvPlayer): AdvResources {

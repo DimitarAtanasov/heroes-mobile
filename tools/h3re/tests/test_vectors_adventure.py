@@ -61,6 +61,47 @@ class TestAdventureVectors(unittest.TestCase):
                      "not a tile: 'ab'"):
             self.assertIn(want, msgs)
 
+    def test_nonbmp_guard_ids_are_in_code_point_order(self):
+        # Python sorts str by code point; UTF-16 order puts U+1F600 (D83D DE00) before U+FB01.
+        case = self.cases["golden-guards-nonbmp"]
+        ids = [g["id"] for g in json.loads(case["initial"]["canonical"])["guards"]]
+        self.assertIn("\ufb01", ids)
+        self.assertIn("\U0001f600", ids)
+        self.assertEqual(ids, sorted(ids))
+        self.assertNotEqual(ids, sorted(ids, key=lambda s: s.encode("utf-16-be")))
+        for st in case["steps"]:
+            self.assertEqual(
+                [g["id"] for g in json.loads(st["canonical"])["guards"]], ids)
+
+    def test_repr_probes_follow_python_repr(self):
+        msgs = {ic["message"] for ic in self.doc["illegal_cases"]}
+        for want in (
+                r"""not player "it's"'s turn""",
+                r"""not player 'tab\there''s turn""",
+                r"""not player '\x00\x1f\x7f''s turn""",
+                r"""not player '\x80\x9f\xa0\xad''s turn""",
+                r"""not player '\u2028\u2029''s turn""",
+                r"""not player '\U0010ffff''s turn""",
+                r"""not player '\ud800''s turn""",
+                r"""not player {'a': 1, 'b': [1, {'c': None}], "c'd": True}'s turn""",
+                r"""not a tile: ({'a': 1}, 2)"""):
+            self.assertIn(want, msgs)
+
+    def test_policy_cases_cover_bounds_and_types(self):
+        pc = {c["name"]: c for c in self.doc["policy_cases"]}
+        self.assertIsNone(pc["bound-ok"]["error"])
+        for name in ("diagonal_num-bool", "diagonal_num-1e8", "move_cost_floor-2e9",
+                     "pathfinding_flat-bool", "road_cost-huge", "diagonal_num-2pow70"):
+            self.assertIsInstance(pc[name]["error"], str, name)
+        for c in self.doc["policy_cases"]:
+            try:
+                A.AdventurePolicy(**{k: (tuple(v) if isinstance(v, list) else v)
+                                     for k, v in c["policy"].items()})
+                got = None
+            except ValueError as e:
+                got = str(e)
+            self.assertEqual(got, c["error"], c["name"])
+
     def test_constants_mirror_the_module(self):
         k = self.doc["constants"]
         self.assertEqual(k["terrain_cost"], A.TERRAIN_COST)

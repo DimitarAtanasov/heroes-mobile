@@ -33,7 +33,7 @@ object Canonical {
     private const val HEX = "0123456789abcdef"
 
     /** Order by Unicode code point (Python str ordering), not UTF-16 code unit. */
-    private val codePointOrder = Comparator<String> { a, b ->
+    internal val codePointOrder = Comparator<String> { a, b ->
         var i = 0
         var j = 0
         while (i < a.length && j < b.length) {

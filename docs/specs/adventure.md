@@ -157,24 +157,56 @@ kept as an option. Mysticism is out of scope. Items marked * were never in §9.
 
 | Field | Default | Alternatives | Question |
 |---|---|---|---|
-| `road_cost` | dirt 75, gravel 65, cobblestone 50 | any positive costs | Road rates (VCMI) |
+| `road_cost` | dirt 75, gravel 65, cobblestone 50 | any costs 1..10000 | Road rates (VCMI) |
 | `road_needs_both` | `True` | `False` | Road needed on both tiles (VCMI) |
 | `road_rate_from` | `"source"` | `"dest"`, `"max"` | Which road sets the rate (VCMI: source) |
 | `cost_from` | `"source"` | `"dest"` | Tile that prices a step (VCMI: source) |
 | `diagonal_moves` | `True` | `False` | (engine switch, for comparison) |
 | `diagonal_mode` | `"sqrt2"` | `"ratio"` | floor(cost x sqrt2) vs a fixed ratio |
-| `diagonal_num/den` | 141/100 | e.g. 142/100 | Ratio mode only |
+| `diagonal_num/den` | 141/100 | e.g. 142/100; each 1..10000 | Ratio mode only |
 | `diagonal_rounding` | `"floor"` | `"ceil"`, `"nearest"` | Ratio mode only |
 | `diagonal_corner_cut` | `True` | `False` | Can a diagonal pass between two blocked tiles?* |
 | `last_step` | `"forbid"` | `"allow_if_any"`, `"allow_if_fresh"` | Points needed for a step |
 | `diagonal_exception` | `True` | `False` | Diagonal allowed if orthogonal cost is covered |
 | `zero_remainder` | `True` | `False` | Leftover < repeat cost is used up |
 | `pathfinding_mode` | `"flat"` | `"percent"` | Flat 25/50/75 points vs percent of penalty |
-| `pathfinding_flat` | (0, 25, 50, 75) | any >= 0 | Flat reductions |
-| `move_cost_floor` | 100 | any > 0 | Floor for Pathfinding |
+| `pathfinding_flat` | (0, 25, 50, 75) | each 0..10000 | Flat reductions |
+| `move_cost_floor` | 100 | 1..10000 | Floor for Pathfinding |
 | `pathfinding_pct` | (0, 25, 50, 75) | any 0..100 | Percent mode only |
 | `pathfinding_rounding` | `"floor"` | `"ceil"`, `"nearest"` | Percent mode only |
 | `income_on_first_day` | `False` | `True` | Is income paid on day 1?* |
+
+### Integer bounds and types (amendment, ADR-0008 style)
+
+Context: the Kotlin port (ADR-0004) holds step costs and movement points in a 32-bit `Int`
+(ADR-0008). Python accepted any `int` for the policy integers, so a legal policy such as
+`diagonal_num=10**8` or `move_cost_floor=2_000_000_000` made Python return a cost the Kotlin
+engine could only refuse with an overflow. Python also accepted a `bool` (`diagonal_num=True`
+hashed as `true` and priced as 1) and a `float` (which reached the integer-only sim).
+
+Decision: `AdventurePolicy.__post_init__` requires `type(x) is int` (not a `bool`, not a
+`float`) for `diagonal_num`, `diagonal_den`, `move_cost_floor`, every `pathfinding_flat` and
+`pathfinding_pct` entry and every `road_cost` cost, and bounds them: `1..POLICY_INT_MAX` for
+`diagonal_num`, `diagonal_den`, `move_cost_floor` and road costs, `0..POLICY_INT_MAX` for
+`pathfinding_flat`, `0..100` for `pathfinding_pct`, with `POLICY_INT_MAX = 10_000`. A value
+outside the bound or of the wrong type raises `ValueError`; nothing is clamped. Messages:
+`diagonal_num and diagonal_den need ints in 1..10000` (was `bad diagonal fraction`),
+`move_cost_floor needs an int in 1..10000` (was `bad move_cost_floor`),
+`pathfinding_flat needs 4 ints in 0..10000`, `pathfinding_pct needs 4 values in 0..100` and
+`road_cost needs a cost in 1..10000 for each road type`. The check order is unchanged.
+
+With the bound, an orthogonal step costs at most 10^4 (terrain is at most 175), a ratio
+diagonal at most 10^4 x 10^4 = 10^8, and a budgeted search never spends more than the hero's
+`Int` points, so `Adventure.apply` cannot overflow. An unbudgeted `find_path` can sum past
+`Int` (24 diagonal steps of 10^8 is 2.4 x 10^9), so Kotlin keeps path costs in `Long`.
+
+Kotlin `AdventurePolicy.validate` mirrors the checks in the same order; an integer beyond `Int`
+in the source JSON is clamped for the check only (every bound is far inside `Int`, so the
+verdict and message are Python's) and a non-integer is refused with the same message.
+Conformance: `policy_cases` in `adventure.json` (docs/specs/conformance-adventure.md).
+No pinned hash moved: the default and every vector policy are far below the bound
+(adventure golden `179c5700...` unchanged). Boolean policy fields still accept any truthy
+value in Python; that is not covered by this amendment.
 
 ### Default changes and the golden hash
 
