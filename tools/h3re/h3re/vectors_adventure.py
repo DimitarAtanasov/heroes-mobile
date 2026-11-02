@@ -316,6 +316,80 @@ def _policy_json(**over):
 
 _M = A.POLICY_INT_MAX
 _ROADS = lambda c, d, g: [["cobblestone", c], ["dirt", d], ["gravel", g]]  # noqa: E731
+# The string-enum policy fields, in the order __post_init__ checks them, with their accepted
+# values. A refusal is "bad <field>" (the two rounding fields: "bad rounding mode %r" with the
+# repr of the value). A JSON list reaches Python as a tuple (``policy_cases`` decodes it so), so
+# ``[]`` is ``()`` in the message. ``tests/test_vectors_adventure.py`` checks this tuple covers
+# every str-valued AdventurePolicy field.
+ENUM_FIELDS = (
+    ("cost_from", ("dest", "source")),
+    ("road_rate_from", ("source", "dest", "max")),
+    ("diagonal_mode", ("sqrt2", "ratio")),
+    ("pathfinding_mode", ("flat", "percent")),
+    ("last_step", ("forbid", "allow_if_any", "allow_if_fresh")),
+    ("diagonal_rounding", ("floor", "ceil", "nearest")),
+    ("pathfinding_rounding", ("floor", "ceil", "nearest")),
+)
+_BAD_VALUES = (("null", None), ("int", 5), ("true", True), ("list", []), ("dict", {}),
+               ("unknown", "bogus"))
+# Strings whose repr needs Python's quoting and escapes (rounding fields only print the value).
+_REPR_VALUES = ("it's", 'say "hi"', "both ' and \"", "tab\there", "caf\u00e9", "\U0001f600",
+                "", "Floor", [1], [[1], "a"], {"a": [1]}, 2 ** 70, False)
+
+
+def _enum_cases():
+    out = []
+    for f, ok in ENUM_FIELDS:
+        for v in ok:
+            out.append(("enum-ok-%s-%s" % (f, v), _policy_json(**{f: v})))
+        for kind, v in _BAD_VALUES:
+            out.append(("enum-%s-%s" % (f, kind), _policy_json(**{f: v})))
+    # The other fields' values are not valid here; a wrong-case or empty string is unknown.
+    out.append(("enum-cost_from-other-field-value", _policy_json(cost_from="max")))
+    out.append(("enum-last_step-other-field-value", _policy_json(last_step="dest")))
+    for f in ("diagonal_rounding", "pathfinding_rounding"):
+        for i, v in enumerate(_REPR_VALUES):
+            out.append(("enum-repr-%s-%d" % (f, i), _policy_json(**{f: v})))
+    names = [f for f, _ in ENUM_FIELDS]
+    # Order: the earlier field in check order wins, whatever the kind of fault and whichever
+    # order the fields are written in (JSON objects are sorted by key).
+    for a, b in zip(names, names[1:]):
+        out.append(("enum-order-%s-before-%s" % (a, b), _policy_json(**{a: None, b: 5})))
+        out.append(("enum-order-%s-before-%s-unknown" % (a, b), _policy_json(**{a: "x", b: None})))
+        out.append(("enum-order-%s-before-%s-late" % (a, b), _policy_json(**{a: 5, b: "x"})))
+    out.append(("enum-order-first-before-last", _policy_json(cost_from=True,
+                                                             pathfinding_rounding=[1])))
+    # Against the other checks: flags first; then the string fields and the integer checks
+    # interleave exactly as in __post_init__.
+    for f in names:
+        out.append(("enum-order-flag-before-%s" % f, _policy_json(**{"zero_remainder": 1, f: None})))
+    out += [
+        ("enum-order-pathfinding_mode-before-flat",
+         _policy_json(pathfinding_mode=None, pathfinding_flat=[0, True, 50, 75])),
+        ("enum-order-flat-before-last_step",
+         _policy_json(pathfinding_flat=[0, True, 50, 75], last_step=None)),
+        ("enum-order-flat-short-before-last_step",
+         _policy_json(pathfinding_flat=[0, 25, 50], last_step=5)),
+        ("enum-order-floor-before-last_step", _policy_json(move_cost_floor=0, last_step=None)),
+        ("enum-order-floor-bool-before-last_step",
+         _policy_json(move_cost_floor=True, last_step=[])),
+        ("enum-order-last_step-before-rounding",
+         _policy_json(last_step=None, diagonal_rounding=5)),
+        ("enum-order-rounding-before-diagonal-num",
+         _policy_json(diagonal_rounding=None, diagonal_num=True)),
+        ("enum-order-pf-rounding-before-diagonal-den",
+         _policy_json(pathfinding_rounding={}, diagonal_den=0)),
+        ("enum-order-rounding-before-pct",
+         _policy_json(diagonal_rounding="x", pathfinding_pct=[0, 101, 0, 0])),
+        ("enum-order-pf-rounding-before-road",
+         _policy_json(pathfinding_rounding=True, road_cost=_ROADS(0, 75, 65))),
+        ("enum-last_step-ok-then-diagonal-num",
+         _policy_json(last_step="allow_if_any", diagonal_num=True)),
+    ]
+    return tuple(out)
+
+
+ENUM_CASES = _enum_cases()
 POLICY_CASES = (
     ("bound-ok", _policy_json(diagonal_mode="ratio", diagonal_num=_M, diagonal_den=_M,
                               move_cost_floor=_M, pathfinding_flat=[0, _M, _M, _M],
@@ -373,6 +447,7 @@ POLICY_CASES = (
                                                 income_on_first_day="x")),
     ("order-flag-before-int", _policy_json(income_on_first_day=1, diagonal_num=True,
                                            move_cost_floor=0)),
+    *ENUM_CASES,
 )
 
 

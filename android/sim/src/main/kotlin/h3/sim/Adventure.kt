@@ -113,20 +113,24 @@ data class AdventurePolicy(
      * Python `__post_init__`, same order and messages. [roads] is the rules' road list. [illTyped]
      * names the fields that had the wrong type in the source JSON: an integer field that was a bool,
      * a float or not a number (Python requires `type(x) is int`), a flag that was not a bool
-     * (`type(x) is bool`); the value kept for them is not looked at.
+     * (`type(x) is bool`); the value kept for them is not looked at. [badEnum] names the string-enum
+     * fields whose source value was not a string, with its Python `repr` (a JSON list is a tuple, as in
+     * the vectors); such a field fails its own check, at its own place in the order, never earlier.
      */
-    fun validate(roads: List<String>, illTyped: Set<String> = emptySet()) {
+    fun validate(roads: List<String>, illTyped: Set<String> = emptySet(), badEnum: Map<String, String> = emptyMap()) {
         for (name in FLAGS) require(name !in illTyped) { "$name must be a bool" }
-        require(costFrom in setOf("dest", "source")) { "bad cost_from" }
-        require(roadRateFrom in setOf("source", "dest", "max")) { "bad road_rate_from" }
-        require(diagonalMode in setOf("sqrt2", "ratio")) { "bad diagonal_mode" }
-        require(pathfindingMode in setOf("flat", "percent")) { "bad pathfinding_mode" }
+        require("cost_from" !in badEnum && costFrom in setOf("dest", "source")) { "bad cost_from" }
+        require("road_rate_from" !in badEnum && roadRateFrom in setOf("source", "dest", "max")) { "bad road_rate_from" }
+        require("diagonal_mode" !in badEnum && diagonalMode in setOf("sqrt2", "ratio")) { "bad diagonal_mode" }
+        require("pathfinding_mode" !in badEnum && pathfindingMode in setOf("flat", "percent")) { "bad pathfinding_mode" }
         require(pathfindingFlat.size == 4 && "pathfinding_flat" !in illTyped && pathfindingFlat.all { it in 0..POLICY_INT_MAX }) {
             "pathfinding_flat needs 4 ints in 0..$POLICY_INT_MAX"
         }
         require("move_cost_floor" !in illTyped && moveCostFloor in 1..POLICY_INT_MAX) { "move_cost_floor needs an int in 1..$POLICY_INT_MAX" }
-        require(lastStep in setOf("forbid", "allow_if_any", "allow_if_fresh")) { "bad last_step" }
-        for (r in listOf(diagonalRounding, pathfindingRounding)) require(r in ROUNDING) { "bad rounding mode '$r'" }
+        require("last_step" !in badEnum && lastStep in setOf("forbid", "allow_if_any", "allow_if_fresh")) { "bad last_step" }
+        for ((f, r) in listOf("diagonal_rounding" to diagonalRounding, "pathfinding_rounding" to pathfindingRounding)) {
+            require(f !in badEnum && r in ROUNDING) { "bad rounding mode ${badEnum[f] ?: AdventureCodec.pyRepr(r)}" }
+        }
         require("diagonal_den" !in illTyped && "diagonal_num" !in illTyped && diagonalDen in 1..POLICY_INT_MAX && diagonalNum in 1..POLICY_INT_MAX) {
             "diagonal_num and diagonal_den need ints in 1..$POLICY_INT_MAX"
         }
@@ -440,7 +444,15 @@ class AdventureCodec(private val rules: AdventureRules, private val encounters: 
             illTyped.add(k)
             return false
         }
-        fun s(k: String) = BattleJson.str(m[k], k)
+        // A string-enum field that is not a string (null, a number, a bool, a list, a map) is recorded with
+        // its Python repr and refused by validate at its place in Python's order (never "expected string").
+        val badEnum = LinkedHashMap<String, String>()
+        fun s(k: String): String {
+            val v = m[k]
+            if (v is String) return v
+            badEnum[k] = pyRepr(v, true)
+            return ""
+        }
         fun i(k: String) = lenient(m[k], k)
         val p = AdventurePolicy(
             roadCost = roads, roadNeedsBoth = b("road_needs_both"), roadRateFrom = s("road_rate_from"),
@@ -452,7 +464,7 @@ class AdventureCodec(private val rules: AdventureRules, private val encounters: 
             moveCostFloor = i("move_cost_floor"), pathfindingPct = lenientList(m["pathfinding_pct"], "pathfinding_pct"),
             pathfindingRounding = s("pathfinding_rounding"), incomeOnFirstDay = b("income_on_first_day"),
         )
-        p.validate(rules.roads, illTyped)
+        p.validate(rules.roads, illTyped, badEnum)
         return p
     }
 
