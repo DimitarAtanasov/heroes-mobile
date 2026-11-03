@@ -139,6 +139,14 @@ class ContentResult(
 )
 
 object Content {
+    /**
+     * Battle roster: the accepted creatures in CRTRAITS file order, without the no-fixed-damage
+     * creatures (dmg 0/0, [ContentResult.noFixedDamage]); owner decision Q5, 2026-11-02. Weak
+     * creatures (dmg_min 0, dmg_max > 0) stay. Pure; does not touch any hash or battle code.
+     */
+    fun battleRoster(content: ContentResult): List<Creature> =
+        content.creatures.filter { it.name !in content.noFixedDamage }
+
     /** Python str.isspace() set (used by str.strip()). */
     internal fun isPySpace(c: Char): Boolean =
         c in '\u0009'..'\u000d' || c in '\u001c'..' ' || c == '\u0085' || c == ' ' ||
