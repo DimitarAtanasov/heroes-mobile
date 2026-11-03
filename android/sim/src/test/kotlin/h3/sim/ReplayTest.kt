@@ -1,5 +1,6 @@
 package h3.sim
 
+import java.io.File
 import java.math.BigInteger
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -58,6 +59,25 @@ class ReplayTest {
                 BattlePolicyPack(packs.policy.values, packs.rules.pack.badMoraleNumerators.map { it.toInt() }, packs.rules.pack.moraleDie.toInt()),
             ).stateHash(loaded.finalState), name)
         }
+    }
+
+    /**
+     * CI evidence: writes Kotlin-recorded files to `build/replay-out/` (Gradle runs tests in the
+     * module directory, so `android/sim/build/replay-out/`). The kotlin-sim CI job then runs
+     * `python3 -m h3re replay verify` on each file. Synthetic scenarios only.
+     */
+    @Test
+    fun writesKotlinRecordedFilesForPythonCliVerification() {
+        val dir = File("build/replay-out")
+        dir.mkdirs()
+        for (c in doc["scenarios"].list().map { it.obj() }) {
+            val name = c["name"] as String
+            val bytes = Replay.record(c["scenario"] as String, commands(c), c["seed"].big(), packs)
+            val file = File(dir, "$name.h3r")
+            file.writeBytes(bytes)
+            assertContentEquals(bytes, file.readBytes(), name)
+        }
+        assertTrue(File(dir, "golden.h3r").length() > 0)
     }
 
     @Test
