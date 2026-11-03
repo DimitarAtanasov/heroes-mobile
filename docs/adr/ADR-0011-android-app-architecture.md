@@ -27,9 +27,10 @@ a save is, and how `:app` builds when the dev container cannot reach Google Mave
 - **D3, user data by copy.** The player picks their install with the Storage Access Framework. The
   needed files are copied into app-private no-backup storage, then validated with the `:data`
   readers. The tree permission is released after the copy. Game data, decoded sprites and caches
-  are never bundled, never backed up, never exported, and never sent over the network. Without game
-  data, the app runs in placeholder mode on the synthetic `data/creatures.json` roster with
-  procedural tokens. No art of any kind is shipped.
+  are never bundled, never backed up, never exported, and never sent over the network. The battle
+  roster comes only from the player's own `CRTRAITS.TXT` (amended 2026-11-03, see "Amendments"):
+  without it the app shows only the import prompt where a new battle would start. Creatures without
+  sprites are drawn as procedural tokens. No art of any kind is shipped.
 - **D4, packs come from the repo's `data/`.** The `:app` build copies `data/*.json` into the APK
   assets at build time. Kotlin computes the pack content hashes itself, and those hashes must equal
   Python's. No balance number lives in app code. UI timing values live in one reviewed table and
@@ -98,6 +99,18 @@ a save is, and how `:app` builds when the dev container cannot reach Google Mave
   such in `android-app.md` section 9 and are not claimed without device output.
 - `adr-scribe`: adds a cross-reference from ADR-0004 "Project layout" and from `engine-design.md`
   1.5 (palette shader) to this ADR.
+
+## Amendments
+
+- **D3, 2026-11-03 (owner decision, Q2 of `roster-from-crtraits.md`).** The synthetic
+  `data/creatures.json` roster is no longer a battle roster and there is no placeholder battle
+  mode. When no `CRTRAITS.TXT` has been imported (no valid `H3bitmap.lod` holding it in the app's
+  game-data folder), Home shows only the import prompt in place of "New skirmish". A file that the
+  content loader refuses gives no roster either; the refusal names row, column and category, never
+  file contents. `data/creatures.json` stays bundled as a fixture pack: it still feeds the pack
+  hashes recorded in and checked against replay headers (`creatures_hash`), so saves made before
+  and after this change load (Q8). Saves carry their own creature table and load without game
+  data. Detailed in `android-app.md` 3.1 and 6.2 and in `roster-from-crtraits.md`.
 
 ## Verification
 

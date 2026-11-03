@@ -90,9 +90,9 @@ Rules:
    integer `(col, row)` or nothing. Commands are built only from entries of the view (that is,
    from `legalCommands`), never from screen coordinates.
 4. Balance numbers enter Kotlin only through packs parsed from the repo's `data/*.json` (CLAUDE.md
-   law 4). The `:app` build copies `data/rules.json`, `data/battle_policy.json` and
-   `data/creatures.json` into the APK assets with a Gradle copy task, so the repo holds no second
-   copy.
+   law 4). The `:app` build copies `data/rules.json`, `data/battle_policy.json`,
+   `data/creatures.json` and the content mapping `data/txt_maps/crtraits.json` into the APK assets
+   with a Gradle copy task, so the repo holds no second copy.
 5. `:presenter` and `:sim` are covered by the Kotlin banned-API check of milestone A0 (G7).
 
 ## 3. Data import
@@ -106,14 +106,20 @@ Rules:
   `android:allowBackup="false"` plus data-extraction rules that exclude them. The app makes no
   network calls and sends no telemetry. Bug reports contain build ID, state hash and command
   count, and never file contents or images.
-- The app works without game data. Placeholder mode uses the synthetic roster in
-  `data/creatures.json` and draws procedural tokens (section 4.6). No art is shipped.
+- The battle roster comes only from the player's own `CRTRAITS.TXT` (ADR-0011 D3, amended
+  2026-11-03, owner decision Q2 of `roster-from-crtraits.md`). Without it, Home shows only the
+  import prompt where "New skirmish" would be; there is no placeholder battle roster.
+  `data/creatures.json` is still bundled, only as a fixture pack for the replay pack hashes
+  (`creatures_hash`, unchanged so existing saves load). Saves carry their own creatures and still
+  load without game data. Creatures without sprites are drawn as procedural tokens (section 4.6).
+  No art is shipped.
 
 ### 3.2 Flow
 
 1. **Explain.** The import screen says what is needed ("the folder that contains `Data`, from
    Heroes III Shadow of Death or Complete"), that files stay on the device, and roughly how much
-   space the copy takes. A "Continue without game data" action goes to placeholder mode.
+   space the copy takes. A "Back" action returns to Home, which keeps showing the import prompt
+   (3.1).
 2. **Pick.** `ActivityResultContracts.OpenDocumentTree` (`ACTION_OPEN_DOCUMENT_TREE`). The user
    may pick the install root or the `Data` folder itself. Both are detected. On API 30+ the system
    picker refuses the storage root and the `Download` root, so the text tells the user to keep the
@@ -190,8 +196,8 @@ never contents. The outcome is OK, OK with warnings (shown once, then kept in se
 (nothing is kept).
 
 On every start, the app compares manifest sizes with the files (a cheap check). If game data has
-disappeared or changed, the app falls back to placeholder mode and shows a "Game data missing:
-re-import" banner. Battles and saves keep working, because a battle's state never depends on art
+disappeared or changed, the app has no battle roster (Home shows the import prompt, 3.1) and
+shows a "Game data missing: re-import" banner. Battles and saves keep working, because a battle's state never depends on art
 and a scenario carries its creature stats (`battle-scenario.md` section 2).
 
 ## 4. Rendering
@@ -398,7 +404,7 @@ Single activity, Compose Navigation.
 
 | Route | Content |
 |---|---|
-| `home` | Continue (an unfinished autosave), New skirmish, Replays, Settings, About. If no data is imported, an "Import game data" card plus "Play with placeholder units" |
+| `home` | Continue (an unfinished autosave), New skirmish, Replays, Settings, About. If no `CRTRAITS.TXT` is imported, an "Import game data" prompt replaces New skirmish (3.1) |
 | `import` | Section 3 flow, with a progress view and an error view (sentence, details, Retry or Pick another folder) |
 | `skirmish` | Setup (6.2) |
 | `battle/{session}` | Board, queue, action rail, preview panel, creature sheet, actions list, pause menu (Speed; Leave, which saves and exits. There is no Concede, because `battle.md` has no retreat or surrender) |
@@ -409,10 +415,18 @@ Single activity, Compose Navigation.
 
 ### 6.2 Skirmish setup
 
-- **Roster source:** "Placeholder units" (the bundled `data/creatures.json`) or "Your game's
-  creatures" (`CRTRAITS.TXT` through the content port, in file row order, searchable). The second
-  source shows a note: "Stats from your files. Abilities unverified." (`content.md`: the ability
+- **Roster source:** only "Your game's creatures": `CRTRAITS.TXT` from the imported
+  `H3bitmap.lod`, through the content port, in file row order, without the no-fixed-damage
+  creatures (`Content.battleRoster`; `roster-from-crtraits.md`). Each entry keeps its data-row
+  index (the sprite key). The bundled `data/creatures.json` is not offered (ADR-0011 D3, amended
+  2026-11-03). With no roster the Setup screen is not reachable; Home shows the import prompt.
+  A roster note says: "Stats from your files. Abilities unverified." (`content.md`: the ability
   table is a placeholder and `hates` cannot be derived.)
+- **Presets:** the built-in presets name creatures by data-row index, never by name (owner
+  decision Q7). Default rows 0, 2 and 4 (to be confirmed by the owner). A preset whose row is not
+  in the roster, or whose creature has 0 hit points (battle creation refuses hp 0), is shown
+  disabled with its reason ("Needs creature row N, not in your game's creatures") and cannot
+  start; nothing is substituted.
 - **Each side:** 1-7 stacks with creature and count, plus morale and luck (`battle-scenario.md`
   section 3). Optional hero stats (section 4). Control: Human, AI, or both Human (hot seat).
 - **Rules preset:** a policy preset from `battle-scenario.md` section 5. The default is the pack
@@ -428,7 +442,8 @@ Single activity, Compose Navigation.
 
 ### 6.3 Behaviour without data
 
-All MVP routes work with placeholder units. A real-creature save opened without game data plays
+Without an imported `CRTRAITS.TXT` there is no new battle: Home shows the import prompt (3.1).
+Continue, Load game and About still work, because a save carries its own creature table; it plays
 with placeholder art.
 
 ### 6.4 Phase after the MVP (outline only)

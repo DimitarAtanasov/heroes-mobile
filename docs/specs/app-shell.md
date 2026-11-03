@@ -7,7 +7,7 @@ Status: draft v1 (2026-11-01). Implements the shell of `docs/specs/mvp-0.1.md` o
 | File | Role | Android imports |
 |---|---|---|
 | `Engine.kt` | `AppEngine`: `Battle`, `BattleCodec`, `BattleAi` from the three data packs (same wiring as the engine's scenario loader, public API only) | none |
-| `Presets.kt` | 3 built-in skirmishes; writes the scenario JSON, its creature table coming from the bundled roster | none |
+| `Presets.kt` | 3 built-in skirmishes naming creatures by CRTRAITS data-row index; writes the scenario JSON, its creature table coming from the player's roster (`GameRoster`) | none |
 | `GameController.kt` | wraps `BattleSession` + `TapReducer`; produces immutable `GameUi` | none |
 | `BoardView.kt` | Canvas board, tokens, tap to hex | yes (Compose, `android.graphics.Paint`) |
 | `Screens.kt` | Home, Setup, Battle, Result, About composables | yes |
@@ -55,9 +55,12 @@ Only the main thread writes Compose state.
 
 ## Data packs
 `app/build.gradle.kts` registers `copyH3Data`, which copies only `data/rules.json`,
-`data/battle_policy.json`, `data/creatures.json` to `build/generated/h3assets`, added as an
-assets source dir. Loaded with `assets.open` and `Datapack.load`. No tuning number lives in the app:
-preset creature stats come from `creatures.json`; only stack counts, obstacles and colours are in code.
+`data/battle_policy.json`, `data/creatures.json` and `data/txt_maps/crtraits.json` to
+`build/generated/h3assets`, added as an assets source dir. The packs are loaded with `assets.open`
+and `Datapack.load`; `creatures.json` only feeds the replay pack hashes (ADR-0011 D3, amended
+2026-11-03). No tuning number lives in the app: preset creature stats come from the player's own
+`CRTRAITS.TXT` (`GameRoster`, mapping `txt_maps/crtraits.json`); only data-row indices, stack counts,
+obstacles and colours are in code.
 Colours, sizes and pixel math are UI floats; nothing float-valued reaches the engine (only `Int`
 cells and presenter commands do).
 

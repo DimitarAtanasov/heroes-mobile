@@ -134,6 +134,63 @@ class MenuModelTest {
         assertTrue(at(MenuRoute.Setup) != at(MenuRoute.About))
     }
 
+    // ---- no roster: only the import prompt (ADR-0011 D3, amended 2026-11-03) ----
+
+    @Test
+    fun withoutARosterHomeShowsOnlyTheImportPrompt() {
+        val m = MenuModel.initial(autosaveExists = false, rosterReady = false)
+        assertFalse(m.newEnabled)
+        assertTrue(m.importPromptShown)
+        assertFalse(m.canForward(MenuRoute.Setup))
+        assertSame(m, m.forward(MenuRoute.Setup))
+        val ready = MenuModel.initial(autosaveExists = false, rosterReady = true)
+        assertTrue(ready.newEnabled)
+        assertFalse(ready.importPromptShown)
+        assertTrue(ready.canForward(MenuRoute.Setup))
+    }
+
+    @Test
+    fun theDefaultIsRosterReady() {
+        assertTrue(MenuModel.initial().rosterReady)
+        assertTrue(MenuModel.initial(true).rosterReady)
+    }
+
+    @Test
+    fun savesStillContinueWithoutARoster() {
+        val m = MenuModel.initial(autosaveExists = true, rosterReady = false)
+        assertTrue(m.continueEnabled)
+        assertEquals(MenuRoute.Battle, m.forward(MenuRoute.Battle).current)
+        assertEquals(MenuRoute.About, m.forward(MenuRoute.About).current)
+    }
+
+    @Test
+    fun playAgainNeedsARoster() {
+        val result = MenuModel.initial(autosaveExists = true, rosterReady = false)
+            .forward(MenuRoute.Battle).forward(MenuRoute.Result)
+        assertEquals(MenuRoute.Result, result.current)
+        assertFalse(result.canForward(MenuRoute.Setup))
+        assertTrue(result.withRoster(true).canForward(MenuRoute.Setup))
+    }
+
+    @Test
+    fun withRosterKeepsStackAndAutosave() {
+        val m = at(MenuRoute.Setup, autosave = true).withRoster(false)
+        assertEquals(listOf(MenuRoute.Home, MenuRoute.Setup), m.stack)
+        assertTrue(m.autosaveExists)
+        assertFalse(m.rosterReady)
+        assertSame(m, m.withRoster(false))
+        assertFalse(m.withAutosave(false).rosterReady)
+    }
+
+    @Test
+    fun equalityIncludesTheRoster() {
+        val a = MenuModel.initial(true, rosterReady = true)
+        val b = MenuModel.initial(true, rosterReady = false)
+        assertTrue(a != b)
+        assertEquals(b, MenuModel.initial(true, rosterReady = false))
+        assertEquals(b.hashCode(), MenuModel.initial(true, rosterReady = false).hashCode())
+    }
+
     @Test
     fun randomWalkKeepsInvariants() {
         var seed = 12345L
