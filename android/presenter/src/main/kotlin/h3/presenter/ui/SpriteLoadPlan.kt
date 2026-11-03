@@ -126,6 +126,31 @@ object SpriteLoadPlan {
     }
 
     /**
+     * The DEF member for CRTRAITS [row] (zero-based, ADR-0014) in a row-keyed [table] as returned by
+     * [SpriteTable.parse], or null when the table has none.
+     */
+    fun defForRow(row: Int, table: Map<Int, String>): String? = table[row]?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Row-keyed twin of [resolve] (ADR-0014, sprite-atlas.md "Creature sprite table"): each
+     * `(row, creature name)` pair is looked up by its row only; the name is just the atlas key
+     * ([UiSpriteKey]) and the name in errors. A row the table lacks puts the name in `unmapped`
+     * (reported as [SpriteLoadError.NoMapping]; the board draws the token). Repeated names are
+     * dropped (first wins), the order is the order of [creatures].
+     */
+    fun resolveByRow(creatures: List<Pair<Int, String>>, table: Map<Int, String>): Resolution {
+        val entries = ArrayList<PlanEntry>()
+        val unmapped = ArrayList<String>()
+        val seen = HashSet<String>()
+        for ((row, name) in creatures) {
+            if (!seen.add(name)) continue
+            val d = defForRow(row, table)
+            if (d == null) unmapped.add(name) else entries.add(PlanEntry(name, d))
+        }
+        return Resolution(entries, unmapped)
+    }
+
+    /**
      * Decodes the DEFs named by the table for [creatureNames] out of [lods] and packs them into one
      * atlas. [lods] are searched in the given order and the first archive holding a member wins
      * (member names compare case-insensitively, as in `lod.md`). With [idleGroupOnly] (the default)
@@ -144,7 +169,35 @@ object SpriteLoadPlan {
         scale: Int = 1,
     ): SpriteLoadResult {
         require(scale in 1..SpriteScale.MAX_SCALE) { "scale $scale outside 1..${SpriteScale.MAX_SCALE}" }
-        val res = resolve(creatureNames, table)
+        return loadResolved(resolve(creatureNames, table), lods, idleGroupOnly, maxPage, budgetBytes, scale)
+    }
+
+    /**
+     * Row-keyed twin of [load]: the DEF of each `(row, creature name)` pair comes from [table]
+     * (CRTRAITS row to DEF, as returned by [SpriteTable.parse]) via [resolveByRow]. Everything after
+     * the lookup (archives, decode, atlas, errors, never throwing) is the same as [load].
+     */
+    fun loadByRow(
+        creatures: List<Pair<Int, String>>,
+        lods: List<LodSource>,
+        table: Map<Int, String>,
+        idleGroupOnly: Boolean = true,
+        maxPage: Int = AtlasBuilder.DEFAULT_MAX_PAGE,
+        budgetBytes: Long = AtlasBuilder.DEFAULT_BUDGET_BYTES,
+        scale: Int = 1,
+    ): SpriteLoadResult {
+        require(scale in 1..SpriteScale.MAX_SCALE) { "scale $scale outside 1..${SpriteScale.MAX_SCALE}" }
+        return loadResolved(resolveByRow(creatures, table), lods, idleGroupOnly, maxPage, budgetBytes, scale)
+    }
+
+    private fun loadResolved(
+        res: Resolution,
+        lods: List<LodSource>,
+        idleGroupOnly: Boolean,
+        maxPage: Int,
+        budgetBytes: Long,
+        scale: Int,
+    ): SpriteLoadResult {
         val errors = ArrayList<SpriteLoadError>()
         for (n in res.unmapped) errors.add(SpriteLoadError.NoMapping(n))
         if (res.entries.isEmpty()) return SpriteLoadResult(null, emptyList(), errors)

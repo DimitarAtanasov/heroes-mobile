@@ -61,7 +61,8 @@ applies and an over-budget atlas is reported as `OVER_BUDGET`, not partially loa
 
 The loader side of android-app.md section 14 Q2 option (a): a creature-to-DEF table the owner writes,
 keyed by the creature's row in `CRTRAITS.TXT` (ADR-0014), each entry citing its source (ADR-0003). The
-repo ships no entries; `data/sprite_map.json` does not exist until the owner supplies it. Parser:
+table ships as `data/sprite_map.json` (ADR-0014: a cited port of facts, row and DEF member name
+only). Parser:
 `SpriteTable.parse(text)` in `:presenter` (`.../ui/SpriteTable.kt`); it is pure (the caller reads the
 file) and nothing in `:app` calls it yet.
 
@@ -96,8 +97,14 @@ file) and nothing in `:app` calls it yet.
   errors (JSON, top-level shape, version) stop before any entry is read. It never throws.
 - Error codes: `INVALID_JSON`, `BAD_SCHEMA_VERSION`, `BAD_SHAPE`, `BAD_ROW`, `MISSING_SOURCE`,
   `DUPLICATE_ROW`, `BAD_DEF_NAME`, `DEF_HAS_PATH`.
-- Consumer: `SpriteLoadPlan.load` and `defFor` still take a name-keyed table. Turning rows into
-  names (or re-keying the plan) is separate work, not done here.
+- Consumer: `SpriteLoadPlan.loadByRow(creatures, lods, table)` (with `resolveByRow` and
+  `defForRow`) takes the parsed row-keyed table and `(row, creature name)` pairs, the row being the
+  creature's CRTRAITS data-row index (`ContentResult.creatureRows`). The DEF is looked up by row
+  only; the name is the atlas key and the name in errors. A row the table lacks is `NO_MAPPING` and
+  the board draws the token. Repeated names are dropped (first wins); two rows may share a DEF,
+  which is decoded once. Everything after the lookup is the same as `load`. The name-keyed `load`,
+  `resolve`, `defFor` and `DEFAULT_TABLE` remain for the placeholder roster until the app is wired
+  to the row path (roster-from-crtraits.md slices 4 and 5).
 
 ## Memory (4.5)
 
