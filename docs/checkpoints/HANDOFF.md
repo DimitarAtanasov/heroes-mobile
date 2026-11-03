@@ -137,3 +137,33 @@ audit of :presenter, and a `loop-graph` plugin being prepared for the owner's `s
   4. Owner answers the open questions above (unbounded max and roster first).
   5. Owner approves or revises `docs/v1-scope`.
   6. Device test of the CI APK `heroes-mobile-debug-apk` (runbook docs/runbooks/device-test.md); none done yet.
+
+## Checkpoint 3 (v1 handoff)
+- Main HEAD: ec9d4ac (merge of #28). Merged since the last checkpoint (GitHub PR list): #23 weak units (dmg_min 0, re-pinned vectors), #24 Graphify index, #25 checkpoint 2026-11-02b, #26 hp 0 on import, #27 and #28 creatures in CRTRAITS file order (Python, Kotlin; two content vectors re-pinned, owner approved). No PR is open.
+- CI on main: efe03b5 green; ec9d4ac and 2334313 were still `in_progress` when this was written. Read the result before trusting the Kotlin changes.
+- Roster from CRTRAITS: slice 1 (file order) merged. Slice 3 (battle roster, no-fixed-damage creatures left out) is pushed but NOT PR'd: `feature/roster-builder-python` 08bf981 and `feature/roster-builder-kotlin` 5660aa7 (git ls-remote). Slice 2 and the Kotlin compile of slice 3: unverified until CI runs. Spec: branch `docs/roster-from-crtraits-spec` (39a672d).
+- Scope proposal: `docs/specs/v1-scope.md` on local branch `docs/v1-scope` (e554c2e, not on origin). PROPOSAL, not approved.
+- Still open for 0.2: device test of the CI APK `heroes-mobile-debug-apk` (docs/runbooks/device-test.md). Not done; no screen has run on a device.
+- Still open for v1 (scope section 2; every item has no recorded pass unless noted):
+  1. Kotlin equals Python oracle: vectors check and `kotlin-sim` green on main (pending CI).
+  2. Skirmish vs greedy AI to a winner screen on a phone (device rows 6-15).
+  3. Autosave and resume survive a kill (R5, R6, R13).
+  4. A Kotlin-recorded replay verifies with `replay verify`.
+  5. Rotation, background, narrow screen (R1-R4, R10-R11).
+  6. About screen with GPL notice and no-assets statement (row 2).
+  7. Sideload import validates real files and refuses bad ones (device import of a real install).
+  8. Real creature sprites on the board from H3sprite.lod (visual check on device).
+  9. Roster read from CRTRAITS in the app (slice 3 PRs, then wiring; real-file run with H3_DATA_DIR).
+  10. Supported editions (Q3), with refusal tests for other editions.
+  11. Performance on the reference device (never measured).
+  12. Accessibility pass (never measured; criteria unknown).
+  13. Signed release APK and release notes (needs Q1, app name, package id).
+  14. allowBackup matches the spec (ADR-0013).
+  15. Determinism: both lints 0 violations and the soak test under two hash seeds (CI `determinism`).
+- Owner decisions still open: representation of unbounded max damage (zero max, nonzero min); whether a battle roster offers no-fixed-damage creatures (decided: left out for now); Q1 distribution channel; Q3 editions (Q2 is done); bad-morale rule (24,24,24); app name and package id; allowBackup (ADR-0013); attribution trailers (commits used Opus and Sonnet trailers, owner asked for Haiku; not force-pushed); approval of the v1 scope.
+- Next steps, in order:
+  1. Read CI on ec9d4ac; fix anything red (Kotlin was never compiled locally).
+  2. Open PRs for 08bf981 and 5660aa7; merge on green and owner review.
+  3. Owner answers the open decisions above, unbounded max and Q1 first.
+  4. Owner approves or revises `docs/v1-scope`; push that branch and open its PR.
+  5. Owner runs the device test of `heroes-mobile-debug-apk` and records results.
