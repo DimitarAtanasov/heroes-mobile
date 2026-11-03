@@ -7,6 +7,42 @@ enum class PresetError(val code: String) {
 
     /** The index is not in `0 until presetCount`. */
     OutOfRange("preset.out_of_range"),
+
+    /** The chosen preset needs a creature the player's roster cannot field; see [SetupForm.presetBlock]. */
+    Unavailable("preset.unavailable"),
+}
+
+/** Why a preset cannot start with the player's roster. [row] is the CRTRAITS data-row index the preset names. */
+sealed class PresetBlock {
+    abstract val row: Int
+
+    /** No roster entry has [row] (past the end of the file, or a no-fixed-damage creature left out). */
+    data class MissingRow(override val row: Int) : PresetBlock()
+
+    /** The creature of [row] has 0 hit points; battle creation refuses it (owner decision Q5). */
+    data class ZeroHp(override val row: Int) : PresetBlock()
+}
+
+/**
+ * Whether a preset, which names its creatures by CRTRAITS data-row index (owner decision Q7), can start
+ * with the player's roster. Pure; nothing is substituted for a missing row.
+ */
+object PresetCheck {
+    /** The first of [rows] (in their order) that no entry of [roster] has, or null when all are there. */
+    fun missingRow(rows: List<Int>, roster: List<RosterEntry>): Int? {
+        val have = roster.mapTo(LinkedHashSet()) { it.row }
+        return rows.firstOrNull { it !in have }
+    }
+
+    /** The first problem of [rows] in their order (a missing row, or a creature with 0 hit points), or null. */
+    fun check(rows: List<Int>, roster: List<RosterEntry>): PresetBlock? {
+        val byRow = roster.associateBy { it.row }
+        for (row in rows) {
+            val e = byRow[row] ?: return PresetBlock.MissingRow(row)
+            if (e.creature.hp <= 0) return PresetBlock.ZeroHp(row)
+        }
+        return null
+    }
 }
 
 /** Error of the seed field. At most one is reported; the first that applies, in this order. */
@@ -25,7 +61,8 @@ enum class SeedError(val code: String) {
 data class StartRequest(val presetIndex: Int, val seed: Long)
 
 /**
- * Pure state of the Setup screen: which preset and the seed as typed. Immutable. Nothing here
+ * Pure state of the Setup screen: which preset, the seed as typed, and per preset index the reason it
+ * cannot start ([blocks]; null or a missing entry means it can). Immutable. Nothing here
  * throws: bad input is kept as typed and reported through [presetError] / [seedError], one code per
  * field. [seedText] is never trimmed or normalised. Leading zeros are fine ("0007" is 7).
  * Integer-only; the seed is parsed digit by digit with an overflow guard.
@@ -34,8 +71,16 @@ data class SetupForm(
     val presetCount: Int,
     val presetIndex: Int = 0,
     val seedText: String = DEFAULT_SEED,
+    val blocks: List<PresetBlock?> = emptyList(),
 ) {
     fun selectPreset(index: Int): SetupForm = copy(presetIndex = index)
+
+    /** The same form with new per-preset blocks (for example after the roster changed). */
+    fun withBlocks(newBlocks: List<PresetBlock?>): SetupForm = copy(blocks = newBlocks)
+
+    /** Why the chosen preset cannot start, or null (also null while the index is out of range). */
+    val presetBlock: PresetBlock?
+        get() = if (presetIndex in 0 until presetCount) blocks.getOrNull(presetIndex) else null
 
     fun withSeedText(text: String): SetupForm = copy(seedText = text)
 
@@ -43,6 +88,7 @@ data class SetupForm(
         get() = when {
             presetCount <= 0 -> PresetError.NoPresets
             presetIndex < 0 || presetIndex >= presetCount -> PresetError.OutOfRange
+            presetBlock != null -> PresetError.Unavailable
             else -> null
         }
 

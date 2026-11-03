@@ -1,5 +1,6 @@
 package h3.presenter.ui
 
+import h3.sim.BattleCreature
 import java.math.BigInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -125,7 +126,7 @@ class SetupFormTest {
     @Test
     fun errorCodesAreStableAndDistinct() {
         assertEquals(listOf("seed.empty", "seed.not_digits", "seed.too_large"), SeedError.values().map { it.code })
-        assertEquals(listOf("preset.none", "preset.out_of_range"), PresetError.values().map { it.code })
+        assertEquals(listOf("preset.none", "preset.out_of_range", "preset.unavailable"), PresetError.values().map { it.code })
     }
 
     @Test
@@ -158,6 +159,62 @@ class SetupFormTest {
             }
             assertEquals(f.seedError == null, f.seedValue != null)
         }
+    }
+
+    // ---- presets by CRTRAITS row (roster-from-crtraits.md, Q7) ----
+
+    private fun entry(row: Int, hp: Int = 10) =
+        RosterEntry(row, BattleCreature("Row$row", attack = 1, defense = 1, dmgMin = 1, dmgMax = 2, hp = hp, speed = 4))
+
+    private val roster = listOf(entry(0), entry(2), entry(3, hp = 0), entry(4))
+
+    @Test
+    fun missingRowIsTheFirstAbsentRowInPresetOrder() {
+        assertNull(PresetCheck.missingRow(listOf(0, 2, 4), roster))
+        assertEquals(1, PresetCheck.missingRow(listOf(0, 1, 5), roster))
+        assertEquals(5, PresetCheck.missingRow(listOf(5, 1), roster))
+        assertEquals(0, PresetCheck.missingRow(listOf(0), emptyList()))
+        assertNull(PresetCheck.missingRow(emptyList(), emptyList()))
+    }
+
+    @Test
+    fun checkReportsMissingRowsAndZeroHpInPresetOrder() {
+        assertNull(PresetCheck.check(listOf(0, 2, 4), roster))
+        assertEquals(PresetBlock.MissingRow(1), PresetCheck.check(listOf(0, 1), roster))
+        assertEquals(PresetBlock.ZeroHp(3), PresetCheck.check(listOf(0, 3, 1), roster))
+        assertEquals(PresetBlock.MissingRow(1), PresetCheck.check(listOf(1, 3), roster))
+    }
+
+    @Test
+    fun aBlockedPresetDisablesStart() {
+        val blocks = listOf(null, PresetBlock.MissingRow(4), null)
+        val f = SetupForm(presetCount = 3, blocks = blocks)
+        assertNull(f.presetError)
+        assertEquals(StartRequest(0, 1L), f.start())
+        val b = f.selectPreset(1)
+        assertEquals(PresetError.Unavailable, b.presetError)
+        assertEquals(PresetBlock.MissingRow(4), b.presetBlock)
+        assertNull(b.start())
+        assertTrue(!b.isValid)
+        assertEquals(StartRequest(2, 1L), b.selectPreset(2).start())
+    }
+
+    @Test
+    fun rangeErrorsWinOverBlocksAndShortBlockListsMeanEnabled() {
+        val f = SetupForm(presetCount = 2, blocks = listOf(PresetBlock.ZeroHp(0)))
+        assertEquals(PresetError.OutOfRange, f.selectPreset(5).presetError)
+        assertNull(f.selectPreset(5).presetBlock)
+        assertNull(f.selectPreset(1).presetError) // no entry for index 1: enabled
+        assertEquals(PresetError.Unavailable, f.presetError)
+    }
+
+    @Test
+    fun withBlocksKeepsTheSelectionAndTheSeed() {
+        val f = form.selectPreset(2).withSeedText("9").withBlocks(listOf(null, null, PresetBlock.MissingRow(7)))
+        assertEquals(2, f.presetIndex)
+        assertEquals("9", f.seedText)
+        assertEquals(PresetError.Unavailable, f.presetError)
+        assertNull(f.withBlocks(emptyList()).presetError)
     }
 
     @Test

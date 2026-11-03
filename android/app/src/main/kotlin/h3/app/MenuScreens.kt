@@ -23,19 +23,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import h3.presenter.ui.APP_VERSION_TEXT
+import h3.presenter.ui.IMPORT_PROMPT_TEXT
 import h3.presenter.ui.MenuModel
 import h3.presenter.ui.SetupForm
 import h3.presenter.ui.StartRequest
+import h3.presenter.ui.presetBlockText
 import h3.presenter.ui.setupFormMessage
 
 /**
- * Home. All state is hoisted: [model] decides whether Continue is enabled, [engineError] is the
- * data pack load failure (null when fine). [onLoad] opens the save list.
+ * Home. All state is hoisted: [model] decides whether Continue is enabled and whether "New skirmish" or
+ * only the import prompt is shown (no roster: ADR-0011 D3, amended 2026-11-03), [engineError] is the
+ * data pack load failure (null when fine), [rosterNote] why the player's creature table was refused
+ * (null when none; it names rows and columns only). [onLoad] opens the save list.
  */
 @Composable
 fun HomeScreen(
     model: MenuModel,
     engineError: String?,
+    rosterNote: String?,
     onNew: () -> Unit,
     onContinue: () -> Unit,
     onLoad: () -> Unit,
@@ -51,22 +56,40 @@ fun HomeScreen(
             Text("Could not load the data packs: $engineError", color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(16.dp))
         }
-        Button(onClick = onNew, enabled = engineError == null, modifier = Modifier.fillMaxWidth()) { Text("New skirmish") }
+        if (model.importPromptShown) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(IMPORT_PROMPT_TEXT)
+                    if (rosterNote != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(rosterNote, color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import game data") }
+                }
+            }
+        } else {
+            Button(onClick = onNew, enabled = engineError == null && model.newEnabled, modifier = Modifier.fillMaxWidth()) { Text("New skirmish") }
+        }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onContinue, enabled = model.continueEnabled, modifier = Modifier.fillMaxWidth()) { Text("Continue") }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onLoad, enabled = engineError == null, modifier = Modifier.fillMaxWidth()) { Text("Load game") }
         Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Game data") }
-        Spacer(Modifier.height(12.dp))
+        if (!model.importPromptShown) {
+            OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Game data") }
+            Spacer(Modifier.height(12.dp))
+        }
         OutlinedButton(onClick = onAbout, modifier = Modifier.fillMaxWidth()) { Text("About") }
     }
 }
 
 /**
- * Setup. [form] is the hoisted [SetupForm] (its presetCount should be presets.size); every edit goes
- * out through [onForm]. [startError] is a failure of the last Start (null when none). Start is enabled
- * only while the form is valid and hands the validated [StartRequest] to [onStart].
+ * Setup. [form] is the hoisted [SetupForm] (its presetCount should be presets.size, its blocks one per
+ * preset from `PresetCheck`); every edit goes out through [onForm]. A blocked preset shows its reason
+ * (the CRTRAITS row it needs) and Start stays disabled while it is chosen. [startError] is a failure of
+ * the last Start (null when none). Start is enabled only while the form is valid and hands the
+ * validated [StartRequest] to [onStart].
  */
 @Composable
 fun SetupScreen(
@@ -94,6 +117,10 @@ fun SetupScreen(
                         Column {
                             Text(p.title, style = MaterialTheme.typography.titleMedium)
                             Text(p.blurb, style = MaterialTheme.typography.bodyMedium)
+                            val reason = presetBlockText(form.blocks.getOrNull(i))
+                            if (reason != null) {
+                                Text(reason, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
                 }

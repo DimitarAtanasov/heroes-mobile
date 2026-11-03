@@ -2,8 +2,11 @@ package h3.app
 
 import h3.presenter.ui.CheckedFile
 import h3.presenter.ui.GameDataCheck
+import h3.presenter.ui.GameDataLayout
 import h3.presenter.ui.GameDataResult
 import h3.presenter.ui.GameFile
+import h3.presenter.ui.GameRoster
+import h3.presenter.ui.GameRosterResult
 import h3.presenter.ui.ImportPlan
 import h3.presenter.ui.ImportResult
 import h3.presenter.ui.IoStage
@@ -109,6 +112,28 @@ class GameDataStore(private val root: File) {
                 ImportResult.IoFailed(IoStage.Copy, null)
             }
             onDone(r)
+        }
+    }
+
+    /**
+     * The battle roster from `H3bitmap.lod` in `gamedata` (root or `Data/`, found with the
+     * [GameDataLayout] rule), built by [GameRoster.load] with [mappingJson] (`txt_maps/crtraits.json`).
+     * [onResult] runs on the I/O thread and gets null when there is no such archive (nothing imported:
+     * the app shows only the import prompt), or the roster or its refusal. Never throws; a read
+     * failure is [GameRoster.READ_FAILED_TEXT].
+     */
+    fun loadRoster(mappingJson: String, onResult: (GameRosterResult?) -> Unit) {
+        post {
+            val r: GameRosterResult? = try {
+                recoverNow()
+                val live = dir(ImportPlan.LIVE_DIR)
+                val listing = listEntries(live)?.map { it.path } ?: emptyList()
+                val name = GameDataLayout.resolveArchives(listing, listOf(GameDataCheck.BITMAP_ARCHIVE)).firstOrNull()
+                if (name == null) null else GameRoster.load(readBounded(File(live, name)), mappingJson)
+            } catch (e: Throwable) {
+                GameRosterResult.Refused(GameRoster.READ_FAILED_TEXT)
+            }
+            onResult(r)
         }
     }
 

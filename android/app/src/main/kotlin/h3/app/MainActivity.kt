@@ -13,9 +13,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import h3.presenter.ReplayAutosave
+import h3.presenter.ui.GameRosterResult
 import h3.presenter.ui.ImportPlan
 import h3.presenter.ui.ImportResult
 import h3.presenter.ui.MenuModel
+import h3.presenter.ui.PresetCheck
 import h3.presenter.ui.ResultSummary
 import h3.presenter.ui.SaveSlots
 import h3.presenter.ui.SetupForm
@@ -34,6 +36,10 @@ enum class Screen { Home, Setup, Battle, Result, About, Saves, Import }
  * [GameController] survives. Engine callbacks arrive on the session worker thread and are posted
  * to the main thread before they touch Compose state. Save files are only touched on the
  * [SaveFolderWriter] thread.
+ *
+ * The battle roster is the player's own CRTRAITS.TXT, read from the imported `H3bitmap.lod` on the
+ * [GameDataStore] thread ([GameDataStore.loadRoster]). Without it Home shows only the import prompt
+ * (ADR-0011 D3, amended 2026-11-03); the bundled `creatures.json` only feeds the replay pack hashes.
  */
 class MainActivity : ComponentActivity() {
     private val main = Handler(Looper.getMainLooper())
@@ -43,19 +49,34 @@ class MainActivity : ComponentActivity() {
     private var saver: SaveFolderWriter? = null
     private var dataStore: GameDataStore? = null // the player's own game files; I/O on its own thread
     private var sprites by mutableStateOf<BoardSprites?>(null) // the player's own sprites, when found
+    private var mappingJson: String? = null // txt_maps/crtraits.json from the assets
+    // The player's battle roster: null = no H3bitmap.lod imported (or not read yet), else Ok or Refused.
+    private var rosterResult by mutableStateOf<GameRosterResult?>(null)
     private var generation = 0 // bumped per game, so a late post from a closed game is dropped
 
     private fun readAsset(name: String): String = assets.open(name).bufferedReader(Charsets.UTF_8).use { it.readText() }
 
-    // Starts the sprite worker on the current gamedata; sets [sprites] on the main thread when it finishes.
-    // Called at launch and again after a check or import left valid data in place. The caller must not be
-    // the main thread (the file listing in SpriteLoader.start is I/O); onCreate is the one exception, as before.
-    private fun loadSprites() {
-        val eng = engine ?: return
+    // Starts the sprite worker on the current gamedata for [names] (the roster's creature names); sets
+    // [sprites] on the main thread when it finishes. The caller must not be the main thread (the file
+    // listing in SpriteLoader.start is I/O): it runs from the roster callback on the data-store thread.
+    // The sprite table is still name-keyed, so real creatures keep their tokens until slice 5.
+    private fun loadSprites(names: List<String>) {
         SpriteLoader.start(
             roots = listOf(File(noBackupFilesDir, "gamedata")), // not filesDir: that can go to cloud backup
-            creatureNames = eng.roster.map { c -> c.name },
+            creatureNames = names,
         ) { sp, _ -> main.post { sprites = sp } }
+    }
+
+    // Reads the roster on the data-store thread, posts it to the main thread, then (still on the data-store
+    // thread) starts the sprite worker for it. Called at launch and again after a check left valid data.
+    private fun loadRoster() {
+        val store = dataStore ?: return
+        val mapping = mappingJson ?: return
+        store.loadRoster(mapping) { r ->
+            main.post { rosterResult = r }
+            val entries = (r as? GameRosterResult.Ok)?.entries
+            if (entries != null) loadSprites(entries.map { e -> e.creature.name })
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,8 +86,9 @@ class MainActivity : ComponentActivity() {
             val eng = AppEngine.fromTexts(readAsset("rules.json"), readAsset("battle_policy.json"), readAsset("creatures.json"))
             engine = eng
             saver = SaveFolderWriter(File(filesDir, "saves"), eng.packs)
-            // Looks for the player's own game files under gamedata; quietly does nothing when absent.
-            loadSprites()
+            mappingJson = readAsset("txt_maps/crtraits.json")
+            // Reads the player's own CRTRAITS.TXT under gamedata; with none, the roster stays null.
+            loadRoster()
         } catch (e: Exception) {
             engineError = e.toString()
         }
@@ -100,6 +122,15 @@ class MainActivity : ComponentActivity() {
         var summary by remember { mutableStateOf<ResultSummary?>(null) }
         var importStatus by remember { mutableStateOf<ImportPlan.DataStatus?>(null) }
         var importResult by remember { mutableStateOf<ImportResult?>(null) }
+
+        val rosterEntries = (rosterResult as? GameRosterResult.Ok)?.entries
+        val rosterNote = (rosterResult as? GameRosterResult.Refused)?.text
+
+        // Setup is reached only with a roster (MenuModel); without one, Home shows the import prompt.
+        fun openSetup() {
+            setupError = null
+            screen = if (rosterEntries != null) Screen.Setup else Screen.Home
+        }
 
         fun closeGame() {
             controller?.close()
@@ -180,12 +211,13 @@ class MainActivity : ComponentActivity() {
         when (screen) {
             Screen.Home -> {
                 val autosaveReady = rows?.any { r -> r.kind == SaveSlots.SlotKind.Autosave && r.status is SaveSlots.SlotStatus.Ready } == true
-                val model = MenuModel.initial(autosaveReady && engineError == null)
+                val model = MenuModel.initial(autosaveReady && engineError == null, rosterReady = rosterEntries != null)
                 androidx.compose.runtime.LaunchedEffect(Unit) { refreshSaves() }
                 HomeScreen(
                     model = model,
                     engineError = engineError,
-                    onNew = { setupError = null; screen = Screen.Setup },
+                    rosterNote = rosterNote,
+                    onNew = { openSetup() },
                     onContinue = {
                         val auto = rows?.firstOrNull { r -> r.kind == SaveSlots.SlotKind.Autosave }
                         if (auto != null) loadSave(auto.fileName)
@@ -203,24 +235,31 @@ class MainActivity : ComponentActivity() {
                 onCheckAgain = {
                     dataStore?.checkInPlace { r ->
                         main.post { importResult = r }
-                        if (SpriteReload.needed(r)) loadSprites() // on the data-store thread, not main
+                        if (SpriteReload.needed(r)) loadRoster() // roster, then sprites; queued on the data-store thread
                         refreshImportStatus()
                     }
                 },
                 onBack = { screen = Screen.Home },
             )
             Screen.Setup -> SetupScreen(
-                form = form,
+                // Blocks are recomputed from the current roster on every composition, so they are never stale.
+                form = form.withBlocks(Preset.ALL.map { p -> PresetCheck.check(p.rows, rosterEntries ?: emptyList()) }),
                 presets = Preset.ALL,
                 startError = setupError,
                 onForm = { f -> form = f },
                 onBack = { screen = Screen.Home },
                 onStart = { req: StartRequest ->
-                    val eng = engine
-                    if (eng == null) {
+                    val entries = rosterEntries
+                    if (engine == null) {
                         setupError = "Data packs are not loaded."
+                    } else if (entries == null) {
+                        setupError = "Import your game data first."
                     } else {
-                        launch(Preset.ALL[req.presetIndex].scenarioJson(eng.roster), BigInteger.valueOf(req.seed), null)
+                        try {
+                            launch(Preset.ALL[req.presetIndex].scenarioJson(entries), BigInteger.valueOf(req.seed), null)
+                        } catch (e: IllegalArgumentException) {
+                            setupError = "Could not start: " + e.message
+                        }
                     }
                 },
             )
@@ -241,7 +280,7 @@ class MainActivity : ComponentActivity() {
             )
             Screen.Result -> ResultScreen(
                 summary = summary,
-                onAgain = { closeGame(); setupError = null; screen = Screen.Setup },
+                onAgain = { closeGame(); openSetup() },
                 onHome = { closeGame(); screen = Screen.Home },
             )
             Screen.Saves -> SaveScreen(

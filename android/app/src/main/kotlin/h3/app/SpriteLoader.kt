@@ -70,7 +70,7 @@ object SpriteLoader {
      * could be built (every creature then keeps its token); the second is one line per problem
      * (`SpriteLoadError.describe()`, plus `SPRITES_FAILED ...` for I/O or memory failures), which the
      * caller may ignore. Lines name creatures, DEF and archive file names only, never file contents.
-     * [creatureNames] are the roster names exactly as `BattleCreature.name` (for example `eng.roster.map { it.name }`),
+     * [creatureNames] are the roster names exactly as `BattleCreature.name` (the player's roster, `GameRosterResult.Ok.entries`),
      * because the atlas keys derive from them (`UiSpriteKey`).
      */
     fun start(

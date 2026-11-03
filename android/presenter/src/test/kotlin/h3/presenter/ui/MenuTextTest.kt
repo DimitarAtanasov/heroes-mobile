@@ -38,6 +38,29 @@ class MenuTextTest {
     }
 
     @Test
+    fun aBlockedPresetNamesItsRow() {
+        assertEquals("Needs creature row 4, not in your game's creatures", presetBlockText(PresetBlock.MissingRow(4)))
+        assertEquals("Needs creature row 0, not in your game's creatures", presetBlockText(PresetBlock.MissingRow(0)))
+        val hp = presetBlockText(PresetBlock.ZeroHp(2))
+        assertTrue("row 2" in hp && "0 hit points" in hp, hp)
+        assertNull(presetBlockText(null))
+    }
+
+    @Test
+    fun theFormMessageOfABlockedPresetIsItsBlockText() {
+        val f = SetupForm(presetCount = 2, blocks = listOf(PresetBlock.MissingRow(4), null))
+        assertEquals("Needs creature row 4, not in your game's creatures", setupFormMessage(f))
+        assertNull(setupFormMessage(f.selectPreset(1)))
+        // A blocked preset's message comes before a seed error.
+        assertEquals(presetBlockText(PresetBlock.MissingRow(4)), setupFormMessage(f.withSeedText("")))
+    }
+
+    @Test
+    fun theImportPromptIsNotEmpty() {
+        assertTrue(IMPORT_PROMPT_TEXT.isNotBlank())
+    }
+
+    @Test
     fun messageIsNullExactlyWhenTheFormIsValid() {
         val form = SetupForm(presetCount = 2)
         for (seed in listOf("", "1", "abc", "0007", "99999999999999999999")) {
