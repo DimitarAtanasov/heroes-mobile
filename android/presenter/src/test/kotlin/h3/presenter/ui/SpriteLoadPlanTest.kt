@@ -337,6 +337,87 @@ class SpriteLoadPlanTest {
         }
     }
 
+    // ---- row-keyed table (ADR-0014): (row, creature name) pairs looked up by row, never by name ----
+    // Invented names and DEF members; the rows are arbitrary numbers.
+
+    private val ALPHA = "Quillmote"
+    private val BETA = "Varnshade"
+    private val GAMMA = "Oskelurk"
+    private val rowTable: Map<Int, String> = linkedMapOf(4 to "ZQAAA.DEF", 9 to "ZQBBB.DEF", 11 to "ZQAAA.DEF")
+
+    @Test
+    fun resolveByRowLooksUpTheRowAndIgnoresTheName() {
+        // The name is only the atlas key: a name the name-keyed table knows does not help a row miss.
+        val r = SpriteLoadPlan.resolveByRow(listOf(9 to ALPHA, 4 to PIKE), rowTable)
+        assertEquals(listOf(PlanEntry(ALPHA, "ZQBBB.DEF"), PlanEntry(PIKE, "ZQAAA.DEF")), r.entries)
+        assertEquals(emptyList(), r.unmapped)
+        assertEquals("ZQBBB.DEF", SpriteLoadPlan.defForRow(9, rowTable))
+        assertNull(SpriteLoadPlan.defForRow(5, rowTable))
+        assertNull(SpriteLoadPlan.defForRow(0, mapOf(0 to "")))
+    }
+
+    @Test
+    fun rowMissIsNoMappingAndKeepsOrderAndDropsRepeatedCreatures() {
+        val r = SpriteLoadPlan.resolveByRow(listOf(7 to GAMMA, 4 to ALPHA, 7 to GAMMA, 0 to BETA), rowTable)
+        assertEquals(listOf(PlanEntry(ALPHA, "ZQAAA.DEF")), r.entries)
+        assertEquals(listOf(GAMMA, BETA), r.unmapped)
+        assertEquals(Resolution(emptyList(), emptyList()), SpriteLoadPlan.resolveByRow(emptyList(), rowTable))
+    }
+
+    @Test
+    fun loadByRowHitBuildsTheIdleStillUnderTheCreatureName() {
+        val lods = listOf(LodSource("s", lod("ZQBBB.DEF" to pikeDef())))
+        val res = SpriteLoadPlan.loadByRow(listOf(9 to ALPHA), lods, rowTable)
+        assertEquals(emptyList(), res.errors)
+        assertEquals(listOf(ALPHA), res.loaded)
+        val r = assertNotNull(UiSpriteKey.idleRect(res.atlas, ALPHA))
+        assertEquals(3, r.w); assertEquals(2, r.h)
+    }
+
+    @Test
+    fun loadByRowMissIsNoMappingAndTheTokenIsUsed() {
+        val lods = listOf(LodSource("s", lod("ZQAAA.DEF" to idleOnlyDef(40))))
+        val res = SpriteLoadPlan.loadByRow(listOf(5 to GAMMA, 4 to ALPHA), lods, rowTable)
+        assertEquals(listOf(ALPHA), res.loaded)
+        assertEquals(listOf<SpriteLoadError>(SpriteLoadError.NoMapping(GAMMA)), res.errors)
+        assertEquals("NO_MAPPING", res.errors.single().code)
+        assertFalse(res.hasSprite(GAMMA))
+        assertNull(UiSpriteKey.idleRect(res.atlas, GAMMA))
+
+        val none = SpriteLoadPlan.loadByRow(listOf(5 to GAMMA), lods, emptyMap())
+        assertNull(none.atlas)
+        assertEquals(listOf<SpriteLoadError>(SpriteLoadError.NoMapping(GAMMA)), none.errors)
+    }
+
+    @Test
+    fun twoRowsSharingADefBothLoadFromOneDecode() {
+        val lods = listOf(LodSource("s", lod("ZQAAA.DEF" to idleOnlyDef(40))))
+        val res = SpriteLoadPlan.loadByRow(listOf(4 to ALPHA, 11 to BETA), lods, rowTable)
+        assertEquals(emptyList(), res.errors)
+        assertEquals(listOf(ALPHA, BETA), res.loaded)
+        val atlas = assertNotNull(res.atlas)
+        for (n in listOf(ALPHA, BETA)) {
+            assertNotNull(UiSpriteKey.idleRect(atlas, n), n)
+            assertEquals(Premultiply.pack(40, 140, 160, 255), pageAt(atlas, UiSpriteKey.idleKey(n), 1, 1))
+        }
+    }
+
+    @Test
+    fun aParsedV2TableDrivesTheRowKeyedLoad() {
+        val text = """{"schema_version": 2, "entries": [""" +
+            """{"row": 11, "def": "ZQCCC.DEF", "source": "invented note a"},""" +
+            """{"row": 2, "def": "ZQDDD.DEF", "source": "invented note b"}]}"""
+        val table = assertIs<SpriteTableResult.Ok>(SpriteTable.parse(text)).table
+        assertEquals(mapOf(11 to "ZQCCC.DEF", 2 to "ZQDDD.DEF"), table)
+        val lods = listOf(LodSource("s", lod("ZQCCC.DEF" to idleOnlyDef(50))))
+        val res = SpriteLoadPlan.loadByRow(listOf(2 to ALPHA, 11 to BETA, 3 to GAMMA), lods, table)
+        assertEquals(listOf(BETA), res.loaded)
+        assertEquals(
+            listOf<SpriteLoadError>(SpriteLoadError.NoMapping(GAMMA), SpriteLoadError.MissingDef(ALPHA, "ZQDDD.DEF")),
+            res.errors,
+        )
+    }
+
     // ---- pixel format ----
 
     @Test
