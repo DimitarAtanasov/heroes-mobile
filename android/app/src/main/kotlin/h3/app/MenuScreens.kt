@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import h3.presenter.ui.APP_VERSION_TEXT
+import h3.presenter.ui.AboutText
 import h3.presenter.ui.MenuModel
 import h3.presenter.ui.SetupForm
 import h3.presenter.ui.StartRequest
@@ -135,21 +136,11 @@ fun AboutScreen(onBack: () -> Unit) {
             Text("About", style = MaterialTheme.typography.headlineMedium)
             Text("Version: $APP_VERSION_TEXT")
             Spacer(Modifier.height(12.dp))
-            Text(
-                "This program is free software: you can redistribute it and/or modify it under the " +
-                    "terms of the GNU General Public License as published by the Free Software " +
-                    "Foundation, either version 2 of the License, or (at your option) any later " +
-                    "version (GPL-2.0-or-later). It is distributed in the hope that it will be " +
-                    "useful, but WITHOUT ANY WARRANTY; without even the implied warranty of " +
-                    "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
-            )
+            Text(AboutText.LICENSE_NOTICE)
             Spacer(Modifier.height(12.dp))
-            Text(
-                "This is an independent, clean-room project. It is not affiliated with the rights " +
-                    "holders of Heroes of Might and Magic.",
-            )
+            Text(AboutText.AFFILIATION_NOTICE)
             Spacer(Modifier.height(12.dp))
-            Text("No game assets are bundled. All art in this prototype is placeholder shapes and letters.")
+            Text(AboutText.ASSETS_NOTICE)
             Spacer(Modifier.height(12.dp))
             Text("Source code:")
             Text(SOURCE_URL, color = MaterialTheme.colorScheme.primary)
