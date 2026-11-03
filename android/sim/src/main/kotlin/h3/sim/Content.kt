@@ -133,7 +133,8 @@ class ContentResult(
     val creatureRows: Map<String, Int> = emptyMap(),
     /**
      * Names of accepted creatures with dmg 0/0 (case C): no fixed damage (the attack comes from an
-     * ability). Side set, not part of any hash; battle creation still refuses them (dmg_min >= 1).
+     * ability). Side set, not part of any hash; battle creation still refuses them (it needs
+     * dmg_max >= 1), and [Content.battleRoster] leaves them out (owner decision Q5, 2026-11-02).
      */
     val noFixedDamage: Set<String> = emptySet(),
 )

@@ -41,8 +41,10 @@ Owner's meaning of the damage cells (2026-11-02):
 - C: `dmg_min` 0, `dmg_max` 0: no fixed damage (the attack comes from an
   ability). Loads; the name is listed in `result.no_fixed_damage`.
 Battle creation needs `0 <= dmg_min <= dmg_max` and `dmg_max >= 1` (battle.md), so
-creatures in C (and hp 0) are refused there; A is accepted. Whether
-the battle roster offers them is an owner question. Everything else
+creatures in C (and hp 0) are refused there; A is accepted. The battle
+roster leaves C out and offers A and hp 0 (owner decision Q5, 2026-11-02;
+`roster-from-crtraits.md`); a preset that would use an hp 0 creature is
+disabled with a reason. Everything else
 (plural, costs, values, growth, spell points, map amounts) lands in
 `result.extras[name]`; the schema has no slot for it yet.
 
@@ -66,8 +68,9 @@ header included) and, where applicable, `column 'name' (index i)`.
 ## API
 `load_mapping(path=None)`, `parse_creatures(bytes, mapping=None, roe=False,
 encoding="cp1252") -> ContentResult(creatures, extras, unknown, creature_rows,
-no_fixed_damage)`, `load_creatures(path, ...)`. Creatures are sorted by name
-(datapack order). `no_fixed_damage` (Kotlin `noFixedDamage`) is a frozenset of
+no_fixed_damage)`, `load_creatures(path, ...)`. Creatures are in CRTRAITS file
+order (data-row index ascending; `roster-from-crtraits.md`, slice 1); only the
+datapack sorts its own copy by name. `no_fixed_damage` (Kotlin `noFixedDamage`) is a frozenset of
 the names of accepted creatures with dmg 0/0 (case C). Like `creature_rows` it
 is a side structure: not in the creature record, `toMap`, `content_hash` or any
 battle state, so no hash moves. Those creatures stay in `creatures` and keep

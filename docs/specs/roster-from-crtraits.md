@@ -2,8 +2,9 @@
 
 ## 1. Status
 
-Proposal. Direction approved by the owner (two decisions, section 3). Implementation is pending
-spec review. This spec changes no code, no data and no golden hash.
+Approved for slice 4 (owner, 2026-11-03). Direction approved by the owner (two decisions,
+section 3); Q1, Q2, Q5, Q7 and Q8 are answered (section 6). Slices 1 to 3 are done. Slice 4 wires
+the app (section 7). No slice changes a golden hash. Section 2 records the state before slice 1.
 
 ## 2. Current state
 
@@ -61,21 +62,35 @@ column; names are unique (the loader already refuses duplicates, `Content.kt:231
 
 **Test fixture.** `data/creatures.json` stays in the repo as a test fixture only (datapack
 conformance, preset tests). The app no longer reads it as the battle roster. Without a CRTRAITS
-imported there is no roster: the battle screen offers the import step, not the fixture (Q2).
+imported there is no roster: Home shows only the import prompt, not the fixture (Q2, owner
+decision 2026-11-03; ADR-0011 D3 amended). `data/creatures.json` is still bundled as a fixture
+pack, because replay headers record and check its pack hash (Q8, below).
 
-**Creature in a scenario or preset but not in the file.** A preset (`Presets.kt`) or saved
-scenario that names a creature absent from the roster is not started: the preset is hidden or
-disabled with a reason naming the creature, and nothing is substituted. Saved replays carry their
-own `battle_id` and creature stats, so replay verification is unaffected. No fallback to "Test ..."
-names.
+**Presets name rows (Q7, owner decision 2026-11-03).** A built-in preset (`Presets.kt`) refers to
+its creatures by data-row index (zero-based, the same index as the sprite key), never by name. The
+default presets use rows 0, 2 and 4, the placeholder creatures of the VCMI-derived sprite table
+(ADR-0014); the owner confirms this default. The scenario JSON is built from the roster entries of
+those rows, so the battle names are the player's own `singular` cells.
 
-**Invalid row.** Pick: refuse the whole import. Reasons: (a) the data-row index is positional, so
+**Preset row not in the roster.** A preset whose row is absent from the roster (past the end of the
+file, or a no-fixed-damage creature left out under Q5) is not started: it is shown disabled with
+the reason "Needs creature row N, not in your game's creatures" (`PresetCheck`, `MenuText`), and
+nothing is substituted. A preset whose row has hp 0 is also disabled with a reason, because battle
+creation refuses hp 0 (Q5). No fallback to "Test ..." names.
+
+**Replays keep the fixture pack hash (Q8, owner decision 2026-11-03).** The app still loads the
+three bundled packs, `creatures.json` included, and the replay header's `creatures_hash` stays the
+hash of that fixture pack (`replay.md` section 2). The player's roster does not enter any pack
+hash: each scenario carries its own creature table, so a replay needs no game data. Saves written
+before slice 4 therefore still verify and load.
+
+**Invalid row.** Pick: refuse the whole import (Q1, confirmed by the owner 2026-11-03). Reasons: (a) the data-row index is positional, so
 skipping a bad row would silently shift every later sprite key and the player would see wrong
 sprites with no error; (b) law 10: the loader spec already makes a row error fatal with row,
 column and category (`content.md`), and a partial roster would be a second, unspecified
 behaviour; (c) `hates` and presets name creatures, so a dropped row breaks references silently.
 The error shown is the existing `ContentError` text (row, column, category), never file contents.
-This is a judgement call; recorded as Q1 for the owner to confirm.
+Confirmed by the owner (Q1).
 
 **Zero damage (owner decision, 2026-11-02).** Keep every row the loader accepts. The
 data-row index counts every accepted record, including zero-damage ones, so later creatures keep
@@ -90,8 +105,10 @@ their sprite index. Owner's meaning of the two damage cells:
 Battle creation requires `0 <= dmg_min <= dmg_max` with `dmg_max >= 1` (battle.md section 10): it accepts A
 and refuses C with "invalid damage range" (Python `battle.py:473` `create_battle`, `:498` `_CREATURE_INTS` via
 `check_state`, `rules.py:96` `base_damage`, `:227` `resolve_damage`; Kotlin `Scenario.kt:280`,
-`BattleState.kt:457`, `Rules.kt:101`, `Rules.kt:142`). No roster builder reads CRTRAITS content in
-code yet, so no exclusion rule is implemented; whether the roster offers A and C creatures is Q5.
+`BattleState.kt:457`, `Rules.kt:101`, `Rules.kt:142`). Q5 answered (owner, 2026-11-02, slice 3):
+the battle roster leaves C out (`Content.battleRoster`, `roster.battle_roster`) and offers A. A
+creature with hp 0 is offered too; battle creation refuses it, so a preset that uses one is
+disabled with a reason (slice 4).
 
 ## 4. Hash impact
 
@@ -136,15 +153,20 @@ Mitigation: the sprite loader logs a mismatch between table rows and record coun
 
 Open questions for the owner:
 
-- Q1. Invalid row: confirm "refuse the whole import" (this spec's pick) over "skip the creature".
-- Q2. With no CRTRAITS imported, show only the import prompt (this spec's pick), or keep a
-  built-in fixture roster as a demo?
+- Q1. Answered (owner, 2026-11-03): a bad row refuses the whole import (the loader already does).
+- Q2. Answered (owner, 2026-11-03): with no CRTRAITS imported, the app shows only the import
+  prompt; the test roster is no longer the battle roster (ADR-0011 D3 amended).
 - Q3. If two rows share a name in the real file: keep refusing (today's rule), or disambiguate by
   index? Needs a look at the real file, which only the owner has.
 - Q4. Case B (`dmg_min` >= 1, `dmg_max` 0 = no upper limit): how to represent it (ADR-0008 holds
   pack values in 32 bits), and what battle does with it.
-- Q5. Cases A (`dmg_min` 0) and C (no fixed damage): offer them in the battle roster or not, and
-  whether battle rules should ever accept `dmg_min` 0 (today refused, see section 3).
+- Q5. Answered (owner, 2026-11-02): C (0/0) is left out of the roster; A (`dmg_min` 0,
+  `dmg_max` > 0) is offered and battle accepts it; hp 0 is offered, battle refuses it, and a preset
+  using it is disabled with a reason.
+- Q7. Answered (owner, 2026-11-03): presets name creatures by data-row index, not by name. Default
+  rows 0, 2 and 4; the owner confirms this default on the PR.
+- Q8. Answered (owner, 2026-11-03): replays keep the fixture pack hash (`creatures_hash`
+  unchanged), so existing saves still load.
 
 ## 7. Slices
 
@@ -154,7 +176,10 @@ Open questions for the owner:
    conformance green.
 3. Roster entry type and builder (pure), with synthetic-fixture tests for order and invalid-row
    refusal. Verify: those tests green.
-4. App wiring: import step, roster from the loaded file, presets disabled when a creature is
-   missing; `creatures.json` no longer loaded as the roster. Verify: app unit tests, lints.
+4. App wiring: import step, roster from the loaded file (`GameRoster` in `:presenter`, read from
+   `H3bitmap.lod` on the data-store thread), presets by row and disabled when a row is missing
+   (`PresetCheck`), Home shows only the import prompt without a roster; `creatures.json` no longer
+   loaded as the roster but kept for the replay pack hashes. Verify: `:presenter` unit tests, lints;
+   `:app` compiles in CI.
 5. Sprite table keyed by index (update `sprite-atlas.md`). Verify: atlas tests.
 6. Device run per section 5. Verify: owner confirms on the device.
