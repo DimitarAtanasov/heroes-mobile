@@ -2,23 +2,26 @@ package h3.app
 
 import android.graphics.Bitmap
 import h3.presenter.ui.GameDataLayout
+import h3.presenter.ui.GameRosterEntry
 import h3.presenter.ui.LodSource
 import h3.presenter.ui.PagePixels
 import h3.presenter.ui.SpriteLoadPlan
+import h3.presenter.ui.SpriteRows
 import java.io.File
 import java.nio.ByteBuffer
 
 /**
  * Loads the player's own creature sprites for the board at runtime, from game files the player put
- * on the device (android-app.md 3 and 4.3). Nothing is bundled and nothing here is read unless the
- * files exist: with no data the loader does nothing and the board keeps drawing tokens. The logic
- * (which DEF belongs to which creature, decoding, atlas packing, named errors) is
- * [SpriteLoadPlan] in `:presenter`, tested on the JVM; this file only does file reads, the thread
- * and the Bitmap conversion.
+ * on the device (android-app.md 3 and 4.3). No game file is bundled and nothing here is read unless
+ * the files exist: with no data the loader does nothing and the board keeps drawing tokens. The logic
+ * (which DEF belongs to which CRTRAITS row, decoding, atlas packing, named errors) is [SpriteRows]
+ * and [SpriteLoadPlan] in `:presenter`, tested on the JVM; this file only does file reads, the
+ * thread and the Bitmap conversion.
  *
- * Where the data lives: the `copyH3Data` Gradle task stages only the three JSON data packs, never
- * game files. The import flow of android-app.md 3.2 (not built yet) copies the player's `Data`
- * folder to `noBackupFilesDir/gamedata/`. So the caller passes the candidate roots; each root may
+ * Where the data lives: the `copyH3Data` Gradle task stages the JSON data packs and the row-keyed
+ * sprite table `sprite_map.json` (row and DEF member names only, ADR-0014), never game files. The
+ * import flow of android-app.md 3.2 (not built yet) copies the player's `Data` folder to
+ * `noBackupFilesDir/gamedata/`. So the caller passes the candidate roots; each root may
  * be the install root (holding `Data/`) or the `Data` folder itself, and names match ignoring case.
  */
 object SpriteLoader {
@@ -63,26 +66,32 @@ object SpriteLoader {
 
     /**
      * Starts loading on a background daemon thread and returns it, or returns null (quietly, no
-     * callback) when [creatureNames] is empty or no sprite archive is staged under [roots].
+     * callback) when [roster] is empty or no sprite archive is staged under [roots].
+     *
+     * The DEF of each creature comes from the row-keyed table `sprite_map.json` (ADR-0014): the worker
+     * calls [readTable] (the bundled asset text), parses it and looks each roster entry up by its
+     * CRTRAITS row ([SpriteRows.prepare], [SpriteLoadPlan.loadByRow]). A refused table means no
+     * sprites (every creature keeps its token).
      *
      * When a thread is returned, [onDone] is called exactly once, ON THAT THREAD: post to the main
      * thread before touching Compose state. Its first argument is the sprites, or null when none
-     * could be built (every creature then keeps its token); the second is one line per problem
-     * (`SpriteLoadError.describe()`, plus `SPRITES_FAILED ...` for I/O or memory failures), which the
-     * caller may ignore. Lines name creatures, DEF and archive file names only, never file contents.
-     * [creatureNames] are the roster names exactly as `BattleCreature.name` (the player's roster, `GameRosterResult.Ok.entries`),
-     * because the atlas keys derive from them (`UiSpriteKey`).
+     * could be built; the second is one line per note: the table's parse errors
+     * (`SpriteTableError.describe()`), a row-count mismatch line (`RowMismatch.describe()`, counts
+     * only), the load errors (`SpriteLoadError.describe()`), plus `SPRITES_FAILED ...` for I/O or
+     * memory failures. [roster] is the player's roster (`GameRosterResult.Ok.entries`); the atlas keys
+     * derive from `BattleCreature.name` (`UiSpriteKey`).
      */
     fun start(
         roots: List<File>,
-        creatureNames: List<String>,
+        roster: List<GameRosterEntry>,
+        readTable: () -> String,
         onDone: (BoardSprites?, List<String>) -> Unit,
     ): Thread? {
-        if (creatureNames.isEmpty()) return null
+        if (roster.isEmpty()) return null
         val files = findLodFiles(roots)
         if (files.isEmpty()) return null
         val worker = Thread({
-            val out = loadBlocking(files, creatureNames)
+            val out = loadBlocking(files, roster, readTable)
             onDone(out.sprites, out.notes)
         }, "sprite-loader")
         worker.isDaemon = true
@@ -93,11 +102,13 @@ object SpriteLoader {
     internal class Loaded(val sprites: BoardSprites?, val notes: List<String>)
 
     /** The blocking part of [start]; also usable from a test or another worker. Never throws. */
-    internal fun loadBlocking(files: List<File>, creatureNames: List<String>): Loaded {
+    internal fun loadBlocking(files: List<File>, roster: List<GameRosterEntry>, readTable: () -> String): Loaded {
         try {
+            val prepared = SpriteRows.prepare(readTable(), roster)
+            val table = prepared.table ?: return Loaded(null, prepared.notes)
             val lods = files.map { LodSource(it.name, it.readBytes()) }
-            val result = SpriteLoadPlan.load(creatureNames, lods, scale = SPRITE_SCALE)
-            val notes = result.errors.map { it.describe() }
+            val result = SpriteLoadPlan.loadByRow(prepared.pairs, lods, table, scale = SPRITE_SCALE)
+            val notes = prepared.notes + result.errors.map { it.describe() }
             val atlas = result.atlas ?: return Loaded(null, notes)
             val pages = ArrayList<Bitmap>()
             for (p in atlas.pages) pages.add(toBitmap(p.width, p.height, p.argb))

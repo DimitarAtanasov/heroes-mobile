@@ -55,7 +55,8 @@ Only the main thread writes Compose state.
 
 ## Data packs
 `app/build.gradle.kts` registers `copyH3Data`, which copies only `data/rules.json`,
-`data/battle_policy.json`, `data/creatures.json` and `data/txt_maps/crtraits.json` to
+`data/battle_policy.json`, `data/creatures.json`, `data/txt_maps/crtraits.json` and
+`data/sprite_map.json` (the row-keyed sprite table, ADR-0014; read on the sprite worker) to
 `build/generated/h3assets`, added as an assets source dir. The packs are loaded with `assets.open`
 and `Datapack.load`; `creatures.json` only feeds the replay pack hashes (ADR-0011 D3, amended
 2026-11-03). No tuning number lives in the app: preset creature stats come from the player's own

@@ -64,7 +64,9 @@ keyed by the creature's row in `CRTRAITS.TXT` (ADR-0014), each entry citing its 
 table ships as `data/sprite_map.json` (ADR-0014: a cited port of facts, row and DEF member name
 only). Parser:
 `SpriteTable.parse(text)` in `:presenter` (`.../ui/SpriteTable.kt`); it is pure (the caller reads the
-file) and nothing in `:app` calls it yet.
+file). The app bundles the table (`copyH3Data`) and `SpriteLoader` reads and parses it on the
+sprite worker through `SpriteRows.prepare`; a refused table means tokens, and every parse error is
+logged with `describe()`.
 
 ```json
 {
@@ -102,9 +104,15 @@ file) and nothing in `:app` calls it yet.
   creature's CRTRAITS data-row index (`ContentResult.creatureRows`). The DEF is looked up by row
   only; the name is the atlas key and the name in errors. A row the table lacks is `NO_MAPPING` and
   the board draws the token. Repeated names are dropped (first wins); two rows may share a DEF,
-  which is decoded once. Everything after the lookup is the same as `load`. The name-keyed `load`,
-  `resolve`, `defFor` and `DEFAULT_TABLE` remain for the placeholder roster until the app is wired
-  to the row path (roster-from-crtraits.md slices 4 and 5).
+  which is decoded once. Everything after the lookup is the same as `load`. The app uses this
+  row path (slice 5 wiring): `SpriteRows.pairs` turns the roster entries into the pairs. The
+  name-keyed `load`, `resolve`, `defFor` and `DEFAULT_TABLE` stay in `:presenter` (its tests use
+  them); the app no longer calls them.
+- Row mismatch: on load, `SpriteRows.mismatch` counts the distinct table rows that are not a battle
+  roster row and the roster rows with no table entry, and the app logs one line
+  `SPRITE_ROWS table_only=N roster_only=M` when either count is non-zero (counts only, no names).
+  The battle roster leaves out the no-fixed-damage creatures, so their table rows count as
+  `table_only`.
 
 ## Memory (4.5)
 
