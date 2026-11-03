@@ -11,12 +11,12 @@ import h3.sim.LodError
 import h3.sim.PackJson
 
 /** One creature of the battle roster and its CRTRAITS data-row index (the sprite key; roster-from-crtraits.md). */
-data class RosterEntry(val row: Int, val creature: BattleCreature)
+data class GameRosterEntry(val row: Int, val creature: BattleCreature)
 
 /** The outcome of [GameRoster.load]: the roster, or one sentence saying why the file was refused. */
 sealed class GameRosterResult {
     /** The battle roster in file order (data-row index ascending), without the no-fixed-damage creatures. */
-    data class Ok(val entries: List<RosterEntry>) : GameRosterResult()
+    data class Ok(val entries: List<GameRosterEntry>) : GameRosterResult()
 
     /** [text] names the archive, member, row, column and error category only, never file contents. */
     data class Refused(val text: String) : GameRosterResult()
@@ -65,7 +65,7 @@ object GameRoster {
             return GameRosterResult.Refused(refusedText(e))
         }
         val entries = Content.battleRoster(content).map { c ->
-            RosterEntry(content.creatureRows.getValue(c.name), toBattleCreature(c))
+            GameRosterEntry(content.creatureRows.getValue(c.name), toBattleCreature(c))
         }
         return GameRosterResult.Ok(entries)
     }

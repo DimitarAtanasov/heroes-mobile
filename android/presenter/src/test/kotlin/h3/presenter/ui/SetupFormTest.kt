@@ -164,7 +164,7 @@ class SetupFormTest {
     // ---- presets by CRTRAITS row (roster-from-crtraits.md, Q7) ----
 
     private fun entry(row: Int, hp: Int = 10) =
-        RosterEntry(row, BattleCreature("Row$row", attack = 1, defense = 1, dmgMin = 1, dmgMax = 2, hp = hp, speed = 4))
+        GameRosterEntry(row, BattleCreature("Row$row", attack = 1, defense = 1, dmgMin = 1, dmgMax = 2, hp = hp, speed = 4))
 
     private val roster = listOf(entry(0), entry(2), entry(3, hp = 0), entry(4))
 

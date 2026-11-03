@@ -29,13 +29,13 @@ sealed class PresetBlock {
  */
 object PresetCheck {
     /** The first of [rows] (in their order) that no entry of [roster] has, or null when all are there. */
-    fun missingRow(rows: List<Int>, roster: List<RosterEntry>): Int? {
+    fun missingRow(rows: List<Int>, roster: List<GameRosterEntry>): Int? {
         val have = roster.mapTo(LinkedHashSet()) { it.row }
         return rows.firstOrNull { it !in have }
     }
 
     /** The first problem of [rows] in their order (a missing row, or a creature with 0 hit points), or null. */
-    fun check(rows: List<Int>, roster: List<RosterEntry>): PresetBlock? {
+    fun check(rows: List<Int>, roster: List<GameRosterEntry>): PresetBlock? {
         val byRow = roster.associateBy { it.row }
         for (row in rows) {
             val e = byRow[row] ?: return PresetBlock.MissingRow(row)

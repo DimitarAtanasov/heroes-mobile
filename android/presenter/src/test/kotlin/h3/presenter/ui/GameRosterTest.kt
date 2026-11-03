@@ -61,7 +61,7 @@ private fun table(vararg rows: List<String>): ByteArray {
 private fun bitmapLod(vararg rows: List<String>): ByteArray = lod("CRTRAITS.TXT" to table(*rows))
 
 class GameRosterTest {
-    private fun ok(r: GameRosterResult): List<RosterEntry> = assertIs<GameRosterResult.Ok>(r).entries
+    private fun ok(r: GameRosterResult): List<GameRosterEntry> = assertIs<GameRosterResult.Ok>(r).entries
 
     private fun refused(r: GameRosterResult): String = assertIs<GameRosterResult.Refused>(r).text
 
@@ -111,7 +111,7 @@ class GameRosterTest {
             name = "Wing", attack = 4, defense = 3, dmgMin = 2, dmgMax = 5, hp = 10, speed = 5, shots = 12,
             flyer = true, doubleWide = true, shootsTwice = true,
         )
-        assertEquals(listOf(RosterEntry(0, expected)), entries)
+        assertEquals(listOf(GameRosterEntry(0, expected)), entries)
         assertEquals(emptyList<String>(), entries[0].creature.hates)
     }
 
@@ -168,7 +168,7 @@ class GameRosterTest {
 
     @Test
     fun allCreaturesWithoutFixedDamageGiveAnEmptyRoster() {
-        assertEquals(emptyList<RosterEntry>(), ok(GameRoster.load(bitmapLod(row("Nofix", dmgMin = 0, dmgMax = 0)), MAPPING)))
+        assertEquals(emptyList<GameRosterEntry>(), ok(GameRoster.load(bitmapLod(row("Nofix", dmgMin = 0, dmgMax = 0)), MAPPING)))
     }
 
     @Test

@@ -3,6 +3,7 @@ package h3.presenter.ui
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -41,7 +42,7 @@ class MenuTextTest {
     fun aBlockedPresetNamesItsRow() {
         assertEquals("Needs creature row 4, not in your game's creatures", presetBlockText(PresetBlock.MissingRow(4)))
         assertEquals("Needs creature row 0, not in your game's creatures", presetBlockText(PresetBlock.MissingRow(0)))
-        val hp = presetBlockText(PresetBlock.ZeroHp(2))
+        val hp = assertNotNull(presetBlockText(PresetBlock.ZeroHp(2)))
         assertTrue("row 2" in hp && "0 hit points" in hp, hp)
         assertNull(presetBlockText(null))
     }

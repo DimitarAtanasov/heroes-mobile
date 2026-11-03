@@ -1,6 +1,6 @@
 package h3.app
 
-import h3.presenter.ui.RosterEntry
+import h3.presenter.ui.GameRosterEntry
 import h3.sim.BattleCreature
 
 /**
@@ -24,7 +24,7 @@ class Preset(
      * creature by its roster name. Throws IllegalArgumentException when the roster lacks a row the
      * preset uses (the Setup screen disables such a preset first, `PresetCheck`).
      */
-    fun scenarioJson(roster: List<RosterEntry>): String {
+    fun scenarioJson(roster: List<GameRosterEntry>): String {
         val byRow = roster.associateBy { it.row }
         fun creature(row: Int): BattleCreature =
             byRow[row]?.creature ?: throw IllegalArgumentException("creature row $row is not in the roster")
