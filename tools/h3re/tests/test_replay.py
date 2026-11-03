@@ -5,7 +5,9 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -178,6 +180,45 @@ class ReplayCliTest(unittest.TestCase):
             code, _, err = self.run_cli("replay", "verify", str(Path(d) / "missing.h3r"))
             self.assertEqual(code, 1)
             self.assertEqual(err.count("\n"), 1)
+
+
+class ReplaySubprocessCliTest(unittest.TestCase):
+    """The real `python3 -m h3re replay verify` process on files shaped like the Kotlin side's.
+
+    Kotlin writes the same canonical bytes as Python (docs/specs/conformance-replay.md), so a
+    Python-recorded file is the control here; CI runs the same command on Kotlin-written files.
+    """
+
+    TOOL_DIR = Path(__file__).resolve().parent.parent
+
+    def verify(self, path):
+        return subprocess.run([sys.executable, "-m", "h3re", "replay", "verify", str(path)],
+                              cwd=self.TOOL_DIR, capture_output=True, text=True)
+
+    def test_control_file_verifies_via_subprocess(self):
+        scn = golden_scenario()
+        data = replay.record(scn, replay.run_chooser(scn, SEED, "scripted"), SEED)
+        # Canonical form: ASCII only, no trailing newline, as the Kotlin writer emits.
+        self.assertTrue(data.isascii())
+        self.assertFalse(data.endswith(b"\n"))
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "control.h3r"
+            f.write_bytes(data)
+            r = self.verify(f)
+            self.assertEqual((r.returncode, r.stderr), (0, ""))
+            self.assertIn(GOLDEN_PINNED, r.stdout)
+            f.write_bytes(data[:-1] + b"X")
+            self.assertEqual(self.verify(f).returncode, 1)
+
+    def test_kotlin_written_files_when_present(self):
+        out = os.environ.get("H3_KOTLIN_REPLAY_DIR")
+        if not out or not Path(out).is_dir():
+            self.skipTest("H3_KOTLIN_REPLAY_DIR not set (Kotlin tests write the files in CI)")
+        files = sorted(Path(out).glob("*.h3r"))
+        self.assertTrue(files, "no .h3r files found")
+        for f in files:
+            r = self.verify(f.resolve())
+            self.assertEqual((r.returncode, r.stderr), (0, ""), f.name)
 
 
 if __name__ == "__main__":
