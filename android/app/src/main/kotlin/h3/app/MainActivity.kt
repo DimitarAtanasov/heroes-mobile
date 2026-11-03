@@ -3,6 +3,7 @@ package h3.app
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
@@ -13,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import h3.presenter.ReplayAutosave
+import h3.presenter.ui.GameRosterEntry
 import h3.presenter.ui.GameRosterResult
 import h3.presenter.ui.ImportPlan
 import h3.presenter.ui.ImportResult
@@ -29,6 +31,12 @@ import java.io.File
 import java.math.BigInteger
 
 enum class Screen { Home, Setup, Battle, Result, About, Saves, Import }
+
+/** The row-keyed creature sprite table in the assets (staged by `copyH3Data` from `data/`). */
+private const val SPRITE_TABLE_ASSET = "sprite_map.json"
+
+/** Logcat tag for the sprite notes (codes, counts, file and DEF names; never file contents). */
+private const val SPRITE_LOG_TAG = "h3.sprites"
 
 /**
  * Single activity, state-based navigation (no navigation library). The activity handles its own
@@ -56,15 +64,20 @@ class MainActivity : ComponentActivity() {
 
     private fun readAsset(name: String): String = assets.open(name).bufferedReader(Charsets.UTF_8).use { it.readText() }
 
-    // Starts the sprite worker on the current gamedata for [names] (the roster's creature names); sets
-    // [sprites] on the main thread when it finishes. The caller must not be the main thread (the file
-    // listing in SpriteLoader.start is I/O): it runs from the roster callback on the data-store thread.
-    // The sprite table is still name-keyed, so real creatures keep their tokens until slice 5.
-    private fun loadSprites(names: List<String>) {
+    // Starts the sprite worker on the current gamedata for [roster]; sets [sprites] on the main thread when it
+    // finishes. The caller must not be the main thread (the file listing in SpriteLoader.start is I/O): it runs
+    // from the roster callback on the data-store thread. The worker reads the bundled row-keyed table
+    // sprite_map.json (ADR-0014), so the asset read and the parse happen there too. Each note (table parse
+    // errors, the row-count mismatch line, load errors) goes to logcat; none of them changes the menus.
+    private fun loadSprites(roster: List<GameRosterEntry>) {
         SpriteLoader.start(
             roots = listOf(File(noBackupFilesDir, "gamedata")), // not filesDir: that can go to cloud backup
-            creatureNames = names,
-        ) { sp, _ -> main.post { sprites = sp } }
+            roster = roster,
+            readTable = { readAsset(SPRITE_TABLE_ASSET) },
+        ) { sp, notes ->
+            for (n in notes) Log.w(SPRITE_LOG_TAG, n)
+            main.post { sprites = sp }
+        }
     }
 
     // Reads the roster on the data-store thread, posts it to the main thread, then (still on the data-store
@@ -75,7 +88,7 @@ class MainActivity : ComponentActivity() {
         store.loadRoster(mapping) { r ->
             main.post { rosterResult = r }
             val entries = (r as? GameRosterResult.Ok)?.entries
-            if (entries != null) loadSprites(entries.map { e -> e.creature.name })
+            if (entries != null) loadSprites(entries)
         }
     }
 

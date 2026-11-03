@@ -5,14 +5,15 @@ plugins {
     kotlin("plugin.compose")
 }
 
-// The three data packs the engine needs, plus the CRTRAITS column mapping the roster loader reads
-// (assets path txt_maps/crtraits.json), are copied from the repo's data/ into generated assets, so only
+// The three data packs the engine needs, the CRTRAITS column mapping the roster loader reads
+// (assets path txt_maps/crtraits.json) and the row-keyed creature sprite table sprite_map.json (row and
+// DEF member names only, ADR-0014; read by SpriteLoader) are copied from the repo's data/ into generated assets, so only
 // these files ship (not the whole data/ directory). creatures.json is a fixture pack for the replay
 // pack hashes only; the battle roster is the player's own CRTRAITS.TXT. Edit data/, never the copies.
 val h3Assets = layout.buildDirectory.dir("generated/h3assets")
 val copyH3Data = tasks.register<Copy>("copyH3Data") {
     from(rootProject.layout.projectDirectory.dir("../data")) {
-        include("rules.json", "battle_policy.json", "creatures.json", "txt_maps/crtraits.json")
+        include("rules.json", "battle_policy.json", "creatures.json", "txt_maps/crtraits.json", "sprite_map.json")
     }
     into(h3Assets)
 }
