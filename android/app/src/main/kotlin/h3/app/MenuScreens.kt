@@ -23,11 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import h3.presenter.ui.APP_VERSION_TEXT
-<<<<<<< HEAD
-import h3.presenter.ui.IMPORT_PROMPT_TEXT
-=======
 import h3.presenter.ui.AboutText
->>>>>>> origin/main
+import h3.presenter.ui.IMPORT_PROMPT_TEXT
 import h3.presenter.ui.MenuModel
 import h3.presenter.ui.SetupForm
 import h3.presenter.ui.StartRequest
