@@ -84,6 +84,19 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon :sim:test :presenter:test
 
+      - name: Kotlin-recorded replays verify with the Python CLI
+        # ReplayTest writes files via Replay.record (the app's path) into
+        # android/sim/build/replay-out/; the real CLI must accept every one.
+        run: |
+          set -eu
+          out="$GITHUB_WORKSPACE/android/sim/build/replay-out"
+          test -f "$out/golden.h3r"
+          cd tools/h3re
+          for f in "$out"/*.h3r; do
+            python3 -m h3re replay verify "$f"
+          done
+          H3_KOTLIN_REPLAY_DIR="$out" python3 -m unittest tests.test_replay.ReplaySubprocessCliTest
+
       - name: Conformance vectors are up to date
         # Fails if a Python change moved the vectors without regenerating them.
         working-directory: tools/h3re
